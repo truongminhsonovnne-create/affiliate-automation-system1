@@ -62,7 +62,7 @@ export class AffiliateProductRepository {
         .single();
 
       if (error) {
-        log.error({ error, data: data.title }, 'Failed to insert affiliate product');
+        log.error({ error, title: data.title }, 'Failed to insert affiliate product');
         return null;
       }
 
@@ -177,8 +177,31 @@ export class AffiliateProductRepository {
 
       return data as AffiliateProduct;
     } catch (error) {
-      // Not found is acceptable
       return null;
+    }
+  }
+
+  /**
+   * Get latest products
+   */
+  async getLatestProducts(limit: number = 50): Promise<AffiliateProduct[]> {
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client
+        .from(this.tableName)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        log.error({ error, limit }, 'Failed to get latest products');
+        return [];
+      }
+
+      return (data || []) as AffiliateProduct[];
+    } catch (error) {
+      log.error({ error, limit }, 'Error getting latest products');
+      return [];
     }
   }
 
@@ -203,31 +226,6 @@ export class AffiliateProductRepository {
       return (data || []) as AffiliateProduct[];
     } catch (error) {
       log.error({ error, platform }, 'Error fetching products by platform');
-      return [];
-    }
-  }
-
-  /**
-   * Find products by source keyword
-   */
-  async findBySourceKeyword(keyword: string, limit: number = 50): Promise<AffiliateProduct[]> {
-    try {
-      const client = getSupabaseClient();
-      const { data, error } = await client
-        .from(this.tableName)
-        .select('*')
-        .eq('source_keyword', keyword)
-        .order('created_at', { ascending: false })
-        .limit(limit);
-
-      if (error) {
-        log.error({ error, keyword }, 'Failed to fetch products by keyword');
-        return [];
-      }
-
-      return (data || []) as AffiliateProduct[];
-    } catch (error) {
-      log.error({ error, keyword }, 'Error fetching products by keyword');
       return [];
     }
   }
@@ -354,6 +352,10 @@ export async function findByPlatformAndUrl(
   productUrl: string
 ): Promise<AffiliateProduct | null> {
   return getAffiliateProductRepository().findByPlatformAndUrl(platform, productUrl);
+}
+
+export async function getLatestProducts(limit: number = 50): Promise<AffiliateProduct[]> {
+  return getAffiliateProductRepository().getLatestProducts(limit);
 }
 
 export default AffiliateProductRepository;
