@@ -1,0 +1,130 @@
+# ============================================
+# Affiliate Automation System - .gitignore
+# ============================================
+
+# ----------------------------------------
+# Node.js / Package Manager
+# ----------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ----------------------------------------
+# Build Output
+# ----------------------------------------
+dist/
+build/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+*.js.map
+
+# ----------------------------------------
+# Environment / Secrets
+# ----------------------------------------
+.env
+.env.local
+.env.development
+.env.production
+.env.*.local
+!.env.example
+
+# ----------------------------------------
+# Logs / Temp / Cache
+# ----------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-error.log*
+tmp/
+temp/
+.cache/
+.turbo/
+
+# ----------------------------------------
+# Playwright / Browser Data
+# ----------------------------------------
+# Playwright test output
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Browser user data (contains session cookies, login state)
+# IMPORTANT: Never commit browser profiles!
+shopee-data/
+playwright-browsers/
+.playwright/
+chromium/
+firefox/
+webkit/
+
+# Browser extensions
+*.crx
+*.xpi
+
+# ----------------------------------------
+# Supabase
+# ----------------------------------------
+supabase/
+supabase/functions/*/index.ts
+
+# ----------------------------------------
+# OS / Editor Junk
+# ----------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.settings/
+.classpath
+
+# Vim
+*.swo
+*.swp
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ----------------------------------------
+# Testing
+# ----------------------------------------
+coverage/
+.nyc_output/
+test-results/
+__pycache__/
+*.pyc
+
+# Jest
+.jest/
+jest-coverage/
+
+# Vitest
+.vitest/
+
+# ----------------------------------------
+# Misc
+# ----------------------------------------
+*.bak
+*.backup
+*.tmp
+*.temp
+*.orig
+*.rej
+.pnp
+.pnp.js
