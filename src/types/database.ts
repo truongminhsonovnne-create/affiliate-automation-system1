@@ -1,255 +1,155 @@
 /**
- * Database Types for Affiliate Products
+ * Database Types for Affiliate Automation System
  *
- * Type definitions matching the affiliate_products table schema
- * in Supabase PostgreSQL.
+ * Type definitions matching the new schema with 3 tables:
+ * - affiliate_products
+ * - affiliate_contents
+ * - crawl_jobs
  */
 
-import { SourceType, ProductStatus } from './product.js';
+import { z } from 'zod';
 
 // ============================================
-// Table Schema Types
+// Enums
 // ============================================
 
-/**
- * Database row type for affiliate_products table
- */
-export interface AffiliateProductRow {
-  /** UUID primary key */
-  id: string;
+export const PlatformEnum = ['shopee', 'tiki', 'lazada', 'tiktok', 'other'] as const;
+export type Platform = typeof PlatformEnum[number];
 
-  /** Product title */
-  title: string;
+export const SourceTypeEnum = ['flash_sale', 'search', 'category', 'manual'] as const;
+export type SourceType = typeof SourceTypeEnum[number];
 
-  /** Product price in VND */
-  price: number;
+export const JobStatusEnum = ['pending', 'running', 'completed', 'failed', 'cancelled'] as const;
+export type JobStatus = typeof JobStatusEnum[number];
 
-  /** Main product image URL */
-  image_url: string;
-
-  /** Original product description from platform */
-  original_description: string | null;
-
-  /** AI-rewritten product title */
-  rewritten_title: string | null;
-
-  /** AI-generated review content */
-  review_content: string | null;
-
-  /** AI-generated social media caption */
-  social_caption: string | null;
-
-  /** Hashtags as JSON array string */
-  hashtags: string | null;
-
-  /** Full product URL on source platform */
-  product_url: string;
-
-  /** Source platform type */
-  source_type: SourceType;
-
-  /** Keyword used to find this product */
-  source_keyword: string;
-
-  /** When product was crawled */
-  crawled_at: string;
-
-  /** When record was created in database */
-  created_at: string;
-
-  /** Original price before discount */
-  original_price: number | null;
-
-  /** Shop name */
-  shop_name: string | null;
-
-  /** Product rating (0-5) */
-  rating: number | null;
-
-  /** Number of reviews */
-  review_count: number | null;
-
-  /** Number of items sold */
-  sold_count: number | null;
-
-  /** Product category */
-  category: string | null;
-
-  /** Current processing status */
-  status: ProductStatus | null;
-
-  /** Error message if processing failed */
-  error_message: string | null;
-
-  /** AI processing timestamp */
-  processed_at: string | null;
-
-  /** Confidence score from AI */
-  confidence_score: number | null;
-
-  /** Trending score from AI */
-  trending_score: number | null;
-
-  /** AI recommendation */
-  recommendation: string | null;
-}
-
-/**
- * Insert row type (without auto-generated fields)
- */
-export type AffiliateProductInsert = Omit<
-  AffiliateProductRow,
-  'id' | 'created_at' | 'processed_at'
->;
-
-/**
- * Update row type (partial update)
- */
-export type AffiliateProductUpdate = Partial<Omit<AffiliateProductRow, 'id' | 'created_at'>>;
+export const RecommendationEnum = ['highly_recommended', 'recommended', 'neutral', 'not_recommended'] as const;
+export type Recommendation = typeof RecommendationEnum[number];
 
 // ============================================
-// Query Types
+// affiliate_products Table
 // ============================================
 
-/**
- * Filter options for querying products
- */
-export interface ProductQueryFilter {
-  /** Filter by source type */
-  sourceType?: SourceType;
+export const AffiliateProductSchema = z.object({
+  id: z.string().uuid(),
+  platform: z.string(),
+  external_product_id: z.string().nullable(),
+  title: z.string(),
+  price: z.number().nullable(),
+  image_url: z.string().nullable(),
+  original_description: z.string().nullable(),
+  product_url: z.string(),
+  source_type: z.string(),
+  source_keyword: z.string().nullable(),
+  crawled_at: z.string().datetime(),
+  created_at: z.string().datetime(),
+  updated_at: z.string().datetime(),
+  original_price: z.number().nullable(),
+  shop_name: z.string().nullable(),
+  rating: z.number().nullable(),
+  review_count: z.number().int().nullable(),
+  sold_count: z.number().int().nullable(),
+  category: z.string().nullable(),
+});
 
-  /** Filter by source keyword */
-  sourceKeyword?: string;
+export type AffiliateProduct = z.infer<typeof AffiliateProductSchema>;
 
-  /** Filter by status */
-  status?: ProductStatus;
-
-  /** Minimum price */
-  minPrice?: number;
-
-  /** Maximum price */
-  maxPrice?: number;
-
-  /** Filter by category */
-  category?: string;
-
-  /** Filter from date */
-  fromDate?: Date | string;
-
-  /** Filter to date */
-  toDate?: Date | string;
-
-  /** Minimum confidence score */
-  minConfidence?: number;
-
-  /** Minimum trending score */
-  minTrending?: number;
-}
-
-/**
- * Pagination parameters
- */
-export interface QueryPagination {
-  /** Page number (1-indexed) */
-  page: number;
-
-  /** Items per page */
-  limit: number;
-}
-
-/**
- * Paginated query result
- */
-export interface PaginatedResult<T> {
-  /** Array of results */
-  data: T[];
-
-  /** Total count */
-  total: number;
-
-  /** Current page */
-  page: number;
-
-  /** Items per page */
-  limit: number;
-
-  /** Total pages */
-  totalPages: number;
-}
-
-// ============================================
-// Insert/Update DTOs
-// ============================================
-
-/**
- * DTO for creating a new affiliate product
- */
 export interface CreateAffiliateProductDTO {
+  platform: string;
+  external_product_id?: string;
   title: string;
-  price: number;
-  image_url: string;
+  price?: number;
+  image_url?: string;
   original_description?: string;
-  rewritten_title?: string;
-  review_content?: string;
-  social_caption?: string;
-  hashtags?: string[];
   product_url: string;
-  source_type: SourceType;
-  source_keyword: string;
-  crawled_at: Date | string;
+  source_type: string;
+  source_keyword?: string;
+  crawled_at: string | Date;
   original_price?: number;
   shop_name?: string;
   rating?: number;
   review_count?: number;
   sold_count?: number;
   category?: string;
-  status?: ProductStatus;
 }
 
-/**
- * DTO for updating AI content
- */
-export interface UpdateAIContentDTO {
+// ============================================
+// affiliate_contents Table
+// ============================================
+
+export const AffiliateContentSchema = z.object({
+  id: z.string().uuid(),
+  product_id: z.string().uuid(),
+  rewritten_title: z.string().nullable(),
+  review_content: z.string().nullable(),
+  social_caption: z.string().nullable(),
+  hashtags: z.array(z.string()).nullable(),
+  ai_model: z.string().nullable(),
+  prompt_version: z.string().nullable(),
+  confidence_score: z.number().nullable(),
+  trending_score: z.number().nullable(),
+  recommendation: z.string().nullable(),
+  created_at: z.string().datetime(),
+});
+
+export type AffiliateContent = z.infer<typeof AffiliateContentSchema>;
+
+export interface CreateAffiliateContentDTO {
+  product_id: string;
   rewritten_title?: string;
   review_content?: string;
   social_caption?: string;
   hashtags?: string[];
+  ai_model?: string;
+  prompt_version?: string;
   confidence_score?: number;
   trending_score?: number;
   recommendation?: string;
-  processed_at?: Date | string;
 }
 
 // ============================================
-// Type Guards
+// crawl_jobs Table
 // ============================================
 
-/**
- * Check if row is valid AffiliateProductRow
- */
-export function isAffiliateProductRow(data: unknown): data is AffiliateProductRow {
-  if (typeof data !== 'object' || data === null) return false;
+export const CrawlJobSchema = z.object({
+  id: z.string().uuid(),
+  platform: z.string(),
+  source_type: z.string(),
+  source_keyword: z.string().nullable(),
+  status: z.string(),
+  items_found: z.number().int(),
+  items_crawled: z.number().int(),
+  items_failed: z.number().int(),
+  error_message: z.string().nullable(),
+  started_at: z.string().datetime(),
+  finished_at: z.string().datetime().nullable(),
+  created_at: z.string().datetime(),
+});
 
-  const row = data as Record<string, unknown>;
-  return (
-    typeof row.id === 'string' &&
-    typeof row.title === 'string' &&
-    typeof row.price === 'number' &&
-    typeof row.product_url === 'string'
-  );
+export type CrawlJob = z.infer<typeof CrawlJobSchema>;
+
+export interface CreateCrawlJobDTO {
+  platform: string;
+  source_type: string;
+  source_keyword?: string;
+  status?: string;
+}
+
+export interface UpdateCrawlJobDTO {
+  status?: string;
+  items_found?: number;
+  items_crawled?: number;
+  items_failed?: number;
+  error_message?: string;
+  finished_at?: string | Date;
 }
 
 // ============================================
-// Export
+// Type Exports
 // ============================================
 
 export type {
-  AffiliateProductRow,
-  AffiliateProductInsert,
-  AffiliateProductUpdate,
-  ProductQueryFilter,
-  QueryPagination,
-  PaginatedResult,
-  CreateAffiliateProductDTO,
-  UpdateAIContentDTO,
+  Platform,
+  SourceType,
+  JobStatus,
+  Recommendation,
 };

@@ -69,10 +69,13 @@ webkit/
 *.xpi
 
 # ----------------------------------------
-# Supabase
+# Supabase (except migrations)
 # ----------------------------------------
 supabase/
 supabase/functions/*/index.ts
+
+# Allow migrations folder
+!supabase/migrations/
 
 # ----------------------------------------
 # OS / Editor Junk
