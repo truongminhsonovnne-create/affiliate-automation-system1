@@ -1,9 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "npm run build",
-  "outputDirectory": ".next",
-  "installCommand": "npm ci",
+  "buildCommand": "cd ../.. && npm run build:web",
+  "installCommand": "npm ci --prefix apps/admin-dashboard",
+  "outputDirectory": "apps/admin-dashboard/.next",
   "regions": ["sin1"],
   "env": {
     "NODE_ENV": "production"
