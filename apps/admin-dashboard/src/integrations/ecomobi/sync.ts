@@ -130,7 +130,7 @@ export async function syncEcomobiOffers(
  *
  * PENDING: Replace with real campaigns endpoint once Ecomobi docs are available.
  */
-export async function syncEcomobiCampaigns?(
+export async function syncEcomobiCampaigns(
   opts: SyncOptions = {}
 ): Promise<SyncResult> {
   const { dryRun = false } = opts;
