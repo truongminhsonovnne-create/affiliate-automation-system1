@@ -12,9 +12,6 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['lucide-react'],
 
-  // Standalone output — dockeriseable, single `next start` binary
-  output: 'standalone',
-
   // Security headers for all public responses
   async headers() {
     return [
