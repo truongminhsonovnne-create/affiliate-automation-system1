@@ -33,7 +33,7 @@ export default function JobsLayout({
       {/* Sub-navigation */}
       <div className="bg-white rounded-lg border border-gray-200 p-1 inline-flex">
         {jobsNav.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isActive = pathname !== null && (pathname === item.href || pathname.startsWith(`${item.href}/`));
           const Icon = item.icon;
 
           return (

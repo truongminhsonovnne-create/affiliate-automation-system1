@@ -267,7 +267,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
                 key={href}
                 href={href}
                 label={label}
-                isActive={pathname === href || (href !== '/home' && pathname?.startsWith(href))}
+                isActive={pathname === href || (href !== '/home' && (pathname ?? '').startsWith(href))}
                 onClick={() => trackEvent('nav_click', { destination: href, navLocation: 'header' })}
               />
             ))}
