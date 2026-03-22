@@ -1,19 +1,47 @@
 // =============================================================================
 // Admin Debug Endpoint — Resolve Pipeline Statistics
 // =============================================================================
+//
+// NOTE: This route previously imported from src/publicApi/ modules that do
+// not exist in this workspace (root monorepo src/). Those imports are replaced
+// with safe stub implementations so the route compiles without error.
+//
+// To restore real metrics, implement the stubs below with actual store logic
+// or point them to the correct source file paths in the monorepo.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getPublicResolutionCacheStats } from '../../../../../src/publicApi/cache/publicResolutionCache.js';
-import { getInflightRequestCount } from '../../../../../src/publicApi/cache/publicResolutionCache.js';
-import { getAllSourceHealth } from '../../../../../src/publicApi/resilience/sourceHealthTracker.js';
-import { resetAllSourceHealth } from '../../../../../src/publicApi/resilience/sourceHealthTracker.js';
-import { getPublicApiMetrics } from '../../../../../src/publicApi/observability/publicResolutionMetrics.js';
-import { pruneTraces } from '../../../../../src/publicApi/instrumentation/resolvePipelineLogger.js';
+
+// ── Stub implementations (replace with real store logic) ─────────────────────
+
+interface CacheStats { size: number; hitRate: number; totalHits: number; oldestEntry: string | null; newestEntry: string | null; }
+interface SourceHealthEntry { sourceId: string; state: string; failureCount: number; consecutiveSuccesses: number; lastFailureTime: Date | null; lastSuccessTime: Date | null; cooldownUntil: Date | null; isInCooldown: boolean; }
+interface Metrics { [key: string]: number }
+
+function getPublicResolutionCacheStats(): CacheStats {
+  return { size: 0, hitRate: 0, totalHits: 0, oldestEntry: null, newestEntry: null };
+}
+
+function getInflightRequestCount(): number {
+  return 0;
+}
+
+function getAllSourceHealth(): SourceHealthEntry[] {
+  return [];
+}
+
+function getPublicApiMetrics(): Metrics {
+  return {};
+}
+
+function pruneTraces(_cutoffMs: number): number {
+  return 0;
+}
+
+// ── Route handler ──────────────────────────────────────────────────────────────
 
 const INTERNAL_API_URL = process.env.INTERNAL_API_URL;
 
 export async function GET(request: NextRequest) {
-  // Simple bearer-token auth — replace with proper admin auth in production
   const authHeader = request.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.ADMIN_SECRET || 'admin-debug-token'}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -23,14 +51,14 @@ export async function GET(request: NextRequest) {
   const action = searchParams.get('action');
 
   if (action === 'reset-health') {
-    resetAllSourceHealth();
-    return NextResponse.json({ ok: true, message: 'Source health reset.' });
+    // Stub — no-op until real sourceHealthTracker is wired
+    return NextResponse.json({ ok: true, message: 'Source health reset. [stub — not yet wired]' });
   }
 
   if (action === 'prune-traces') {
     const cutoffMs = Number(searchParams.get('cutoffMs') ?? 300_000);
     const pruned = pruneTraces(cutoffMs);
-    return NextResponse.json({ ok: true, pruned });
+    return NextResponse.json({ ok: true, pruned, note: 'Stub — replace with real logger when available.' });
   }
 
   // Fetch upstream stats if INTERNAL_API_URL is available
@@ -90,7 +118,6 @@ export async function GET(request: NextRequest) {
     })),
     metrics: {
       ...metrics,
-      // Human-readable latency buckets
       latencyBuckets: {
         '<50ms': metrics['public.latency.bucket.0_50'] ?? 0,
         '50-100ms': metrics['public.latency.bucket.50_100'] ?? 0,
@@ -101,5 +128,6 @@ export async function GET(request: NextRequest) {
       },
     },
     upstream: upstreamStats ?? null,
+    _note: 'Cache/metrics stubs — replace with real implementations when publicApi modules are available.',
   });
 }
