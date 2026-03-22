@@ -8,9 +8,11 @@
  *  - HeroSearchCard: Standalone elevated search card (for compact states)
  */
 
-import { useState } from 'react';
-import { Zap, ShieldCheck, Clock, CheckCircle2 } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { Zap, ShieldCheck, Clock, CheckCircle2, Flame, ChevronRight } from 'lucide-react';
+import Link from 'next/link';
 import type { ResolutionStatus } from '@/lib/public/api-client';
+import { useAnalytics } from '@/lib/public/analytics-context';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -27,8 +29,14 @@ export interface HeroSearchCardProps {
 export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: HeroSearchCardProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [showPasteBadge, setShowPasteBadge] = useState(false);
+  const { track } = useAnalytics();
 
   const isProcessing = status === 'queued' || status === 'processing' || status === 'retrying';
+
+  const handleSubmit = useCallback(() => {
+    track.heroCtaClick();
+    onSubmit();
+  }, [track, onSubmit]);
   const isDisabled = disabled || isProcessing;
   const hasValue = value.trim().length >= 5;
 
@@ -108,7 +116,7 @@ export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: 
           onChange={(e) => onChange(e.target.value)}
           onPaste={handlePaste}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && hasValue && !isDisabled) onSubmit();
+            if (e.key === 'Enter' && hasValue && !isDisabled) handleSubmit();
           }}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
@@ -140,7 +148,7 @@ export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: 
         {/* CTA Button */}
         <button
           type="button"
-          onClick={onSubmit}
+          onClick={handleSubmit}
           disabled={isDisabled || !hasValue}
           aria-label="Tìm mã giảm giá"
           className="flex-shrink-0 flex items-center gap-2 rounded-xl font-semibold text-sm text-white transition-all duration-150"
@@ -364,6 +372,43 @@ export function HeroNew(props: HeroNewProps) {
         {/* Trust strip */}
         <div className="mt-8" style={{ animation: 'fadeSlideUp 400ms 180ms ease-out both' }}>
           <TrustStrip />
+        </div>
+
+        {/* Discovery strip */}
+        <div
+          className="mt-6 flex flex-wrap items-center justify-center gap-2"
+          style={{ animation: 'fadeSlideUp 400ms 240ms ease-out both' }}
+        >
+          <span className="text-[11px]" style={{ color: '#9ca3af' }}>Khám phá:</span>
+          <Link
+            href="/deals/hot"
+            className="flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-colors"
+            style={{ backgroundColor: '#fff1f2', color: '#be123c' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#ffe4e6'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#fff1f2'; }}
+          >
+            <Flame className="h-3 w-3" />
+            Deal hot hôm nay
+          </Link>
+          <Link
+            href="/deals/expiring"
+            className="flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-colors"
+            style={{ backgroundColor: '#fefce8', color: '#92400e' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#fef9c3'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#fefce8'; }}
+          >
+            ⏰ Sắp hết hạn
+          </Link>
+          <Link
+            href="/deals"
+            className="flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-colors"
+            style={{ backgroundColor: '#f9fafb', color: '#374151' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#f3f4f6'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#f9fafb'; }}
+          >
+            Tất cả deals
+            <ChevronRight className="h-3 w-3" />
+          </Link>
         </div>
       </div>
     </section>

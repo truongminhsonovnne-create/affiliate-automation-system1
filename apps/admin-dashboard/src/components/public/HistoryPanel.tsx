@@ -31,6 +31,7 @@ import clsx from 'clsx';
 import { useHistory } from '@/lib/public/useHistory';
 import type { LookupHistoryEntry } from '@/lib/public/history-types';
 import { formatExpiry } from '@/lib/public/api-client';
+import { useAnalytics } from '@/lib/public/analytics-context';
 
 // =============================================================================
 // Outcome icon
@@ -83,6 +84,7 @@ function HistoryItem({
 }: HistoryItemProps) {
   const [copied, setCopied] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const { track } = useAnalytics();
 
   // Format relative time
   const timeLabel = formatRelativeTime(entry.performedAt);
@@ -97,11 +99,12 @@ function HistoryItem({
         await navigator.clipboard.writeText(code);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
+        track.couponCopy('history', code, entry.result?.bestDiscountText ?? '');
       } catch {
         // Silently fail
       }
     },
-    [entry.result?.bestCode]
+    [entry.result?.bestCode, entry.result?.bestDiscountText, track]
   );
 
   // Can copy code? Only for successful entries that aren't expired
@@ -316,7 +319,7 @@ export function HistoryPanel({ onRestoreEntry, className }: HistoryPanelProps) {
     deleteEntries,
     clearAll,
   } = useHistory();
-
+  const { track } = useAnalytics();
   const [expanded, setExpanded] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -358,6 +361,14 @@ export function HistoryPanel({ onRestoreEntry, className }: HistoryPanelProps) {
     setSelectedIds(new Set());
   }, [selectedIds, deleteEntries]);
 
+  const handleTogglePin = useCallback((id: string) => {
+    const entry = entries.find((e) => e.id === id);
+    if (!entry) return;
+    // Track save_link when user pins (not when unpins)
+    if (!entry.pinned) track.saveLink(true);
+    togglePin(id);
+  }, [entries, togglePin, track]);
+
   const handleClearAll = useCallback(() => {
     clearAll();
     setSelectedIds(new Set());
@@ -374,7 +385,10 @@ export function HistoryPanel({ onRestoreEntry, className }: HistoryPanelProps) {
       {/* ── Collapsed trigger bar ── */}
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => {
+          if (!expanded) track.recentSearchOpen();
+          setExpanded((v) => !v);
+        }}
         aria-expanded={expanded}
         aria-controls="history-panel"
         aria-label={`Lịch sử tra cứu — ${totalCount} mục`}
@@ -502,7 +516,7 @@ export function HistoryPanel({ onRestoreEntry, className }: HistoryPanelProps) {
                         key={entry.id}
                         entry={entry}
                         onRestore={onRestoreEntry}
-                        onTogglePin={togglePin}
+                        onTogglePin={handleTogglePin}
                         onDelete={deleteEntry}
                         isSelected={selectedIds.has(entry.id)}
                       />
@@ -526,7 +540,7 @@ export function HistoryPanel({ onRestoreEntry, className }: HistoryPanelProps) {
                         key={entry.id}
                         entry={entry}
                         onRestore={onRestoreEntry}
-                        onTogglePin={togglePin}
+                        onTogglePin={handleTogglePin}
                         onDelete={deleteEntry}
                         isSelected={selectedIds.has(entry.id)}
                       />

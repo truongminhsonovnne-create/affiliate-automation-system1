@@ -237,6 +237,62 @@ async function createAccessTradeAdapter(): Promise<SourceAdapter> {
   };
 }
 
+// ── Ecomobi ─────────────────────────────────────────────────────────────────
+
+async function createEcomobiAdapter(): Promise<SourceAdapter> {
+  // Dynamic import to avoid circular deps and keep tree-shakeable
+  const { syncEcomobiOffers } = await import('@/integrations/ecomobi/sync');
+
+  return {
+    key: 'ecomobi',
+    name: 'Ecomobi',
+    enabled: false, // PENDING: set to true once Ecomobi API credentials are available
+    defaultMode: 'incremental',
+    maxPagesPerRun: 10,
+    maxRetries: 3,
+
+    async sync({ dryRun, checkpoint, maxPages = 10 }) {
+      const start = Date.now();
+      const errors: string[] = [];
+
+      try {
+        const result = await syncEcomobiOffers({ dryRun, maxPages });
+
+        return {
+          fetched: result.fetched,
+          inserted: result.inserted,
+          updated: result.updated,
+          skipped: result.skipped,
+          errors: result.errors,
+          durationMs: result.durationMs,
+          checkpoint: {
+            lastPage: 0,
+            lastCursor: null,
+            lastExternalTimestamp: null,
+            pendingContinue: result.errors.length > 0,
+          },
+        };
+      } catch (err) {
+        errors.push(String(err instanceof Error ? err.message : err));
+        return {
+          fetched: 0,
+          inserted: 0,
+          updated: 0,
+          skipped: 0,
+          errors,
+          durationMs: Date.now() - start,
+          checkpoint: {
+            lastPage: checkpoint.lastPage,
+            lastCursor: checkpoint.lastCursor,
+            lastExternalTimestamp: checkpoint.lastExternalTimestamp,
+            pendingContinue: true,
+          },
+        };
+      }
+    },
+  };
+}
+
 // ── Initialize registry ────────────────────────────────────────────────────
 // Registry is initialized once at module load time
 
@@ -245,13 +301,15 @@ let _initialized = false;
 async function ensureInitialized(): Promise<void> {
   if (_initialized) return;
 
-  const [mo, at] = await Promise.all([
+  const [mo, at, em] = await Promise.all([
     createMasOfferAdapter(),
     createAccessTradeAdapter(),
+    createEcomobiAdapter(),
   ]);
 
   SOURCE_REGISTRY[mo.key] = mo;
   SOURCE_REGISTRY[at.key] = at;
+  SOURCE_REGISTRY[em.key] = em;
   _initialized = true;
 }
 

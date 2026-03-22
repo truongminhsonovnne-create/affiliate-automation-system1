@@ -38,7 +38,6 @@ import {
 import { useHistory } from '@/lib/public/useHistory';
 import type { LookupHistoryEntry } from '@/lib/public/history-types';
 import { useAnalytics } from '@/lib/public/analytics-context';
-import { Zap } from 'lucide-react';
 
 // =============================================================================
 // Config
@@ -248,7 +247,7 @@ function ResultHeader({
 
 export function VoucherResolverPageNew() {
   const { entries, addEntry, restoreEntry } = useHistory();
-  const { trackEvent } = useAnalytics();
+  const { track } = useAnalytics();
   const [input, setInput] = useState('');
   const [state, setState] = useState<ResolutionState>({
     status: 'idle',
@@ -259,6 +258,9 @@ export function VoucherResolverPageNew() {
     warnings: [],
     explanation: null,
     error: null,
+    confidenceScore: undefined,
+    matchedSource: undefined,
+    dataFreshness: undefined,
   });
 
   const [livePhase, setLivePhase] = useState<PhaseMappingResult | null>(null);
@@ -282,7 +284,7 @@ export function VoucherResolverPageNew() {
     const trimmed = inputRef.current.trim();
     if (trimmed.length < MIN_INPUT_LENGTH) return;
 
-    trackEvent('link_submit', { inputLength: trimmed.length, passedValidation: true });
+    track.resolveSubmit(trimmed.length, true);
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -317,17 +319,36 @@ export function VoucherResolverPageNew() {
 
       if (newState.status === 'success') {
         await addEntry(trimmed, newState);
-        trackEvent('link_submit_success', {
-          hasVoucher: newState.bestMatch !== null,
+
+        const meta = {
+          confidenceScore: newState.confidenceScore,
+          matchedSource: newState.matchedSource,
+          hasBestMatch: newState.bestMatch !== null,
           candidateCount: newState.candidates.length,
-          clientLatencyMs,
-          servedFromCache: newState.performance?.servedFromCache ?? false,
-        });
+          resultCount: (newState.bestMatch ? 1 : 0) + newState.candidates.length,
+        };
+
+        // Low confidence (< 0.5) → special event, still a success
+        if (newState.confidenceScore != null && newState.confidenceScore < 0.5) {
+          track.resolveLowConfidence(meta);
+        } else {
+          track.resolveSuccess(meta);
+        }
       } else {
-        trackEvent('link_submit_fail', {
-          errorCode: newState.error?.code ?? newState.status.toUpperCase(),
-          errorMessage: newState.error?.message ?? 'Không tìm thấy voucher.',
-        });
+        const errorCode = newState.error?.code ?? newState.status.toUpperCase();
+        const errorMessage = newState.error?.message ?? 'Không tìm thấy voucher.';
+        const meta = {
+          confidenceScore: newState.confidenceScore,
+          matchedSource: newState.matchedSource,
+          hasBestMatch: false,
+          candidateCount: 0,
+          resultCount: 0,
+        };
+        if (newState.status === 'no_match') {
+          track.resolveNoResult(meta, errorCode);
+        } else {
+          track.resolveError(errorCode, errorMessage);
+        }
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortException') return;
@@ -346,9 +367,9 @@ export function VoucherResolverPageNew() {
         error: { code: errorCode, message: errorMessage },
       }));
 
-      trackEvent('link_submit_fail', { errorCode, errorMessage });
+      track.resolveError(errorCode, errorMessage);
     }
-  }, [addEntry, trackEvent]);
+  }, [addEntry, track]);
 
   const handleRetry = useCallback(() => {
     abortRef.current?.abort();
@@ -362,6 +383,9 @@ export function VoucherResolverPageNew() {
       warnings: [],
       explanation: null,
       error: null,
+      confidenceScore: undefined,
+      matchedSource: undefined,
+      dataFreshness: undefined,
     });
   }, []);
 
@@ -377,6 +401,9 @@ export function VoucherResolverPageNew() {
       warnings: [],
       explanation: null,
       error: null,
+      confidenceScore: undefined,
+      matchedSource: undefined,
+      dataFreshness: undefined,
     });
   }, []);
 

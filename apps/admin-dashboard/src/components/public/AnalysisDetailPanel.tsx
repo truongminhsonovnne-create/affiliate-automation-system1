@@ -1,20 +1,23 @@
 'use client';
 
 /**
- * AnalysisDetailPanel — Full analysis result view for a single voucher resolution.
+ * AnalysisDetailPanel — Production-ready voucher resolution result UI.
  *
- * Displays:
- *   - Source URL + platform + processing status
- *   - Best voucher recommendation with conditions, expiry, scope
- *   - Explanation of why this voucher was chosen
- *   - Warning banners (expiry, stale, success not guaranteed)
- *   - Alternative candidates
- *   - CTAs: copy code, open destination, re-analyze
+ * Redesigned to consume the full resolve API contract:
+ *   - confidenceScore, dataFreshness, matchedSource
+ *   - best_result / alternatives / explanation / warnings
  *
- * Gracefully degrades: fields only render when data is available.
+ * Flow:
+ *   SourceInfoBar → MatchQualityBadge → BestResultCard → TrustPanel
+ *                 → AlternativesSection → ActionBar
+ *
+ * States:
+ *   success        — best_result + alternatives
+ *   no_match       — no voucher found
+ *   (loading states handled by ResolutionProgress)
  */
 
-import { useState, useCallback, useId } from 'react';
+import { useState, useCallback } from 'react';
 import {
   CheckCircle,
   Copy,
@@ -33,6 +36,9 @@ import {
   Star,
   Sparkles,
   ShoppingCart,
+  Award,
+  Activity,
+  DatabaseZap,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type {
@@ -40,6 +46,7 @@ import type {
   BestMatchDetail,
   CandidateCard,
   ExplanationCard,
+  DataFreshnessLevel,
 } from '@/lib/public/api-client';
 import { formatExpiry, formatDate } from '@/lib/public/api-client';
 import { useAnalytics } from '@/lib/public/analytics-context';
@@ -49,11 +56,8 @@ import { useAnalytics } from '@/lib/public/analytics-context';
 // =============================================================================
 
 export interface AnalysisDetailPanelProps {
-  /** Full analysis result to display */
   result: AnalysisResult;
-  /** Trigger a re-analysis with the same URL */
   onReanalyze: () => void;
-  /** Trigger a new search */
   onNewSearch: () => void;
   className?: string;
 }
@@ -62,44 +66,199 @@ export interface AnalysisDetailPanelProps {
 // Platform config
 // =============================================================================
 
-const PLATFORM_CONFIG: Record<
-  string,
-  { label: string; color: string; bgColor: string; textColor: string }
-> = {
-  shopee: {
-    label: 'Shopee',
-    color: 'text-brand-500',
-    bgColor: 'bg-brand-50',
-    textColor: 'text-brand-700',
-  },
-  lazada: {
-    label: 'Lazada',
-    color: 'text-blue-500',
-    bgColor: 'bg-blue-50',
-    textColor: 'text-blue-700',
-  },
-  tiki: {
-    label: 'Tiki',
-    color: 'text-teal-500',
-    bgColor: 'bg-teal-50',
-    textColor: 'text-teal-700',
-  },
-  tiktok: {
-    label: 'TikTok Shop',
-    color: 'text-pink-500',
-    bgColor: 'bg-pink-50',
-    textColor: 'text-pink-700',
-  },
-  unknown: {
-    label: 'Website',
-    color: 'text-gray-500',
-    bgColor: 'bg-gray-50',
-    textColor: 'text-gray-700',
-  },
+const PLATFORM_CONFIG: Record<string, { label: string; bgColor: string; textColor: string }> = {
+  shopee: { label: 'Shopee', bgColor: 'bg-brand-50', textColor: 'text-brand-600' },
+  lazada: { label: 'Lazada', bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
+  tiki:   { label: 'Tiki',   bgColor: 'bg-teal-50', textColor: 'text-teal-600' },
+  tiktok: { label: 'TikTok Shop', bgColor: 'bg-pink-50', textColor: 'text-pink-600' },
+  unknown:{ label: 'Website', bgColor: 'bg-gray-50', textColor: 'text-gray-500' },
 };
 
 // =============================================================================
-// Shared copy button
+// Helpers
+// =============================================================================
+
+function ConfidenceBar({ score }: { score: number }) {
+  const pct = Math.round(score * 100);
+  const color =
+    pct >= 80 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#ef4444';
+  const label =
+    pct >= 80 ? 'Chính xác cao' : pct >= 50 ? 'Chính xác trung bình' : 'Chính xác thấp';
+
+  return (
+    <div className="space-y-1.5" aria-label={`Độ tin cậy: ${pct}%`}>
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-gray-500">Độ tin cậy</span>
+        <span
+          className="text-xs font-bold tabular-nums"
+          style={{ color }}
+        >
+          {pct}%
+        </span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+        <div
+          className="h-full rounded-full transition-all duration-700"
+          style={{ width: `${pct}%`, backgroundColor: color }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function FreshnessBadge({ freshness }: { freshness: DataFreshnessLevel }) {
+  const config: Record<DataFreshnessLevel, { label: string; icon: React.ElementType; bg: string; text: string; dot: string }> = {
+    live:    { label: 'Dữ liệu mới',         icon: Activity,   bg: 'bg-emerald-50',  text: 'text-emerald-700', dot: 'bg-emerald-500' },
+    recent:  { label: 'Cập nhật gần đây',     icon: Clock,       bg: 'bg-blue-50',     text: 'text-blue-700',    dot: 'bg-blue-500' },
+    stale:   { label: 'Dữ liệu cũ',          icon: AlertTriangle,bg: 'bg-amber-50',    text: 'text-amber-700',   dot: 'bg-amber-500' },
+    unknown: { label: 'Chưa rõ',              icon: Info,        bg: 'bg-gray-50',     text: 'text-gray-500',    dot: 'bg-gray-400' },
+  };
+  const c = config[freshness] ?? config.unknown;
+  const Icon = c.icon;
+  return (
+    <span
+      className={clsx('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium', c.bg, c.text)}
+      title={`Dữ liệu được cập nhật: ${c.label}`}
+    >
+      <span className={clsx('h-1.5 w-1.5 rounded-full', c.dot)} />
+      <Icon className="h-3 w-3" aria-hidden="true" />
+      {c.label}
+    </span>
+  );
+}
+
+function SourceBadge({ source }: { source?: string }) {
+  if (!source) return null;
+  const isBroad = source.includes('broad');
+  return (
+    <span
+      className={clsx(
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
+        isBroad ? 'bg-amber-50 text-amber-700' : 'bg-violet-50 text-violet-700'
+      )}
+      title={isBroad ? 'Khuyến mãi chung — áp dụng nhiều sản phẩm' : 'Nguồn đối tác chính thức'}
+    >
+      <DatabaseZap className="h-3 w-3" aria-hidden="true" />
+      {source === 'AccessTrade' ? 'AccessTrade' :
+       source === 'MasOffer'     ? 'MasOffer' :
+       source === 'MasOffer_broad' ? 'Broad Promo' :
+       source}
+    </span>
+  );
+}
+
+function MatchQualityBadge({ quality }: { quality: 'high' | 'medium' | 'low' }) {
+  const config = {
+    high:   { label: 'Khớp chính xác', icon: Award,   bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700' },
+    medium: { label: 'Khớp trung bình', icon: Star,    bg: 'bg-amber-50',    border: 'border-amber-200',  text: 'text-amber-700' },
+    low:    { label: 'Khớp thấp',       icon: Info,    bg: 'bg-gray-50',    border: 'border-gray-200',   text: 'text-gray-600' },
+  };
+  const c = config[quality];
+  const Icon = c.icon;
+  return (
+    <span
+      className={clsx('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold border', c.bg, c.border, c.text)}
+    >
+      <Icon className="h-3 w-3" aria-hidden="true" />
+      {c.label}
+    </span>
+  );
+}
+
+// =============================================================================
+// Trust & meta bar
+// =============================================================================
+
+function TrustBar({ result }: { result: AnalysisResult }) {
+  const platform = PLATFORM_CONFIG[result.platform] ?? PLATFORM_CONFIG.unknown;
+  const serverMs = result.meta.serverDurationMs ?? result.meta.clientLatencyMs;
+  const latencyLabel = serverMs < 1000 ? `${serverMs}ms` : `${(serverMs / 1000).toFixed(1)}s`;
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-2.5 text-xs"
+      role="region"
+      aria-label="Thông tin kết quả"
+    >
+      {/* Platform */}
+      <span className={clsx('flex items-center gap-1.5 font-medium', platform.textColor)}>
+        <Globe className="h-3.5 w-3.5" aria-hidden="true" />
+        {platform.label}
+      </span>
+
+      {/* Separator */}
+      <span className="hidden h-4 w-px bg-gray-200 sm:block" aria-hidden="true" />
+
+      {/* Latency */}
+      <span className="flex items-center gap-1 text-gray-400">
+        <TrendingUp className="h-3 w-3" aria-hidden="true" />
+        {latencyLabel}
+      </span>
+
+      {/* Cache */}
+      {result.meta.servedFromCache && (
+        <>
+          <span className="flex items-center gap-1 text-green-600">
+            <CheckCircle className="h-3 w-3" aria-hidden="true" />
+            Từ cache
+          </span>
+        </>
+      )}
+
+      {/* Candidate count */}
+      {result.bestMatch && (
+        <span className="flex items-center gap-1 text-gray-400">
+          <Star className="h-3 w-3" aria-hidden="true" />
+          {result.bestMatch.totalCandidates} mã
+        </span>
+      )}
+
+      {/* Freshness */}
+      {result.dataFreshness && (
+        <>
+          <span className="flex items-center gap-1.5">
+            <FreshnessBadge freshness={result.dataFreshness} />
+          </span>
+        </>
+      )}
+
+      {/* Source */}
+      {result.matchedSource && (
+        <span className="flex items-center gap-1.5">
+          <SourceBadge source={result.matchedSource} />
+        </span>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// Confidence + match quality panel
+// =============================================================================
+
+function MatchMetaRow({ result }: { result: AnalysisResult }) {
+  if (!result.bestMatch) return null;
+  const { matchQuality } = result.bestMatch;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <MatchQualityBadge quality={matchQuality} />
+      {result.confidenceScore != null && (
+        <div className="w-36">
+          <ConfidenceBar score={result.confidenceScore} />
+        </div>
+      )}
+      {result.bestMatch.selectionReason && (
+        <span className="text-xs text-gray-400 hidden sm:inline">
+          — {result.bestMatch.selectionReason}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// Copy button
 // =============================================================================
 
 function CopyButton({
@@ -108,32 +267,27 @@ function CopyButton({
   label,
   discountValue,
   onCopied,
+  source = 'best_result',
 }: {
   code: string;
   size?: 'sm' | 'md';
   label?: string;
   discountValue?: string;
-  /** Called when copy succeeds — parent handles analytics */
   onCopied?: () => void;
+  source?: 'best_result' | 'alternative' | 'history';
 }) {
   const [copied, setCopied] = useState(false);
-  const { trackEvent } = useAnalytics();
+  const { track } = useAnalytics();
 
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-      // ── Track: voucher_copy ───────────────────────────────────────────
-      trackEvent('voucher_copy', {
-        voucherCode: code,
-        discountValue: discountValue ?? '',
-      });
+      track.couponCopy(source, code, discountValue ?? '');
       onCopied?.();
-    } catch {
-      /* silent */
-    }
-  }, [code, discountValue, onCopied, trackEvent]);
+    } catch { /* silent */ }
+  }, [code, discountValue, onCopied, track, source]);
 
   return (
     <button
@@ -142,9 +296,7 @@ function CopyButton({
       aria-label={label ?? `Sao chép mã ${code}`}
       className={clsx(
         'flex items-center gap-2 rounded-xl font-semibold transition-all duration-200 active:scale-95',
-        size === 'sm'
-          ? 'px-3 py-1.5 text-xs'
-          : 'px-5 py-2.5 text-sm',
+        size === 'sm' ? 'px-3 py-1.5 text-xs' : 'px-5 py-2.5 text-sm',
         copied
           ? 'bg-emerald-500 text-white shadow-emerald-200 shadow-lg'
           : 'bg-gray-900 text-white hover:bg-gray-800 shadow-lg shadow-gray-900/20'
@@ -166,227 +318,29 @@ function CopyButton({
 }
 
 // =============================================================================
-// Warning banners
+// Discount display
 // =============================================================================
 
-function WarningBanner({
-  variant,
-  title,
-  description,
-}: {
-  variant: 'expiry' | 'stale' | 'success';
-  title: string;
-  description: string;
-}) {
-  const config = {
-    expiry: {
-      icon: Clock,
-      border: 'border-amber-200',
-      bg: 'bg-amber-50',
-      iconColor: 'text-amber-500',
-      titleColor: 'text-amber-800',
-      descColor: 'text-amber-700',
-    },
-    stale: {
-      icon: RefreshCw,
-      border: 'border-brand-200',
-      bg: 'bg-brand-50',
-      iconColor: 'text-brand-500',
-      titleColor: 'text-brand-800',
-      descColor: 'text-brand-700',
-    },
-    success: {
-      icon: Shield,
-      border: 'border-blue-200',
-      bg: 'bg-blue-50',
-      iconColor: 'text-blue-500',
-      titleColor: 'text-blue-800',
-      descColor: 'text-blue-700',
-    },
-  }[variant];
-
-  const Icon = config.icon;
-
-  return (
-    <div
-      className={clsx(
-        'flex items-start gap-3 rounded-xl border p-4',
-        config.border,
-        config.bg
-      )}
-    >
-      <Icon className={clsx('h-5 w-5 flex-shrink-0 mt-0.5', config.iconColor)} aria-hidden="true" />
-      <div>
-        <p className={clsx('text-sm font-semibold', config.titleColor)}>{title}</p>
-        <p className={clsx('mt-0.5 text-xs leading-relaxed', config.descColor)}>{description}</p>
-      </div>
-    </div>
-  );
-}
-
-function WarningBanners({ result }: { result: AnalysisResult }) {
-  const banners: { variant: 'expiry' | 'stale' | 'success'; title: string; description: string }[] = [];
-
-  // Expiry warning
-  if (result.bestMatch) {
-    const expiry = result.bestMatch.validUntil;
-    if (expiry) {
-      const expiryDate = new Date(expiry);
-      const now = Date.now();
-      const diffHours = (expiryDate.getTime() - now) / (1000 * 60 * 60);
-
-      if (diffHours < 0) {
-        banners.push({
-          variant: 'expiry',
-          title: 'Voucher có thể đã hết hạn',
-          description:
-            'Ngày hết hạn đã qua. Voucher có thể không còn khả dụng. Hãy kiểm tra lại trước khi sử dụng.',
-        });
-      } else if (diffHours < 12) {
-        banners.push({
-          variant: 'expiry',
-          title: 'Voucher sắp hết hạn',
-          description: `Chỉ còn khoảng ${Math.ceil(diffHours)} giờ nữa. Bạn nên sử dụng ngay.`,
-        });
-      }
-    }
-
-    // Warnings from engine
-    const voucherWarnings = result.bestMatch.warnings;
-    if (voucherWarnings.length > 0) {
-      banners.push({
-        variant: 'stale',
-        title: 'Điều kiện có thể thay đổi',
-        description:
-          'Thông tin voucher có thể không còn chính xác 100%. Shop có quyền thay đổi hoặc kết thúc chương trình bất kỳ lúc nào.',
-      });
-    }
-  }
-
-  // Success guarantee disclaimer
-  if (result.bestMatch) {
-    banners.push({
-      variant: 'success',
-      title: 'Không đảm bảo áp dụng 100%',
-      description:
-        'Mã giảm giá phụ thuộc vào điều kiện thực tế của đơn hàng và chính sách Shopee tại thời điểm thanh toán.',
-    });
-  }
-
-  if (banners.length === 0) return null;
-
-  return (
-    <div className="space-y-2.5" role="region" aria-label="Cảnh báo">
-      {banners.map((banner, i) => (
-        <WarningBanner
-          key={i}
-          variant={banner.variant}
-          title={banner.title}
-          description={banner.description}
-        />
-      ))}
-    </div>
-  );
-}
-
-// =============================================================================
-// Source info bar
-// =============================================================================
-
-function SourceInfoBar({ result }: { result: AnalysisResult }) {
-  const platform = PLATFORM_CONFIG[result.platform] ?? PLATFORM_CONFIG.unknown;
-  const Icon = Globe;
-
-  // Latency display
-  const serverMs = result.meta.serverDurationMs ?? result.meta.clientLatencyMs;
-  const latencyLabel =
-    serverMs < 1000
-      ? `${serverMs}ms`
-      : `${(serverMs / 1000).toFixed(1)}s`;
-
-  return (
-    <div className="flex flex-wrap items-start gap-x-3 gap-y-2 rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-3 text-xs sm:text-sm">
-      {/* Platform */}
-      <div className="flex items-center gap-1.5 flex-shrink-0">
-        <span className={clsx('flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md', platform.bgColor)}>
-          <Icon className={clsx('h-3.5 w-3.5', platform.textColor)} aria-hidden="true" />
-        </span>
-        <span className="font-medium text-gray-700">{platform.label}</span>
-      </div>
-
-      {/* URL — full width on mobile */}
-      <div className="w-full min-w-0 order-last sm:order-none">
-        <p
-          className="truncate text-gray-500"
-          title={result.originalUrl}
-        >
-          {result.displayLabel}
-        </p>
-      </div>
-
-      {/* Latency */}
-      <div className="flex items-center gap-1 text-gray-400 flex-shrink-0">
-        <TrendingUp className="h-3 w-3" aria-hidden="true" />
-        <span className="tabular-nums">{latencyLabel}</span>
-      </div>
-
-      {/* Cache badge */}
-      {result.meta.servedFromCache && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-600 flex-shrink-0">
-          <CheckCircle className="h-3 w-3" aria-hidden="true" />
-          Cache
-        </span>
-      )}
-
-      {/* Candidate count */}
-      {result.bestMatch && (
-        <div className="flex items-center gap-1 text-gray-400 flex-shrink-0">
-          <Star className="h-3 w-3" aria-hidden="true" />
-          <span>{result.bestMatch.totalCandidates} mã</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// =============================================================================
-// Best voucher card
-// =============================================================================
-
-function DiscountBadge({
-  value,
-  type,
-}: {
-  value: string;
-  type: string;
-}) {
+function DiscountPill({ value, type }: { value: string; type: string }) {
   const isFreeShipping = type === 'free_shipping';
-  const isPercentage = type === 'percentage';
-
   return (
     <div
       className={clsx(
         'flex flex-col items-center justify-center rounded-2xl px-5 py-3 text-center',
-        isFreeShipping
-          ? 'bg-blue-50 border border-blue-200'
-          : isPercentage
-          ? 'bg-gradient-to-br from-brand-500 to-rose-500'
-          : 'bg-gradient-to-br from-brand-500 to-rose-500'
+        isFreeShipping ? 'bg-blue-50 border border-blue-200' : 'bg-gradient-to-br from-brand-500 to-rose-500'
       )}
     >
       {isFreeShipping ? (
         <>
-          <ShoppingCart className="h-7 w-7 text-blue-600 mb-1" aria-hidden="true" />
+          <ShoppingCart className="h-6 w-6 text-blue-600 mb-1" aria-hidden="true" />
           <span className="text-sm font-bold text-blue-700">Miễn phí</span>
           <span className="text-xs text-blue-600 font-medium">vận chuyển</span>
         </>
       ) : (
         <>
-          <span className="text-3xl font-black tracking-tight text-white leading-none">
-            {value}
-          </span>
+          <span className="text-3xl font-black tracking-tight text-white leading-none">{value}</span>
           {type === 'percentage' && (
-            <span className="text-sm font-semibold text-brand-100 mt-0.5">GIẢM</span>
+            <span className="text-xs font-semibold text-brand-100 mt-0.5">GIẢM</span>
           )}
         </>
       )}
@@ -394,105 +348,11 @@ function DiscountBadge({
   );
 }
 
-function ConditionsList({ conditions }: { conditions: string[] }) {
-  if (conditions.length === 0) return null;
+// =============================================================================
+// Best result card — redesigned with strong visual hierarchy
+// =============================================================================
 
-  return (
-    <div className="space-y-1.5">
-      <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-        Điều kiện áp dụng
-      </p>
-      <ul className="space-y-1" role="list">
-        {conditions.map((cond, i) => (
-          <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
-            <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-gray-300" aria-hidden="true" />
-            {cond}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function ExpiryInfo({ isoDate }: { isoDate: string }) {
-  const expiry = formatExpiry(isoDate);
-  const dateStr = formatDate(isoDate);
-  const now = Date.now();
-  const diffMs = new Date(isoDate).getTime() - now;
-  const isExpired = diffMs <= 0;
-  const isUrgent = diffMs > 0 && diffMs < 12 * 60 * 60 * 1000;
-
-  return (
-    <div
-      className={clsx(
-        'flex items-center gap-2 rounded-xl border px-3 py-2',
-        isExpired && 'border-red-200 bg-red-50',
-        isUrgent && !isExpired && 'border-amber-200 bg-amber-50',
-        !isExpired && !isUrgent && 'border-gray-100 bg-gray-50'
-      )}
-    >
-      <Clock
-        className={clsx(
-          'h-4 w-4 flex-shrink-0',
-          isExpired && 'text-red-400',
-          isUrgent && !isExpired && 'text-amber-500',
-          !isExpired && !isUrgent && 'text-gray-400'
-        )}
-        aria-hidden="true"
-      />
-      <div>
-        <p
-          className={clsx(
-            'text-sm font-medium',
-            isExpired && 'text-red-600',
-            isUrgent && !isExpired && 'text-amber-700',
-            !isExpired && !isUrgent && 'text-gray-600'
-          )}
-        >
-          {isExpired ? 'Đã hết hạn' : expiry}
-        </p>
-        {!isExpired && (
-          <p className="text-xs text-gray-400">
-            Hết hạn {dateStr}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ExplanationBox({ explanation }: { explanation: ExplanationCard | null }) {
-  if (!explanation) return null;
-
-  return (
-    <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-      <div className="mb-2 flex items-center gap-2">
-        <Sparkles className="h-4 w-4 text-blue-500" aria-hidden="true" />
-        <span className="text-sm font-semibold text-blue-800">
-          Tại sao voucher này?
-        </span>
-      </div>
-      <p className="text-sm text-blue-700 leading-relaxed">{explanation.summary}</p>
-      {explanation.tips.length > 0 && (
-        <ul className="mt-3 space-y-1.5" role="list">
-          {explanation.tips.slice(0, 4).map((tip, i) => (
-            <li key={i} className="flex items-start gap-2 text-xs text-blue-700">
-              <span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-blue-400" aria-hidden="true" />
-              {tip}
-            </li>
-          ))}
-        </ul>
-      )}
-      {explanation.context && (
-        <p className="mt-3 border-t border-blue-100 pt-2 text-xs text-blue-600 italic">
-          {explanation.context}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function BestVoucherCard({
+function BestResultCard({
   voucher,
   originalUrl,
   explanation,
@@ -501,32 +361,29 @@ function BestVoucherCard({
   originalUrl: string;
   explanation: ExplanationCard | null;
 }) {
-  const { trackEvent } = useAnalytics();
+  const { track } = useAnalytics();
   const expiry = voucher.validUntil;
 
-  const handleOutboundClick = useCallback(() => {
-    // Deduplicate: only track first click per session
-    const key = 'vf_oc_best';
-    try {
-      if (sessionStorage.getItem(key)) {
-        window.open(originalUrl, '_blank', 'noopener,noreferrer');
-        return;
-      }
-      sessionStorage.setItem(key, '1');
-    } catch { /* ignore */ }
-    // ── Track: outbound_shopee_click ───────────────────────────────────
-    trackEvent('outbound_shopee_click', { productUrl: originalUrl });
-    // Open after tracking (non-blocking)
+  const handleOutbound = useCallback(() => {
+    // Track click intent first, then navigate
+    track.bestResultClick('best', voucher.code, voucher.discountValue);
+    track.outboundClick(originalUrl);
     window.open(originalUrl, '_blank', 'noopener,noreferrer');
-  }, [originalUrl, trackEvent]);
+  }, [originalUrl, voucher.code, voucher.discountValue, track]);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-brand-200 bg-white shadow-lg shadow-brand-100/40">
-      {/* Header */}
-      <div className="relative bg-gradient-to-r from-brand-50 via-amber-50 to-brand-50 px-4 pt-4 pb-4 sm:px-5 sm:pt-5 sm:pb-4">
-        {/* Badge row */}
+    <div className="overflow-hidden rounded-2xl border-2 border-brand-200 bg-white shadow-lg shadow-brand-100/50">
+      {/* ── Header: gradient bar with "Mã tốt nhất" label ── */}
+      <div
+        className="relative px-4 pt-4 pb-4 sm:px-5 sm:pt-5"
+        style={{
+          background: 'linear-gradient(135deg, var(--brand-50) 0%, #fff 50%, var(--brand-50) 100%)',
+          borderBottom: '1px solid var(--brand-100)',
+        }}
+      >
+        {/* Label */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1 rounded-full bg-brand-500 px-3 py-1 text-xs font-bold uppercase tracking-wider text-white shadow-sm">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-500 px-3 py-1 text-xs font-bold uppercase tracking-wider text-white shadow-sm">
             <Star className="h-3 w-3" aria-hidden="true" />
             Mã tốt nhất
           </span>
@@ -536,69 +393,78 @@ function BestVoucherCard({
               Đã xác minh
             </span>
           )}
-          {voucher.servedFromCache && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
-              <TrendingUp className="h-3 w-3" aria-hidden="true" />
-              Từ cache
-            </span>
-          )}
         </div>
 
-        {/* Headline + discount — stacked on mobile */}
+        {/* Content: headline + code + CTA */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+          {/* Left: headline + code */}
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-bold text-gray-900 leading-snug sm:text-lg">
               {voucher.headline}
             </h2>
 
-            {/* Code + copy — stacked on mobile */}
+            {/* Selection reason */}
+            {voucher.selectionReason && (
+              <p className="mt-1 flex items-center gap-1 text-xs text-gray-400">
+                <Info className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
+                {voucher.selectionReason}
+              </p>
+            )}
+
+            {/* Code + copy */}
             <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-              <code className="inline-block w-fit rounded-lg bg-white/90 border border-brand-200 px-4 py-2 font-mono text-base font-bold text-brand-600 tracking-widest shadow-sm sm:text-lg">
+              <code className="inline-block w-fit rounded-xl bg-white/90 border-2 border-brand-200 px-5 py-2.5 font-mono text-base font-bold text-brand-600 tracking-widest shadow-sm sm:text-lg">
                 {voucher.code}
               </code>
-              <CopyButton code={voucher.code} size="md" discountValue={voucher.discountValue} />
+              <CopyButton
+                code={voucher.code}
+                size="md"
+                discountValue={voucher.discountValue}
+              />
             </div>
           </div>
 
-          {/* Discount value */}
+          {/* Right: discount */}
           <div className="flex-shrink-0">
-            <DiscountBadge value={voucher.discountValue} type={voucher.discountType} />
+            <DiscountPill value={voucher.discountValue} type={voucher.discountType} />
           </div>
         </div>
       </div>
 
-      {/* Body */}
+      {/* ── Body ── */}
       <div className="px-4 py-4 space-y-4 sm:px-5">
         {/* Conditions */}
-        <ConditionsList conditions={voucher.conditions} />
-
-        {/* Expiry */}
-        {expiry && <ExpiryInfo isoDate={expiry} />}
-
-        {/* Scope */}
-        {voucher.scope.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {voucher.scope.map((s) => (
-              <span
-                key={s}
-                className="rounded-full bg-gray-100 px-3 py-0.5 text-xs font-medium text-gray-600"
-              >
-                {s}
-              </span>
-            ))}
+        {voucher.conditions.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+              Điều kiện áp dụng
+            </p>
+            <ul className="space-y-1" role="list">
+              {voucher.conditions.map((cond, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
+                  <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-gray-300" aria-hidden="true" />
+                  {cond}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
-        {/* Explanation */}
-        <ExplanationBox explanation={explanation} />
+        {/* Expiry */}
+        {expiry && <ExpiryRow isoDate={expiry} />}
 
-        {/* Primary CTA — full-width on mobile */}
+        {/* Explanation */}
+        {explanation && (
+          <ExplanationPanel explanation={explanation} />
+        )}
+
+        {/* CTA */}
         <div className="space-y-2 pt-1">
           <button
             type="button"
-            onClick={handleOutboundClick}
+            onClick={handleOutbound}
             className={clsx(
-              'flex items-center justify-center gap-2 py-3.5 px-6 rounded-xl w-full',
+              'flex items-center justify-center gap-2 w-full py-3.5 px-6 rounded-xl',
               'bg-brand-500 text-white font-bold text-sm sm:text-base',
               'hover:bg-brand-600 active:bg-brand-700 active:scale-[0.99]',
               'transition-all duration-200 shadow-lg shadow-brand-500/30',
@@ -607,13 +473,121 @@ function BestVoucherCard({
           >
             <ShoppingCart className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
             <span>Mua ngay trên Shopee</span>
-            <ExternalLink className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+            <ExternalLink className="h-4 w-4 flex-shrink-0 opacity-70" aria-hidden="true" />
           </button>
           <p className="text-center text-xs text-gray-400">
             Áp dụng mã khi thanh toán
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Expiry row
+// =============================================================================
+
+function ExpiryRow({ isoDate }: { isoDate: string }) {
+  const expiry = formatExpiry(isoDate);
+  const dateStr = formatDate(isoDate);
+  const diffMs = new Date(isoDate).getTime() - Date.now();
+  const isExpired = diffMs <= 0;
+  const isUrgent  = diffMs > 0 && diffMs < 12 * 60 * 60 * 1000;
+
+  return (
+    <div
+      className={clsx(
+        'flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5',
+        isExpired  ? 'border-red-200 bg-red-50' :
+        isUrgent   ? 'border-amber-200 bg-amber-50' :
+                     'border-gray-100 bg-gray-50'
+      )}
+    >
+      <Clock
+        className={clsx(
+          'h-4 w-4 flex-shrink-0',
+          isExpired  ? 'text-red-400' :
+          isUrgent   ? 'text-amber-500' :
+                       'text-gray-400'
+        )}
+        aria-hidden="true"
+      />
+      <div>
+        <p
+          className={clsx(
+            'text-sm font-medium',
+            isExpired  ? 'text-red-600' :
+            isUrgent   ? 'text-amber-700' :
+                         'text-gray-600'
+          )}
+        >
+          {isExpired ? 'Đã hết hạn' : expiry}
+        </p>
+        {!isExpired && (
+          <p className="text-xs text-gray-400">Hết hạn {dateStr}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Explanation panel
+// =============================================================================
+
+function ExplanationPanel({ explanation }: { explanation: ExplanationCard | null }) {
+  if (!explanation) return null;
+  return (
+    <div
+      className="rounded-xl border border-blue-100 bg-blue-50/60 p-4"
+      role="region"
+      aria-label="Giải thích kết quả"
+    >
+      <div className="mb-2 flex items-center gap-2">
+        <Sparkles className="h-4 w-4 text-blue-500" aria-hidden="true" />
+        <span className="text-sm font-semibold text-blue-800">
+          Vì sao hệ thống chọn mã này?
+        </span>
+      </div>
+      <p className="text-sm text-blue-700 leading-relaxed">{explanation.summary}</p>
+      {explanation.tips.length > 0 && (
+        <ul className="mt-3 space-y-1.5" role="list">
+          {explanation.tips.slice(0, 3).map((tip, i) => (
+            <li key={i} className="flex items-start gap-2 text-xs text-blue-700">
+              <span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-blue-400" aria-hidden="true" />
+              {tip}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// Warnings panel
+// =============================================================================
+
+function WarningsPanel({ warnings }: { warnings: Array<{ code: string; message: string; severity: string }> }) {
+  if (!warnings || warnings.length === 0) return null;
+  return (
+    <div className="space-y-2" role="region" aria-label="Cảnh báo">
+      {warnings.map((w, i) => (
+        <div
+          key={i}
+          className="flex items-start gap-2.5 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm"
+          role="alert"
+        >
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-500 mt-0.5" aria-hidden="true" />
+          <div>
+            {w.code && (
+              <p className="font-semibold text-amber-800">{w.code}</p>
+            )}
+            <p className="text-amber-700">{w.message}</p>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -631,48 +605,42 @@ function AlternativesSection({
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const { trackEvent } = useAnalytics();
+  const { track } = useAnalytics();
 
   const handleCopy = useCallback(async (c: CandidateCard) => {
     try {
       await navigator.clipboard.writeText(c.code);
       setCopiedId(c.voucherId);
       setTimeout(() => setCopiedId(null), 2000);
-      // ── Track: voucher_copy (alternative) ────────────────────────────
-      trackEvent('voucher_copy', {
-        voucherCode: c.code,
-        discountValue: c.discountText,
-      });
+      track.couponCopy('alternative', c.code, c.discountText);
     } catch { /* silent */ }
-  }, [trackEvent]);
+  }, [track]);
 
-  const handleOutboundClick = useCallback((voucherId: string) => {
-    // Deduplicate: only track first click per session per voucher
-    const key = `vf_oc_${voucherId}`;
-    try {
-      if (sessionStorage.getItem(key)) {
-        window.open(originalUrl, '_blank', 'noopener,noreferrer');
-        return;
-      }
-      sessionStorage.setItem(key, '1');
-    } catch { /* ignore */ }
-    // ── Track: outbound_shopee_click ───────────────────────────────────
-    trackEvent('outbound_shopee_click', { productUrl: originalUrl });
+  const handleCardClick = useCallback((c: CandidateCard) => {
+    track.alternativeClick(c.code, c.discountText);
+    track.outboundClick(originalUrl);
     window.open(originalUrl, '_blank', 'noopener,noreferrer');
-  }, [originalUrl, trackEvent]);
+  }, [originalUrl, track]);
+
+  const handleExpandClick = useCallback((voucherId: string) => {
+    setExpandedId((p) => p === voucherId ? null : voucherId);
+  }, []);
 
   if (candidates.length === 0) return null;
 
+  const rankColor = (rank: number) =>
+    rank === 2 ? 'bg-amber-100 text-amber-700' :
+    rank === 3 ? 'bg-slate-100 text-slate-600' :
+    'bg-brand-50 text-brand-600';
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" role="region" aria-label="Các lựa chọn khác">
       <div className="flex items-center justify-between">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
           <Tag className="h-4 w-4 text-gray-400" aria-hidden="true" />
           Các lựa chọn khác
         </h3>
-        <span className="text-xs text-gray-400">
-          {candidates.length} mã khả dụng
-        </span>
+        <span className="text-xs text-gray-400">{candidates.length} mã</span>
       </div>
 
       <div className="space-y-2">
@@ -681,55 +649,52 @@ function AlternativesSection({
             key={c.voucherId}
             className="overflow-hidden rounded-xl border border-gray-100 bg-white transition-all hover:border-gray-200 hover:shadow-sm"
           >
-            {/* Row — stacked on mobile */}
-            <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:gap-3 sm:p-4">
-              {/* Left: rank + info */}
-              <div className="flex items-start gap-3 min-w-0">
-                <span
-                  className={clsx(
-                    'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold mt-0.5',
-                    c.rank === 2 ? 'bg-amber-100 text-amber-700' :
-                    c.rank === 3 ? 'bg-slate-100 text-slate-600' :
-                    'bg-brand-50 text-brand-600'
-                  )}
-                  aria-label={`Hạng ${c.rank}`}
-                >
-                  {c.rank}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{c.discountText}</p>
-                  {c.reason && (
-                    <p className="mt-0.5 text-xs text-gray-500 line-clamp-1">{c.reason}</p>
-                  )}
-                </div>
+            <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:gap-3">
+              {/* Rank */}
+              <span
+                className={clsx(
+                  'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold mt-0.5',
+                  rankColor(c.rank)
+                )}
+                aria-label={`Hạng ${c.rank}`}
+              >
+                {c.rank}
+              </span>
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-900 truncate">{c.discountText}</p>
+                {c.reason && (
+                  <p className="text-xs text-gray-400 mt-0.5 truncate">{c.reason}</p>
+                )}
               </div>
 
-              {/* Right: actions — always visible on mobile */}
+              {/* Actions */}
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
                   type="button"
                   onClick={() => handleCopy(c)}
                   aria-label={`Sao chép mã ${c.code}`}
                   className={clsx(
-                    'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all flex-shrink-0',
+                    'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
                     copiedId === c.voucherId
                       ? 'bg-emerald-100 text-emerald-700'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200 active:scale-95'
                   )}
                 >
                   {copiedId === c.voucherId ? (
-                    <><CheckCircle className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" /><span className="hidden sm:inline">Đã sao chép</span><span className="sm:hidden">✓</span></>
+                    <><CheckCircle className="h-3.5 w-3.5" aria-hidden="true" /><span className="hidden sm:inline">Đã sao chép</span><span className="sm:hidden">✓</span></>
                   ) : (
-                    <><Copy className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" /><code className="font-mono font-bold truncate max-w-[80px] sm:max-w-none">{c.code}</code></>
+                    <><Copy className="h-3.5 w-3.5" aria-hidden="true" /><code className="font-mono font-bold truncate max-w-[80px] sm:max-w-none">{c.code}</code></>
                   )}
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setExpandedId((prev) => prev === c.voucherId ? null : c.voucherId)}
+                  onClick={() => handleExpandClick(c.voucherId)}
                   aria-expanded={expandedId === c.voucherId}
-                  aria-label={expandedId === c.voucherId ? 'Thu gọn' : 'Xem chi tiết'}
-                  className="flex items-center justify-center h-8 w-8 rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 active:scale-95 flex-shrink-0"
+                  aria-label="Chi tiết"
+                  className="flex items-center justify-center h-8 w-8 rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 active:scale-95"
                 >
                   {expandedId === c.voucherId
                     ? <ChevronUp className="h-4 w-4" aria-hidden="true" />
@@ -738,9 +703,9 @@ function AlternativesSection({
               </div>
             </div>
 
-            {/* Expanded details */}
+            {/* Expanded */}
             {expandedId === c.voucherId && (
-              <div className="border-t border-gray-100 bg-gray-50/50 px-3 py-3 sm:px-4 animate-in slide-in-from-top-1 duration-150">
+              <div className="border-t border-gray-100 bg-gray-50/60 px-3 py-3 sm:px-4 animate-in slide-in-from-top-1 duration-150">
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:text-sm">
                   <div>
                     <dt className="text-gray-400">Mã</dt>
@@ -759,7 +724,7 @@ function AlternativesSection({
                 </dl>
                 <button
                   type="button"
-                  onClick={() => handleOutboundClick(c.voucherId)}
+                  onClick={() => handleCardClick(c)}
                   className="mt-3 flex items-center gap-1.5 text-xs font-medium text-brand-500 hover:text-brand-600"
                 >
                   <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
@@ -769,6 +734,53 @@ function AlternativesSection({
             )}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Discovery cross-sell strip
+// =============================================================================
+
+function DiscoveryLinks() {
+  return (
+    <div
+      className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4"
+      role="complementary"
+      aria-label="Khám phá thêm"
+    >
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
+        Khám phá thêm deals
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <a
+          href="/deals/hot"
+          className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
+          style={{ backgroundColor: '#fff1f2', color: '#be123c' }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#ffe4e6'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#fff1f2'; }}
+        >
+          🔥 Deal hot hôm nay
+        </a>
+        <a
+          href="/deals/expiring"
+          className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
+          style={{ backgroundColor: '#fefce8', color: '#92400e' }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#fef9c3'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#fefce8'; }}
+        >
+          ⏰ Sắp hết hạn
+        </a>
+        <a
+          href="/deals"
+          className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
+          style={{ backgroundColor: '#f9fafb', color: '#374151', border: '1px solid #f3f4f6' }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#f3f4f6'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#f9fafb'; }}
+        >
+          Tất cả deals →
+        </a>
       </div>
     </div>
   );
@@ -796,16 +808,12 @@ function ActionBar({
         className={clsx(
           'flex items-center justify-center gap-2 rounded-xl border-2 border-gray-200 px-4 py-3',
           'text-sm font-semibold text-gray-600 w-full',
-          'hover:border-gray-300 hover:bg-gray-50',
-          'active:scale-[0.99] transition-all',
+          'hover:border-gray-300 hover:bg-gray-50 active:scale-[0.99] transition-all',
           'disabled:opacity-50 disabled:cursor-not-allowed',
-          'sm:w-auto sm:flex-1' // auto width on sm+
+          'sm:w-auto sm:flex-1'
         )}
       >
-        <RefreshCw
-          className={clsx('h-4 w-4 flex-shrink-0', loading && 'animate-spin')}
-          aria-hidden="true"
-        />
+        <RefreshCw className={clsx('h-4 w-4 flex-shrink-0', loading && 'animate-spin')} aria-hidden="true" />
         Phân tích lại
       </button>
       <button
@@ -815,10 +823,9 @@ function ActionBar({
         className={clsx(
           'flex items-center justify-center gap-2 rounded-xl bg-brand-500 px-4 py-3',
           'text-sm font-semibold text-white w-full',
-          'hover:bg-brand-600 active:bg-brand-700',
-          'active:scale-[0.99] transition-all',
+          'hover:bg-brand-600 active:bg-brand-700 active:scale-[0.99] transition-all',
           'disabled:opacity-50 disabled:cursor-not-allowed',
-          'sm:w-auto sm:flex-1' // auto width on sm+
+          'sm:w-auto sm:flex-1'
         )}
       >
         <Zap className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
@@ -829,7 +836,7 @@ function ActionBar({
 }
 
 // =============================================================================
-// No voucher state
+// No voucher panel
 // =============================================================================
 
 function NoVoucherPanel({
@@ -841,48 +848,47 @@ function NoVoucherPanel({
   onReanalyze: () => void;
   onNewSearch: () => void;
 }) {
+  const platform = PLATFORM_CONFIG[result.platform] ?? PLATFORM_CONFIG.unknown;
   return (
-    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
-      <div className="bg-gray-50 px-5 py-5 border-b border-gray-100">
-        <div className="mb-2 flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-500 uppercase tracking-wider">
-            Không tìm thấy
+    <div className="overflow-hidden rounded-2xl border-2 border-gray-200 bg-white">
+      {/* Header */}
+      <div
+        className="px-5 py-5"
+        style={{ background: 'linear-gradient(135deg, var(--gray-50) 0%, white 100%)', borderBottom: '1px solid var(--border-subtle)' }}
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <span className={clsx('flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl', platform.bgColor)}>
+            <Globe className={clsx('h-4 w-4', platform.textColor)} aria-hidden="true" />
           </span>
+          <div>
+            <p className="text-sm font-bold text-gray-800">Không tìm thấy voucher phù hợp</p>
+            <p className="text-xs text-gray-400 truncate">{result.displayLabel}</p>
+          </div>
         </div>
-        <p className="text-sm text-gray-600">
-          Hiện tại chưa có voucher nào phù hợp cho sản phẩm này.
+        <p className="text-sm text-gray-600 leading-relaxed">
+          Hiện tại chưa có mã giảm giá nào cho sản phẩm này trong hệ thống.
+          Sản phẩm có thể không nằm trong chương trình khuyến mãi hiện tại.
         </p>
       </div>
 
       <div className="p-5 space-y-4">
-        <SourceInfoBar result={result} />
-
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
-          <div className="flex items-start gap-2">
-            <Info className="h-4 w-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
-            <div>
-              <p className="font-medium">Tại sao không có kết quả?</p>
-              <p className="mt-1 text-xs leading-relaxed">
-                Sản phẩm này có thể không nằm trong chương trình khuyến mãi hiện tại,
-                hoặc voucher chưa được cập nhật trong hệ thống của chúng tôi.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4">
-          <p className="mb-2 text-sm font-semibold text-blue-800">Bạn có thể thử:</p>
+        {/* Tips */}
+        <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+          <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-blue-800">
+            <Info className="h-4 w-4" aria-hidden="true" />
+            Bạn có thể thử:
+          </p>
           <ul className="space-y-1.5 text-xs text-blue-700" role="list">
             <li className="flex items-start gap-2">
-              <span className="mt-1 h-1 w-1 flex-shrink-0 rounded-full bg-blue-400" aria-hidden="true" />
+              <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-blue-400" aria-hidden="true" />
               Tìm sản phẩm cùng danh mục hoặc shop khác
             </li>
             <li className="flex items-start gap-2">
-              <span className="mt-1 h-1 w-1 flex-shrink-0 rounded-full bg-blue-400" aria-hidden="true" />
+              <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-blue-400" aria-hidden="true" />
               Quay lại sau — voucher được cập nhật thường xuyên
             </li>
             <li className="flex items-start gap-2">
-              <span className="mt-1 h-1 w-1 flex-shrink-0 rounded-full bg-blue-400" aria-hidden="true" />
+              <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-blue-400" aria-hidden="true" />
               Kiểm tra trang khuyến mãi Shopee trực tiếp
             </li>
           </ul>
@@ -906,35 +912,34 @@ export function AnalysisDetailPanel({
 }: AnalysisDetailPanelProps) {
   const hasBestMatch = result.bestMatch !== null;
 
-  if (!hasBestMatch) {
-    return (
-      <div className={className}>
+  return (
+    <div className={clsx('space-y-4', className)}>
+      {/* Trust bar */}
+      <TrustBar result={result} />
+
+      {/* Match quality + confidence */}
+      <MatchMetaRow result={result} />
+
+      {/* Warnings */}
+      <WarningsPanel warnings={result.bestMatch?.warnings ?? []} />
+
+      {/* Main content */}
+      {hasBestMatch ? (
+        <BestResultCard
+          voucher={result.bestMatch!}
+          originalUrl={result.originalUrl}
+          explanation={result.explanation}
+        />
+      ) : (
         <NoVoucherPanel
           result={result}
           onReanalyze={onReanalyze}
           onNewSearch={onNewSearch}
         />
-      </div>
-    );
-  }
-
-  return (
-    <div className={clsx('space-y-4', className)}>
-      {/* Source info */}
-      <SourceInfoBar result={result} />
-
-      {/* Warning banners */}
-      <WarningBanners result={result} />
-
-      {/* Best voucher */}
-      <BestVoucherCard
-        voucher={result.bestMatch!}
-        originalUrl={result.originalUrl}
-        explanation={result.explanation}
-      />
+      )}
 
       {/* Alternatives */}
-      {result.candidates.length > 0 && (
+      {hasBestMatch && result.candidates.length > 0 && (
         <AlternativesSection
           candidates={result.candidates}
           originalUrl={result.originalUrl}
@@ -942,10 +947,15 @@ export function AnalysisDetailPanel({
       )}
 
       {/* Action bar */}
-      <ActionBar
-        onReanalyze={onReanalyze}
-        onNewSearch={onNewSearch}
-      />
+      {hasBestMatch && (
+        <ActionBar
+          onReanalyze={onReanalyze}
+          onNewSearch={onNewSearch}
+        />
+      )}
+
+      {/* Discovery links — cross-sell to deal discovery pages */}
+      <DiscoveryLinks />
     </div>
   );
 }

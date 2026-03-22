@@ -14,6 +14,7 @@ import {
   Users,
   Activity,
   LucideIcon,
+  ActivitySquare,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -81,6 +82,11 @@ export const adminNavSections: NavSection[] = [
     icon: AlertTriangle,
     items: [
       {
+        label: 'System Health',
+        href: '/admin/system-health',
+        icon: ActivitySquare,
+      },
+      {
         label: 'Dead Letters',
         href: '/admin/dead-letters',
         icon: AlertTriangle,
@@ -104,6 +110,11 @@ export const adminNavSections: NavSection[] = [
       {
         label: 'MasOffer',
         href: '/admin/integrations/masoffer',
+        icon: Activity,
+      },
+      {
+        label: 'Ecomobi',
+        href: '/admin/integrations/ecomobi',
         icon: Activity,
       },
     ],

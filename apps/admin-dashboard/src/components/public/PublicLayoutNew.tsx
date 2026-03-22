@@ -18,6 +18,7 @@ import { useAnalytics } from '@/lib/public/analytics-context';
 
 const NAV_LINKS = [
   { href: '/home', label: 'Tra cứu' },
+  { href: '/deals', label: 'Khám phá' },
   { href: '/resources', label: 'Tài nguyên' },
   { href: '/info/about', label: 'Giới thiệu' },
   { href: '/contact', label: 'Liên hệ' },

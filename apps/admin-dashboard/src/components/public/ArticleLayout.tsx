@@ -255,6 +255,30 @@ const ALL_ARTICLES: RelatedArticle[] = [
     readTime: 6,
     date: 'Tháng 3, 2026',
   },
+  {
+    href: '/resources/san-deal-theo-shop',
+    title: 'Cách săn deal theo shop trên Shopee',
+    description: 'Mỗi shop có kho voucher riêng. Tìm đúng mã của cửa hàng bạn muốn mua — thường rẻ hơn mã sàn chung.',
+    category: 'Mẹo Hay',
+    readTime: 5,
+    date: 'Tháng 3, 2026',
+  },
+  {
+    href: '/resources/confidence-score-la-gi',
+    title: 'Confidence Score là gì?',
+    description: 'Điểm chất lượng voucher (confidence) giúp bạn biết mã nào đáng tin — giải thích đơn giản không kỹ thuật.',
+    category: 'Kiến Thức',
+    readTime: 4,
+    date: 'Tháng 3, 2026',
+  },
+  {
+    href: '/resources/uu-dai-hieu-qua-cao',
+    title: 'Voucher nào thực sự tiết kiệm?',
+    description: 'So sánh mã phần trăm, mã cố định, voucher Free Ship để chọn ưu đãi hiệu quả nhất cho từng trường hợp mua hàng.',
+    category: 'Kiến Thức',
+    readTime: 6,
+    date: 'Tháng 3, 2026',
+  },
 ];
 
 export { ALL_ARTICLES };
