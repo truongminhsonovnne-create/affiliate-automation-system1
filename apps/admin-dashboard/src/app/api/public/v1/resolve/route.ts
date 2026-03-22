@@ -10,10 +10,40 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-const INTERNAL_API_URL =
-  process.env.INTERNAL_API_URL ?? 'http://localhost:3001';
+const INTERNAL_API_URL = process.env.INTERNAL_API_URL;
 
+// No fallback — if this is missing the request fails fast with a clear
+// error instead of silently proxying to localhost in production.
 const TIMEOUT_MS = 10_000;
+
+// =============================================================================
+// Logging helpers (safe — never log secrets or raw body content)
+// =============================================================================
+
+function logRequest(
+  method: string,
+  url: string,
+  status: number,
+  latencyMs: number,
+  cause?: unknown
+) {
+  const entry = {
+    ts: new Date().toISOString(),
+    level: status >= 500 ? 'error' : 'warn',
+    method,
+    url,
+    status,
+    latencyMs,
+    cause: cause instanceof Error ? cause.message : undefined,
+    stack: cause instanceof Error ? cause.stack : undefined,
+  };
+  // Use console.error/warn so Vercel captures it in structured logs
+  if (status >= 500) {
+    console.error(JSON.stringify(entry));
+  } else {
+    console.warn(JSON.stringify(entry));
+  }
+}
 
 // =============================================================================
 // Shared helpers
@@ -46,7 +76,12 @@ function proxyHeaders(request: NextRequest): Record<string, string> {
   return result;
 }
 
-function proxyErrorResponse(message: string, code: string, status = 503) {
+function proxyErrorResponse(
+  message: string,
+  code: string,
+  status = 503,
+  cause?: unknown
+) {
   return NextResponse.json(
     {
       requestId: '',
@@ -73,6 +108,22 @@ function proxyErrorResponse(message: string, code: string, status = 503) {
 // =============================================================================
 
 export async function POST(request: NextRequest) {
+  if (!INTERNAL_API_URL) {
+    console.error(JSON.stringify({
+      ts: new Date().toISOString(),
+      level: 'error',
+      method: 'POST',
+      route: '/api/public/v1/resolve',
+      error: 'MISSING_ENV',
+      message: 'INTERNAL_API_URL is not set. Check Vercel environment variables.',
+    }));
+    return proxyErrorResponse(
+      'Dịch vụ chưa được cấu hình. Vui lòng liên hệ quản trị viên.',
+      'MISSING_INTEGRATION',
+      503
+    );
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -137,6 +188,7 @@ export async function POST(request: NextRequest) {
 
   const upstreamUrl = `${INTERNAL_API_URL}/api/public/v1/resolve`;
 
+  const start = Date.now();
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -149,26 +201,28 @@ export async function POST(request: NextRequest) {
     });
 
     clearTimeout(timer);
+    const latencyMs = Date.now() - start;
 
     const data = await response.json();
-
-    // The internal engine may return a queued response with requestId.
-    // We pass it through so the client can poll.
-    if (response.status === 202 || response.status === 200) {
-      return NextResponse.json(data, { status: response.status });
-    }
+    logRequest('POST', upstreamUrl, response.status, latencyMs);
 
     return NextResponse.json(data, { status: response.status });
   } catch (err) {
+    const latencyMs = Date.now() - start;
     const isAbort =
       err instanceof DOMException && err.name === 'AbortException';
+    const isFetchError =
+      err instanceof TypeError && err.message.includes('fetch');
+
+    logRequest('POST', upstreamUrl, isAbort ? 504 : 503, latencyMs, err);
 
     return proxyErrorResponse(
       isAbort
         ? 'Yêu cầu hết thời gian chờ. Vui lòng thử lại.'
         : 'Không thể kết nối đến máy chủ.',
-      isAbort ? 'TIMEOUT' : 'SERVICE_UNAVAILABLE',
-      isAbort ? 504 : 503
+      isAbort ? 'TIMEOUT' : isFetchError ? 'CONNECTION_REFUSED' : 'SERVICE_UNAVAILABLE',
+      isAbort ? 504 : 503,
+      err
     );
   }
 }
@@ -178,6 +232,24 @@ export async function POST(request: NextRequest) {
 // =============================================================================
 
 export async function GET(request: NextRequest) {
+  if (!INTERNAL_API_URL) {
+    console.error(JSON.stringify({
+      ts: new Date().toISOString(),
+      level: 'error',
+      method: 'GET',
+      route: '/api/public/v1/resolve',
+      error: 'MISSING_ENV',
+      message: 'INTERNAL_API_URL is not set. Check Vercel environment variables.',
+    }));
+    return NextResponse.json(
+      {
+        error: 'MISSING_INTEGRATION',
+        message: 'Dịch vụ chưa được cấu hình. Vui lòng liên hệ quản trị viên.',
+      },
+      { status: 503 }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const requestId = searchParams.get('requestId');
 
@@ -193,6 +265,7 @@ export async function GET(request: NextRequest) {
 
   const upstreamUrl = `${INTERNAL_API_URL}/api/v1/voucher/resolve/${encodeURIComponent(requestId.trim())}`;
 
+  const start = Date.now();
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -204,14 +277,16 @@ export async function GET(request: NextRequest) {
     });
 
     clearTimeout(timer);
+    const latencyMs = Date.now() - start;
+    logRequest('GET', upstreamUrl, response.status, latencyMs);
 
-    const data = await response.json();
-
-    // 202 = still processing/queued, 200 = done, propagate both
-    return NextResponse.json(data, { status: response.status });
+    return NextResponse.json(await response.json(), { status: response.status });
   } catch (err) {
+    const latencyMs = Date.now() - start;
     const isAbort =
       err instanceof DOMException && err.name === 'AbortException';
+
+    logRequest('GET', upstreamUrl, isAbort ? 504 : 503, latencyMs, err);
 
     return NextResponse.json(
       {
