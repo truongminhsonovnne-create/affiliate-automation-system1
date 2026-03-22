@@ -1,8 +1,8 @@
 {
-  "framework": null,
+  "rootDirectory": "apps/admin-dashboard",
   "buildCommand": "npm run build",
-  "installCommand": "npm install --prefix apps/admin-dashboard",
-  "outputDirectory": "apps/admin-dashboard/.next",
+  "installCommand": "npm install",
+  "framework": "nextjs",
   "headers": [
     {
       "source": "/api/(.*)",

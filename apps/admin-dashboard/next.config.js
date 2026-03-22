@@ -18,7 +18,7 @@ const nextConfig = {
   // pre-render for /404 and /500.
   experimental: {
     outputFileTracingExcludes: {
-      '/**': ['../../../src/**'],
+      '/**': ['../../src/**'],
     },
   },
 
