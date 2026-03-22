@@ -21,6 +21,58 @@ export interface CacheEntry {
 // In-memory cache (in production, use Redis)
 const cache = new Map<string, CacheEntry>();
 
+// Request-level dedupe: tracks in-flight request keys (normalized input → requestId)
+// Prevents duplicate processing of the same input within a short window.
+const inflightRequests = new Map<string, { requestId: string; expiresAt: number }>();
+const INFLIGHT_TTL_MS = 15_000; // 15 seconds max for a request to complete
+
+/**
+ * Try to register an in-flight request for dedupe.
+ * Returns { alreadyInFlight: true, requestId: existingRequestId } if another request
+ * is already processing this input. Returns { alreadyInFlight: false } if safe to proceed.
+ */
+export function tryAcquireInflightRequest(
+  normalizedInput: string,
+  requestId: string
+): { alreadyInFlight: boolean; existingRequestId?: string } {
+  const dedupeKey = normalizedInput.toLowerCase().trim();
+
+  // Prune expired entries first (cheap, runs on every call)
+  const now = Date.now();
+  for (const [key, val] of inflightRequests.entries()) {
+    if (now > val.expiresAt) inflightRequests.delete(key);
+  }
+
+  const existing = inflightRequests.get(dedupeKey);
+  if (existing && now < existing.expiresAt) {
+    logger.debug({ dedupeKey, existingRequestId: existing.requestId }, 'Request deduped — already in flight');
+    return { alreadyInFlight: true, existingRequestId: existing.requestId };
+  }
+
+  inflightRequests.set(dedupeKey, { requestId, expiresAt: now + INFLIGHT_TTL_MS });
+  return { alreadyInFlight: false };
+}
+
+/**
+ * Release an in-flight request slot when processing is done.
+ */
+export function releaseInflightRequest(normalizedInput: string): void {
+  const dedupeKey = normalizedInput.toLowerCase().trim();
+  inflightRequests.delete(dedupeKey);
+}
+
+/**
+ * Get count of currently in-flight requests (for debug/metrics).
+ */
+export function getInflightRequestCount(): number {
+  const now = Date.now();
+  let count = 0;
+  for (const val of inflightRequests.values()) {
+    if (now < val.expiresAt) count++;
+  }
+  return count;
+}
+
 /**
  * Build a stable cache key from request input
  */

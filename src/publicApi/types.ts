@@ -50,6 +50,21 @@ export interface PublicVoucherResolveResponse {
   explanation: PublicVoucherExplanationDto | null;
   /** Warnings (non-blocking issues) */
   warnings: PublicApiWarning[];
+  /** Confidence score 0-1 indicating quality of match */
+  confidenceScore?: number;
+  /** Source that provided the best match */
+  matchedSource?: string;
+  /** Data freshness descriptor */
+  dataFreshness?: DataFreshnessLevel;
+  /** Pipeline phases with latencies (only in debug mode) */
+  debug?: PipelineDebugInfo;
+}
+
+export type DataFreshnessLevel = 'live' | 'recent' | 'stale' | 'unknown';
+
+export interface PipelineDebugInfo {
+  phases: Array<{ phase: string; durationMs: number; error?: string }>;
+  sourceHealthStates: Record<string, string>;
 }
 
 export type PublicVoucherResolveStatus =
@@ -99,6 +114,8 @@ export interface PublicVoucherCandidateDto {
   tier?: string;
   /** Whether using degraded mode (store failed) */
   degraded?: boolean;
+  /** Source of this voucher */
+  source?: string;
 }
 
 export interface PublicVoucherExplanationDto {
