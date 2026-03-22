@@ -75,11 +75,11 @@ export type EcomobiStatus = 'active' | 'inactive' | 'expired' | 'pending' | stri
  * from supabase-write in this workspace).
  */
 export interface EcomobiMappedOffer {
-  source: SourceKey;
+  source: string;
   source_type: string;
   external_id: string;
   title: string;
-  slug: string;
+  slug: string | null;
   description: string | null;
   merchant_name: string;
   merchant_id: string | null;

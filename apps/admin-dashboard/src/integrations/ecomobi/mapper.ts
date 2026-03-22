@@ -123,7 +123,7 @@ function computeConfidence(item: EcomobiRawItem): number {
  */
 export function mapEcomobiItemToOffer(
   item: EcomobiRawItem
-): Omit<EcomobiMappedOffer, 'source'> {
+): EcomobiMappedOffer {
   const now = new Date().toISOString();
 
   // TODO: Replace with actual Ecomobi field accessors
@@ -159,6 +159,7 @@ export function mapEcomobiItemToOffer(
   const hash = createHash('sha256').update(dedupeInput).digest('hex');
 
   return {
+    source: 'ecomobi',
     source_type: sourceType,
     external_id: externalId,
     title,
