@@ -1,7 +1,7 @@
 {
   "buildCommand": "npm run build:web",
   "outputDirectory": "apps/admin-dashboard/.next",
-  "installCommand": "npm ci --prefix apps/admin-dashboard",
+  "installCommand": "npm install --prefix apps/admin-dashboard",
   "framework": "nextjs",
   "regions": ["sin1"],
   "env": {
