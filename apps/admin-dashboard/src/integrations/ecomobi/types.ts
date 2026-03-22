@@ -13,14 +13,13 @@
 
 // ── Raw API DTOs (PENDING — replace with real shapes from Ecomobi docs) ───────
 
-// @ts-expect-error PENDING: awaiting Ecomobi API documentation.
+// NOTE: these are intentionally bare interfaces used as generic containers.
+// Real field shapes will be confirmed once Ecomobi API docs are available.
 export interface EcomobiPaginatedResponse<T> {
-  // TODO: fill once Ecomobi API docs are available
   data?: T[];
   pagination?: EcomobiPaginationMeta;
 }
 
-// @ts-expect-error PENDING: awaiting Ecomobi API documentation.
 export interface EcomobiRawItem {
   // TODO: fill once Ecomobi API docs are available
   // Expected fields (TBD based on Ecomobi API):
@@ -44,9 +43,7 @@ export interface EcomobiRawItem {
   // - verified?: boolean
 }
 
-// @ts-expect-error PENDING: awaiting Ecomobi API documentation.
 export interface EcomobiOffersResponse {
-  // TODO: fill once Ecomobi API docs are available
   data?: EcomobiRawItem[];
 }
 

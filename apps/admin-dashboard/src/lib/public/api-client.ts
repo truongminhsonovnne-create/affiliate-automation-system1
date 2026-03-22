@@ -27,7 +27,6 @@ import type {
 export type { PublicDiscountType };
 export type { PublicResolutionPhase };
 export type { PhaseMappingResult };
-export type { DataFreshnessLevel };
 
 // =============================================================================
 // Async resolution constants
