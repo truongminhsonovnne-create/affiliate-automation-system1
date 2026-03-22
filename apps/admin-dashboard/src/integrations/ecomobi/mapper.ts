@@ -159,7 +159,6 @@ export function mapEcomobiItemToOffer(
   const hash = createHash('sha256').update(dedupeInput).digest('hex');
 
   return {
-    source: 'ecomobi',
     source_type: sourceType,
     external_id: externalId,
     title,
