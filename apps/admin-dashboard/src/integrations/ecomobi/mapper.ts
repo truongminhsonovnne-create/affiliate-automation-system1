@@ -11,8 +11,7 @@
  */
 
 import { createHash } from 'crypto';
-import type { EcomobiRawItem } from './types';
-import type { NormalisedOffer } from '@/lib/api/supabase-write';
+import type { EcomobiRawItem, EcomobiMappedOffer } from './types';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -124,7 +123,7 @@ function computeConfidence(item: EcomobiRawItem): number {
  */
 export function mapEcomobiItemToOffer(
   item: EcomobiRawItem
-): Omit<NormalisedOffer, 'id' | 'created_at' | 'updated_at'> {
+): Omit<EcomobiMappedOffer, 'source'> {
   const now = new Date().toISOString();
 
   // TODO: Replace with actual Ecomobi field accessors

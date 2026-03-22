@@ -11,8 +11,6 @@
  * Reference: masoffer and accesstrade integration types for schema patterns.
  */
 
-import type { NormalisedOffer } from '@/lib/api/supabase-write';
-
 // ── Raw API DTOs (PENDING — replace with real shapes from Ecomobi docs) ───────
 
 // @ts-expect-error PENDING: awaiting Ecomobi API documentation.
@@ -72,13 +70,40 @@ export type EcomobiStatus = 'active' | 'inactive' | 'expired' | 'pending' | stri
 // ── Mapped domain types (mirror NormalisedOffer shape) ────────────────────────
 
 /**
- * Result of mapping a raw Ecomobi item to the shared NormalisedOffer schema.
- * All fields except source are inherited from NormalisedOffer.
+ * Ecomobi mapped offer — mirrors the fields returned by mapEcomobiItemToOffer.
+ * Copied here rather than importing NormalisedOffer (which is not exported
+ * from supabase-write in this workspace).
  */
-export type EcomobiMappedOffer = Omit<
-  NormalisedOffer,
-  'id' | 'created_at' | 'updated_at'
-> & { source: SourceKey };
+export interface EcomobiMappedOffer {
+  source: SourceKey;
+  source_type: string;
+  external_id: string;
+  title: string;
+  slug: string;
+  description: string | null;
+  merchant_name: string;
+  merchant_id: string | null;
+  category: string | null;
+  destination_url: string | null;
+  tracking_url: string | null;
+  coupon_code: string | null;
+  discount_type: string | null;
+  discount_value: number | null;
+  max_discount: number | null;
+  min_order_value: number | null;
+  currency: string;
+  start_at: string | null;
+  end_at: string | null;
+  status: string;
+  terms: string | null;
+  image_url: string | null;
+  confidence_score: number;
+  last_seen_at: string;
+  first_seen_at: string;
+  synced_at: string;
+  raw_payload_jsonb: Record<string, unknown>;
+  normalized_hash: string;
+}
 
 // ── Configuration ──────────────────────────────────────────────────────────────
 
