@@ -27,6 +27,7 @@ import type {
 export type { PublicDiscountType };
 export type { PublicResolutionPhase };
 export type { PhaseMappingResult };
+export type { DataFreshnessLevel };
 
 // =============================================================================
 // Async resolution constants
@@ -61,13 +62,21 @@ export interface VoucherResolveOptions {
 export interface ResolutionState {
   status: ResolutionStatus;
   requestId: string | null;
-  bestMatch: BestMatchCard | null;
+  bestMatch: BestMatchDetail | null;
   candidates: CandidateCard[];
   performance: PerformanceMeta | null;
   warnings: WarningItem[];
   explanation: ExplanationCard | null;
   error: ErrorCard | null;
+  /** Confidence score 0-1 from backend resolve pipeline */
+  confidenceScore?: number;
+  /** Which source provided the best match */
+  matchedSource?: string;
+  /** Data freshness level */
+  dataFreshness?: DataFreshnessLevel;
 }
+
+export type DataFreshnessLevel = 'live' | 'recent' | 'stale' | 'unknown';
 
 export type ResolutionStatus =
   | 'idle'
@@ -139,6 +148,10 @@ export interface BestMatchDetail extends BestMatchCard {
   warnings: WarningItem[];
   /** Total candidates considered */
   totalCandidates: number;
+  /** Match quality label derived from confidence score */
+  matchQuality: 'high' | 'medium' | 'low';
+  /** Why this match was selected */
+  selectionReason?: string;
 }
 
 /** Full analysis result for a single lookup */
@@ -159,6 +172,12 @@ export interface AnalysisResult {
   explanation: ExplanationCard | null;
   /** Performance metadata */
   performance: PerformanceMeta | null;
+  /** Confidence score 0-1 (null if not provided by backend) */
+  confidenceScore?: number;
+  /** Source that provided the best match */
+  matchedSource?: string;
+  /** Data freshness level */
+  dataFreshness?: DataFreshnessLevel;
   /** Processing metadata */
   meta: AnalysisMeta;
 }
@@ -442,10 +461,16 @@ export function buildResolutionState(
   return {
     status,
     requestId: apiResponse.requestId,
-    bestMatch: apiResponse.bestMatch
-      ? mapBestMatch(apiResponse.bestMatch)
-      : null,
     candidates: apiResponse.candidates.map(mapCandidate),
+    bestMatch: apiResponse.bestMatch
+      ? mapBestMatch(
+          apiResponse.bestMatch,
+          apiResponse.confidenceScore,
+          apiResponse.matchedSource,
+          apiResponse.warnings,
+          apiResponse.candidates.map(mapCandidate),
+        )
+      : null,
     performance,
     warnings: apiResponse.warnings ?? [],
     explanation: apiResponse.explanation
@@ -464,6 +489,9 @@ export function buildResolutionState(
               'Đã xảy ra lỗi. Vui lòng thử lại.',
           }
         : null,
+    confidenceScore: apiResponse.confidenceScore,
+    matchedSource: apiResponse.matchedSource,
+    dataFreshness: apiResponse.dataFreshness,
   };
 }
 
@@ -568,8 +596,15 @@ export function classifyStatus(status: PublicVoucherResolveStatus): ResolutionSt
 // Internal mappers
 // =============================================================================
 
-function mapBestMatch(raw: PublicVoucherBestMatchDto): BestMatchCard {
-  return {
+function mapBestMatch(
+  raw: PublicVoucherBestMatchDto,
+  confidenceScore?: number,
+  matchedSource?: string,
+  warnings?: WarningItem[],
+  candidates?: CandidateCard[],
+): BestMatchDetail {
+  // Build minimal BestMatchCard then enrich
+  const card: BestMatchCard = {
     voucherId: raw.voucherId,
     code: raw.code,
     discountType: raw.discountType,
@@ -580,6 +615,7 @@ function mapBestMatch(raw: PublicVoucherBestMatchDto): BestMatchCard {
     headline: raw.headline,
     applicableCategories: raw.applicableCategories ?? [],
   };
+  return enrichBestMatch(card, candidates ?? [], warnings ?? [], confidenceScore, matchedSource);
 }
 
 function mapCandidate(raw: PublicVoucherCandidateDto): CandidateCard {
@@ -614,11 +650,14 @@ export function buildAnalysisResult(
     platform,
     outcome: state.status,
     bestMatch: state.bestMatch
-      ? enrichBestMatch(state.bestMatch, state.candidates, state.warnings)
+      ? enrichBestMatch(state.bestMatch, state.candidates, state.warnings, state.confidenceScore, state.matchedSource)
       : null,
     candidates: state.candidates,
     explanation: state.explanation,
     performance: state.performance,
+    confidenceScore: state.confidenceScore,
+    matchedSource: state.matchedSource,
+    dataFreshness: state.dataFreshness,
     meta: {
       servedFromCache: state.performance?.servedFromCache ?? false,
       serverDurationMs: state.performance?.totalLatencyMs ?? null,
@@ -632,7 +671,9 @@ export function buildAnalysisResult(
 function enrichBestMatch(
   card: BestMatchCard,
   candidates: CandidateCard[],
-  warnings: WarningItem[]
+  warnings: WarningItem[],
+  confidenceScore?: number,
+  matchedSource?: string,
 ): BestMatchDetail {
   const expiry = card.validUntil;
   const isExpired = expiry ? new Date(expiry).getTime() < Date.now() : false;
@@ -662,6 +703,16 @@ function enrichBestMatch(
     conditions.push('⏰ Sắp hết hạn trong hôm nay');
   }
 
+  // Determine match quality
+  const quality: 'high' | 'medium' | 'low' =
+    confidenceScore == null
+      ? 'medium'
+      : confidenceScore >= 0.8
+      ? 'high'
+      : confidenceScore >= 0.5
+      ? 'medium'
+      : 'low';
+
   return {
     ...card,
     conditions,
@@ -670,7 +721,29 @@ function enrichBestMatch(
     servedFromCache: false,
     warnings: warnings.filter((w) => w.severity === 'warning'),
     totalCandidates: candidates.length + 1,
+    matchQuality: quality,
+    selectionReason: buildSelectionReason(confidenceScore, matchedSource),
   };
+}
+
+function buildSelectionReason(
+  confidenceScore?: number,
+  matchedSource?: string
+): string | undefined {
+  if (matchedSource === 'AccessTrade') {
+    return 'Voucher chương trình Affiliate — được đối soát thường xuyên';
+  }
+  if (matchedSource === 'MasOffer') {
+    return 'Từ mạng lưới đối tác chính thức';
+  }
+  if (matchedSource?.includes('broad') || matchedSource === 'MasOffer_broad') {
+    return 'Broad promotion — áp dụng chung cho nhiều sản phẩm';
+  }
+  if (confidenceScore == null) return undefined;
+  if (confidenceScore >= 0.9) return 'Kết quả khớp chính xác cao';
+  if (confidenceScore >= 0.7) return 'Kết quả khớp tốt';
+  if (confidenceScore >= 0.5) return 'Kết quả khớp trung bình — có thể có lựa chọn tốt hơn';
+  return 'Kết quả khớp thấp — nên thử thêm';
 }
 
 function extractPlatform(url: string): string {
