@@ -7,7 +7,7 @@
 
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { env } from '../config/env.js';
-import { log } from '../utils/logger.js';
+import { debug, warn, error } from '../utils/logger.js';
 
 // ============================================
 // Types & Interfaces
@@ -145,7 +145,8 @@ Output JSON format:
  */
 export class GeminiService {
   private client: GoogleGenerativeAI;
-  private model: ReturnType<GoogleGenerativeAI['getModel']>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private model: any;
   private config: GeminiServiceConfig;
 
   constructor(config: Partial<GeminiServiceConfig> = {}) {
@@ -201,7 +202,7 @@ export class GeminiService {
       .replace('{reviewCount}', reviewCount?.toString() || '0')
       .replace('{soldCount}', soldCount?.toLocaleString('vi-VN') || 'Chưa có');
 
-    log.debug({ title: title.substring(0, 30), retryCount }, 'Generating affiliate content');
+    debug({ title: title.substring(0, 30), retryCount }, 'Generating affiliate content');
 
     try {
       // Generate content
@@ -215,7 +216,7 @@ export class GeminiService {
       if (!parsed) {
         // Parse failed, try retry
         if (retryCount < MAX_RETRIES) {
-          log.warn({ retryCount }, 'Parse failed, retrying...');
+          warn({ retryCount }, 'Parse failed, retrying...');
           return this.generateAffiliateContent(input, retryCount + 1);
         }
 
@@ -229,7 +230,7 @@ export class GeminiService {
       // Validate required fields
       if (!parsed.reviewContent || !parsed.socialCaption || !parsed.hashtags) {
         if (retryCount < MAX_RETRIES) {
-          log.warn({ retryCount }, 'Invalid output structure, retrying...');
+          warn({ retryCount }, 'Invalid output structure, retrying...');
           return this.generateAffiliateContent(input, retryCount + 1);
         }
 
@@ -250,11 +251,11 @@ export class GeminiService {
 
       // Retry on error
       if (retryCount < MAX_RETRIES) {
-        log.warn({ error: errorMessage, retryCount }, 'Generation error, retrying...');
+        warn({ error: errorMessage, retryCount }, 'Generation error, retrying...');
         return this.generateAffiliateContent(input, retryCount + 1);
       }
 
-      log.error({ error: errorMessage }, 'Content generation failed');
+      error({ error: errorMessage }, 'Content generation failed');
       return {
         success: false,
         error: errorMessage,
@@ -304,7 +305,7 @@ export class GeminiService {
       }
 
       if (!jsonStr) {
-        log.debug('No JSON found in response');
+        debug({}, 'No JSON found in response');
         return null;
       }
 
@@ -334,7 +335,7 @@ export class GeminiService {
 
       return output;
     } catch (error) {
-      log.debug({ error, text: text.substring(0, 200) }, 'Failed to parse content response');
+      debug({ error, text: text.substring(0, 200) }, 'Failed to parse content response');
       return null;
     }
   }
@@ -358,7 +359,7 @@ export class GeminiService {
       const result = await this.model.generateContent('Hi');
       return result.response.text().length > 0;
     } catch (error) {
-      log.error({ error }, 'Gemini connection test failed');
+      error({ error }, 'Gemini connection test failed');
       return false;
     }
   }
@@ -411,14 +412,4 @@ export async function generateBatchContent(
   return service.generateBatchContent(inputs);
 }
 
-// ============================================
-// Export
-// ============================================
-
-export type {
-  AffiliateContentInput,
-  AffiliateContentOutput,
-  GeminiServiceConfig,
-  ContentGenerationResult,
-};
 

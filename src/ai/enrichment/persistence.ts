@@ -12,7 +12,7 @@ import type {
   AiPersistenceDecision,
   AiEnrichmentLogger,
 } from './types.js';
-import type { AffiliateContentRepository } from '../../repositories/affiliateContentRepository.js';
+import type { AffiliateContentRepository } from '../../db/repositories/affiliateContentRepository.js';
 import { DEDUP_POLICY, PERSISTENCE_CONFIG } from './constants.js';
 
 /**
@@ -55,7 +55,7 @@ export async function persistAffiliateAiContent(
         qualityScore: input.qualityScore,
         existingContent: existing ? {
           promptVersion: existing.prompt_version,
-          qualityScore: existing.quality_score,
+          qualityScore: existing.confidence_score,
         } : undefined,
         logger,
       }

@@ -26,8 +26,8 @@ import { loadAffiliateProductsForEnrichment, loadAffiliateProductForEnrichment }
 import { persistAffiliateAiContent, persistManyAffiliateAiContents } from './persistence.js';
 import { createAiEnrichmentResultBuilder, buildAiEnrichmentError, buildAiEnrichmentWarning } from './resultBuilder.js';
 
-import type { AffiliateProductRepository } from '../../repositories/affiliateProductRepository.js';
-import type { AffiliateContentRepository } from '../../repositories/affiliateContentRepository.js';
+import type { AffiliateProductRepository } from '../../db/repositories/affiliateProductRepository.js';
+import type { AffiliateContentRepository } from '../../db/repositories/affiliateContentRepository.js';
 
 /**
  * AI Enrichment Pipeline Dependencies

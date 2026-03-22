@@ -107,7 +107,7 @@ function formatMessage(level: LogLevel, message: string, meta?: LogMeta): string
 /**
  * Log debug message
  */
-export function debug(message: string, meta?: LogMeta): void {
+export function debug(meta: LogMeta, message: string): void {
   if (shouldLog('debug')) {
     console.log(formatMessage('debug', message, meta));
   }
@@ -116,7 +116,7 @@ export function debug(message: string, meta?: LogMeta): void {
 /**
  * Log info message
  */
-export function info(message: string, meta?: LogMeta): void {
+export function info(meta: LogMeta, message: string): void {
   if (shouldLog('info')) {
     console.log(formatMessage('info', message, meta));
   }
@@ -125,7 +125,7 @@ export function info(message: string, meta?: LogMeta): void {
 /**
  * Log warning message
  */
-export function warn(message: string, meta?: LogMeta): void {
+export function warn(meta: LogMeta, message: string): void {
   if (shouldLog('warn')) {
     console.warn(formatMessage('warn', message, meta));
   }
@@ -134,7 +134,7 @@ export function warn(message: string, meta?: LogMeta): void {
 /**
  * Log error message
  */
-export function error(message: string, err?: Error | unknown, meta?: LogMeta): void {
+export function error(meta: LogMeta, message: string, err?: Error | unknown): void {
   if (shouldLog('error')) {
     let errorMeta = meta || {};
 
@@ -158,8 +158,8 @@ export function error(message: string, err?: Error | unknown, meta?: LogMeta): v
 /**
  * Log info with object
  */
-export function log(message: string, meta?: LogMeta): void {
-  info(message, meta);
+export function log(meta: LogMeta, message: string): void {
+  info(meta, message);
 }
 
 // ============================================
@@ -171,14 +171,14 @@ export function log(message: string, meta?: LogMeta): void {
  */
 export function createLogger(context: string) {
   return {
-    debug: (message: string, meta?: LogMeta) =>
-      debug(`[${context}] ${message}`, meta),
-    info: (message: string, meta?: LogMeta) =>
-      info(`[${context}] ${message}`, meta),
-    warn: (message: string, meta?: LogMeta) =>
-      warn(`[${context}] ${message}`, meta),
-    error: (message: string, err?: Error | unknown, meta?: LogMeta) =>
-      error(`[${context}] ${message}`, err, meta),
+    debug: (meta: LogMeta, message: string) =>
+      debug(meta, `[${context}] ${message}`),
+    info: (meta: LogMeta, message: string) =>
+      info(meta, `[${context}] ${message}`),
+    warn: (meta: LogMeta, message: string) =>
+      warn(meta, `[${context}] ${message}`),
+    error: (meta: LogMeta, message: string, err?: Error | unknown) =>
+      error(meta, `[${context}] ${message}`, err),
   };
 }
 
@@ -195,12 +195,12 @@ export async function measureTime<T>(
     const result = await fn();
     const duration = Date.now() - start;
 
-    info(`${name} completed`, { duration: `${duration}ms` });
+    info({ duration: `${duration}ms` }, `${name} completed`);
 
     return { result, duration };
   } catch (error) {
     const duration = Date.now() - start;
-    error(`${name} failed`, error as Error, { duration: `${duration}ms` });
+    error({ duration: `${duration}ms` }, `${name} failed`, error as Error);
     throw error;
   }
 }
@@ -225,8 +225,21 @@ export function setLogLevel(level: LogLevel): void {
 
 export type { LogLevel, LogMeta };
 
-// Default export
-const logger = {
+// Default export with explicit type annotation so TypeScript infers the full object
+// not just the callable signature of the `log` function
+interface Logger {
+  debug: (meta: LogMeta, message: string) => void;
+  info: (meta: LogMeta, message: string) => void;
+  warn: (meta: LogMeta, message: string) => void;
+  error: (meta: LogMeta, message: string, err?: Error | unknown) => void;
+  log: (meta: LogMeta, message: string) => void;
+  createLogger: (context: string) => Logger;
+  measureTime: <T>(name: string, fn: () => Promise<T>) => Promise<{ result: T; duration: number }>;
+  getLogLevel: () => LogLevel;
+  setLogLevel: (level: LogLevel) => void;
+}
+
+const logger: Logger = {
   debug,
   info,
   warn,
@@ -239,3 +252,6 @@ const logger = {
 };
 
 export default logger;
+
+// Named export (allows both `import { logger }` and `import logger`)
+export { logger };

@@ -6,7 +6,7 @@
 
 import { z } from 'zod';
 import { CONTENT_QUALITY } from './constants.js';
-import type { AffiliateContentOutput, AiContentValidationResult } from './types.js';
+import type { AffiliateContentOutput, AiContentQualityResult } from './types.js';
 
 // ============================================
 // Content Output Schema
@@ -64,14 +64,14 @@ export type AffiliateContentOutputZod = z.infer<typeof affiliateContentOutputSch
 /**
  * Validate affiliate content output
  */
-export function validateAffiliateContentOutput(data: unknown): AiContentValidationResult {
+export function validateAffiliateContentOutput(data: unknown): { ok: boolean; data?: AffiliateContentOutput; errors: Array<{ path: string; message: string }> } {
   try {
     const result = affiliateContentOutputSchema.safeParse(data);
 
     if (result.success) {
       return {
         ok: true,
-        data: result.data,
+        data: result.data as AffiliateContentOutput,
         errors: [],
       };
     }

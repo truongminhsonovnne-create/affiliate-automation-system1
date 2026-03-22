@@ -187,6 +187,63 @@ export class AffiliateContentRepository {
     }
   }
 
+  /**
+   * Find content by product ID and type
+   */
+  async findByProductAndType(
+    productId: string,
+    contentType: string
+  ): Promise<AffiliateContent | null> {
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client
+        .from(this.tableName)
+        .select('*')
+        .eq('product_id', productId)
+        .eq('content_type', contentType)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error || !data) {
+        return null;
+      }
+
+      return data as AffiliateContent;
+    } catch (error) {
+      log.error({ error, productId, contentType }, 'Error finding content by product and type');
+      return null;
+    }
+  }
+
+  // ============================================
+  // Create/Update (for AI enrichment pipeline)
+  // ============================================
+
+  /**
+   * Create new content record
+   */
+  async create(data: Record<string, unknown>): Promise<{ id: string } | null> {
+    try {
+      const client = getSupabaseClient();
+      const { data: result, error } = await client
+        .from(this.tableName)
+        .insert(data as never)
+        .select('id')
+        .single();
+
+      if (error || !result) {
+        log.error({ error }, 'Failed to create content');
+        return null;
+      }
+
+      return { id: result.id };
+    } catch (error) {
+      log.error({ error }, 'Error creating content');
+      return null;
+    }
+  }
+
   // ============================================
   // Update Operations
   // ============================================
@@ -204,6 +261,32 @@ export class AffiliateContentRepository {
       const { error } = await client
         .from(this.tableName)
         .update(updateData)
+        .eq('id', id);
+
+      if (error) {
+        log.error({ error, id }, 'Failed to update content');
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      log.error({ error, id }, 'Error updating content');
+      return false;
+    }
+  }
+
+  /**
+   * Update content by ID (generic overload)
+   */
+  async update(
+    id: string,
+    data: Record<string, unknown>
+  ): Promise<boolean> {
+    try {
+      const client = getSupabaseClient();
+      const { error } = await client
+        .from(this.tableName)
+        .update(data as never)
         .eq('id', id);
 
       if (error) {

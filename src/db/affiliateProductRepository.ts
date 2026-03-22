@@ -7,16 +7,7 @@
 
 import { getSupabaseClient } from './supabaseClient.js';
 import { log } from '../utils/logger.js';
-import type {
-  AffiliateProductRow,
-  AffiliateProductInsert,
-  AffiliateProductUpdate,
-  ProductQueryFilter,
-  QueryPagination,
-  PaginatedResult,
-  CreateAffiliateProductDTO,
-  UpdateAIContentDTO,
-} from '../types/database.js';
+import type { AffiliateProduct, CreateAffiliateProductDTO } from '../types/database.js';
 
 // ============================================
 // Constants
@@ -43,11 +34,30 @@ export class AffiliateProductRepository {
    */
   async insertAffiliateProduct(
     record: CreateAffiliateProductDTO
-  ): Promise<AffiliateProductRow | null> {
+  ): Promise<AffiliateProduct | null> {
     try {
       const client = getSupabaseClient();
 
-      const insertData = this.mapToInsertData(record);
+      const insertData = {
+        platform: record.platform,
+        external_product_id: record.external_product_id || null,
+        title: record.title,
+        price: record.price || null,
+        image_url: record.image_url || null,
+        original_description: record.original_description || null,
+        product_url: record.product_url,
+        source_type: record.source_type,
+        source_keyword: record.source_keyword || null,
+        crawled_at: record.crawled_at instanceof Date
+          ? record.crawled_at.toISOString()
+          : record.crawled_at,
+        original_price: record.original_price || null,
+        shop_name: record.shop_name || null,
+        rating: record.rating || null,
+        review_count: record.review_count || null,
+        sold_count: record.sold_count || null,
+        category: record.category || null,
+      };
 
       const { data, error } = await client
         .from(this.tableName)
@@ -61,7 +71,7 @@ export class AffiliateProductRepository {
       }
 
       log.debug({ id: data.id, title: data.title }, 'Product inserted successfully');
-      return data as AffiliateProductRow;
+      return data as AffiliateProduct;
     } catch (error) {
       log.error({ error }, 'Error inserting affiliate product');
       return null;
@@ -81,7 +91,26 @@ export class AffiliateProductRepository {
     try {
       const client = getSupabaseClient();
 
-      const insertData = records.map((record) => this.mapToInsertData(record));
+      const insertData = records.map((record) => ({
+        platform: record.platform,
+        external_product_id: record.external_product_id || null,
+        title: record.title,
+        price: record.price || null,
+        image_url: record.image_url || null,
+        original_description: record.original_description || null,
+        product_url: record.product_url,
+        source_type: record.source_type,
+        source_keyword: record.source_keyword || null,
+        crawled_at: record.crawled_at instanceof Date
+          ? record.crawled_at.toISOString()
+          : record.crawled_at,
+        original_price: record.original_price || null,
+        shop_name: record.shop_name || null,
+        rating: record.rating || null,
+        review_count: record.review_count || null,
+        sold_count: record.sold_count || null,
+        category: record.category || null,
+      }));
 
       const { data, error } = await client
         .from(this.tableName)
@@ -110,7 +139,7 @@ export class AffiliateProductRepository {
   /**
    * Find product by ID
    */
-  async findById(id: string): Promise<AffiliateProductRow | null> {
+  async findById(id: string): Promise<AffiliateProduct | null> {
     try {
       const client = getSupabaseClient();
       const { data, error } = await client
@@ -123,7 +152,7 @@ export class AffiliateProductRepository {
         return null;
       }
 
-      return data as AffiliateProductRow;
+      return data as AffiliateProduct;
     } catch (error) {
       log.error({ error, id }, 'Error finding product by ID');
       return null;
@@ -133,7 +162,7 @@ export class AffiliateProductRepository {
   /**
    * Find product by product URL (to avoid duplicates)
    */
-  async findByProductUrl(productUrl: string): Promise<AffiliateProductRow | null> {
+  async findByProductUrl(productUrl: string): Promise<AffiliateProduct | null> {
     try {
       const client = getSupabaseClient();
       const { data, error } = await client
@@ -146,7 +175,7 @@ export class AffiliateProductRepository {
         return null;
       }
 
-      return data as AffiliateProductRow;
+      return data as AffiliateProduct;
     } catch (error) {
       // Not found is not an error
       return null;
@@ -154,127 +183,76 @@ export class AffiliateProductRepository {
   }
 
   /**
-   * Find products by filter with pagination
+   * Find product by platform and URL
    */
-  async findAll(
-    filter: ProductQueryFilter,
-    pagination: QueryPagination
-  ): Promise<PaginatedResult<AffiliateProductRow>> {
-    try {
-      const client = getSupabaseClient();
-
-      let query = client.from(this.tableName).select('*', { count: 'exact' });
-
-      // Apply filters
-      if (filter.sourceType) {
-        query = query.eq('source_type', filter.sourceType);
-      }
-      if (filter.sourceKeyword) {
-        query = query.eq('source_keyword', filter.sourceKeyword);
-      }
-      if (filter.status) {
-        query = query.eq('status', filter.status);
-      }
-      if (filter.minPrice !== undefined) {
-        query = query.gte('price', filter.minPrice);
-      }
-      if (filter.maxPrice !== undefined) {
-        query = query.lte('price', filter.maxPrice);
-      }
-      if (filter.category) {
-        query = query.eq('category', filter.category);
-      }
-      if (filter.fromDate) {
-        const fromDate = filter.fromDate instanceof Date
-          ? filter.fromDate.toISOString()
-          : filter.fromDate;
-        query = query.gte('created_at', fromDate);
-      }
-      if (filter.toDate) {
-        const toDate = filter.toDate instanceof Date
-          ? filter.toDate.toISOString()
-          : filter.toDate;
-        query = query.lte('created_at', toDate);
-      }
-      if (filter.minConfidence !== undefined) {
-        query = query.gte('confidence_score', filter.minConfidence);
-      }
-      if (filter.minTrending !== undefined) {
-        query = query.gte('trending_score', filter.minTrending);
-      }
-
-      // Apply pagination
-      const offset = (pagination.page - 1) * pagination.limit;
-      query = query.range(offset, offset + pagination.limit - 1);
-
-      // Order by created_at desc
-      query = query.order('created_at', { ascending: false });
-
-      const { data, error, count } = await query;
-
-      if (error) {
-        log.error({ error, filter }, 'Failed to fetch products');
-        return this.emptyPaginatedResult(pagination);
-      }
-
-      return {
-        data: (data || []) as AffiliateProductRow[],
-        total: count || 0,
-        page: pagination.page,
-        limit: pagination.limit,
-        totalPages: Math.ceil((count || 0) / pagination.limit),
-      };
-    } catch (error) {
-      log.error({ error }, 'Error fetching products');
-      return this.emptyPaginatedResult(pagination);
-    }
-  }
-
-  /**
-   * Find products by source keyword
-   */
-  async findBySourceKeyword(keyword: string): Promise<AffiliateProductRow[]> {
+  async findByPlatformAndUrl(
+    platform: string,
+    productUrl: string
+  ): Promise<AffiliateProduct | null> {
     try {
       const client = getSupabaseClient();
       const { data, error } = await client
         .from(this.tableName)
         .select('*')
-        .eq('source_keyword', keyword)
-        .order('created_at', { ascending: false });
+        .eq('platform', platform)
+        .eq('product_url', productUrl)
+        .single();
+
+      if (error || !data) {
+        return null;
+      }
+
+      return data as AffiliateProduct;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Get latest products
+   */
+  async getLatestProducts(limit: number = 50): Promise<AffiliateProduct[]> {
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client
+        .from(this.tableName)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(limit);
 
       if (error) {
-        log.error({ error, keyword }, 'Failed to fetch products by keyword');
+        log.error({ error, limit }, 'Failed to get latest products');
         return [];
       }
 
-      return (data || []) as AffiliateProductRow[];
+      return (data || []) as AffiliateProduct[];
     } catch (error) {
-      log.error({ error, keyword }, 'Error fetching products by keyword');
+      log.error({ error, limit }, 'Error getting latest products');
       return [];
     }
   }
 
   /**
-   * Get pending products (not yet processed by AI)
+   * Find products by platform
    */
-  async findPendingProducts(limit: number = 10): Promise<AffiliateProductRow[]> {
+  async findByPlatform(platform: string, limit: number = 50): Promise<AffiliateProduct[]> {
     try {
       const client = getSupabaseClient();
       const { data, error } = await client
         .from(this.tableName)
         .select('*')
-        .is('status', null)
+        .eq('platform', platform)
         .order('created_at', { ascending: false })
         .limit(limit);
 
       if (error) {
-        log.error({ error }, 'Failed to fetch pending products');
+        log.error({ error, platform }, 'Failed to fetch products by platform');
         return [];
       }
 
-      return (data || []) as AffiliateProductRow[];
+      return (data || []) as AffiliateProduct[];
     } catch (error) {
-      log.error({ error }, 'Error fetching pending products');
+      log.error({ error, platform }, 'Error fetching products by platform');
       return [];
     }
   }
@@ -288,7 +266,7 @@ export class AffiliateProductRepository {
    */
   async updateById(
     id: string,
-    updateData: AffiliateProductUpdate
+    updateData: Partial<CreateAffiliateProductDTO>
   ): Promise<boolean> {
     try {
       const client = getSupabaseClient();
@@ -309,48 +287,6 @@ export class AffiliateProductRepository {
       return true;
     } catch (error) {
       log.error({ error, id }, 'Error updating product');
-      return false;
-    }
-  }
-
-  /**
-   * Update AI content for a product
-   */
-  async updateAIContent(
-    id: string,
-    aiContent: UpdateAIContentDTO
-  ): Promise<boolean> {
-    try {
-      const client = getSupabaseClient();
-
-      const updateData: Record<string, unknown> = {
-        rewritten_title: aiContent.rewritten_title,
-        review_content: aiContent.review_content,
-        social_caption: aiContent.social_caption,
-        hashtags: aiContent.hashtags ? JSON.stringify(aiContent.hashtags) : null,
-        confidence_score: aiContent.confidence_score,
-        trending_score: aiContent.trending_score,
-        recommendation: aiContent.recommendation,
-        processed_at: aiContent.processed_at instanceof Date
-          ? aiContent.processed_at.toISOString()
-          : aiContent.processed_at || new Date().toISOString(),
-        status: 'ai_completed',
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await client
-        .from(this.tableName)
-        .update(updateData)
-        .eq('id', id);
-
-      if (error) {
-        log.error({ error, id }, 'Failed to update AI content');
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      log.error({ error, id }, 'Error updating AI content');
       return false;
     }
   }
@@ -382,37 +318,31 @@ export class AffiliateProductRepository {
     }
   }
 
-  /**
-   * Delete multiple products by IDs
-   */
-  async deleteMany(ids: string[]): Promise<number> {
-    if (ids.length === 0) {
-      return 0;
-    }
-
-    try {
-      const client = getSupabaseClient();
-      const { data, error } = await client
-        .from(this.tableName)
-        .delete()
-        .in('id', ids)
-        .select();
-
-      if (error) {
-        log.error({ error, count: ids.length }, 'Failed to delete products');
-        return 0;
-      }
-
-      return data?.length || 0;
-    } catch (error) {
-      log.error({ error }, 'Error deleting products');
-      return 0;
-    }
-  }
-
   // ============================================
   // Statistics
   // ============================================
+
+  /**
+   * Count products
+   */
+  async count(): Promise<number> {
+    try {
+      const client = getSupabaseClient();
+      const { count, error } = await client
+        .from(this.tableName)
+        .select('*', { count: 'exact', head: true });
+
+      if (error) {
+        log.error({ error }, 'Failed to count products');
+        return 0;
+      }
+
+      return count || 0;
+    } catch (error) {
+      log.error({ error }, 'Error counting products');
+      return 0;
+    }
+  }
 
   /**
    * Count products by status
@@ -441,54 +371,6 @@ export class AffiliateProductRepository {
       return {};
     }
   }
-
-  // ============================================
-  // Private Helpers
-  // ============================================
-
-  /**
-   * Map DTO to insert data
-   */
-  private mapToInsertData(dto: CreateAffiliateProductDTO): Record<string, unknown> {
-    return {
-      title: dto.title,
-      price: dto.price,
-      image_url: dto.image_url,
-      original_description: dto.original_description || null,
-      rewritten_title: dto.rewritten_title || null,
-      review_content: dto.review_content || null,
-      social_caption: dto.social_caption || null,
-      hashtags: dto.hashtags ? JSON.stringify(dto.hashtags) : null,
-      product_url: dto.product_url,
-      source_type: dto.source_type,
-      source_keyword: dto.source_keyword,
-      crawled_at: dto.crawled_at instanceof Date
-        ? dto.crawled_at.toISOString()
-        : dto.crawled_at,
-      original_price: dto.original_price || null,
-      shop_name: dto.shop_name || null,
-      rating: dto.rating || null,
-      review_count: dto.review_count || null,
-      sold_count: dto.sold_count || null,
-      category: dto.category || null,
-      status: dto.status || 'pending',
-    };
-  }
-
-  /**
-   * Create empty paginated result
-   */
-  private emptyPaginatedResult(
-    pagination: QueryPagination
-  ): PaginatedResult<AffiliateProductRow> {
-    return {
-      data: [],
-      total: 0,
-      page: pagination.page,
-      limit: pagination.limit,
-      totalPages: 0,
-    };
-  }
 }
 
 // ============================================
@@ -516,7 +398,7 @@ export function getAffiliateProductRepository(): AffiliateProductRepository {
  */
 export async function insertAffiliateProduct(
   record: CreateAffiliateProductDTO
-): Promise<AffiliateProductRow | null> {
+): Promise<AffiliateProduct | null> {
   const repo = getAffiliateProductRepository();
   return repo.insertAffiliateProduct(record);
 }
@@ -536,42 +418,29 @@ export async function insertManyAffiliateProducts(
  */
 export async function findAffiliateProductById(
   id: string
-): Promise<AffiliateProductRow | null> {
+): Promise<AffiliateProduct | null> {
   const repo = getAffiliateProductRepository();
   return repo.findById(id);
 }
 
 /**
- * Find products by filter
+ * Find product by platform and URL
  */
-export async function findAllAffiliateProducts(
-  filter: ProductQueryFilter,
-  pagination: QueryPagination
-): Promise<PaginatedResult<AffiliateProductRow>> {
+export async function findByPlatformAndUrl(
+  platform: string,
+  productUrl: string
+): Promise<AffiliateProduct | null> {
   const repo = getAffiliateProductRepository();
-  return repo.findAll(filter, pagination);
+  return repo.findByPlatformAndUrl(platform, productUrl);
 }
 
 /**
- * Update AI content
+ * Get latest products
  */
-export async function updateAffiliateProductAIContent(
-  id: string,
-  aiContent: UpdateAIContentDTO
-): Promise<boolean> {
+export async function getLatestProducts(limit: number = 50): Promise<AffiliateProduct[]> {
   const repo = getAffiliateProductRepository();
-  return repo.updateAIContent(id, aiContent);
+  return repo.getLatestProducts(limit);
 }
 
-// ============================================
-// Export
-// ============================================
-
-export type {
-  CreateAffiliateProductDTO,
-  UpdateAIContentDTO,
-  ProductQueryFilter,
-  QueryPagination,
-  PaginatedResult,
-};
-
+// Re-export types for consumers
+export type { CreateAffiliateProductDTO };

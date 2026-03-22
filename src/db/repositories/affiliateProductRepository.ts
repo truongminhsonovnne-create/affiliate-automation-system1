@@ -156,6 +156,31 @@ export class AffiliateProductRepository {
   }
 
   /**
+   * Find products by IDs
+   */
+  async findByIds(ids: string[]): Promise<(AffiliateProduct | null)[]> {
+    if (ids.length === 0) return [];
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client
+        .from(this.tableName)
+        .select('*')
+        .in('id', ids);
+
+      if (error) {
+        log.error({ error, count: ids.length }, 'Failed to fetch products by IDs');
+        return ids.map(() => null);
+      }
+
+      const map = new Map((data || []).map(d => [d.id, d as AffiliateProduct]));
+      return ids.map(id => map.get(id) || null);
+    } catch (error) {
+      log.error({ error }, 'Error fetching products by IDs');
+      return ids.map(() => null);
+    }
+  }
+
+  /**
    * Find product by platform and product URL
    */
   async findByPlatformAndUrl(
@@ -182,16 +207,28 @@ export class AffiliateProductRepository {
   }
 
   /**
-   * Get latest products
+   * Get latest products (with optional filters)
    */
-  async getLatestProducts(limit: number = 50): Promise<AffiliateProduct[]> {
+  async findLatest(
+    limit: number,
+    options: {
+      sourceType?: string;
+      minQualityScore?: number;
+    } = {}
+  ): Promise<AffiliateProduct[]> {
     try {
       const client = getSupabaseClient();
-      const { data, error } = await client
+      let query = client
         .from(this.tableName)
         .select('*')
         .order('created_at', { ascending: false })
         .limit(limit);
+
+      if (options.sourceType) {
+        query = query.eq('source_type', options.sourceType);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         log.error({ error, limit }, 'Failed to get latest products');
@@ -203,6 +240,13 @@ export class AffiliateProductRepository {
       log.error({ error, limit }, 'Error getting latest products');
       return [];
     }
+  }
+
+  /**
+   * Get pending products (not yet processed by AI)
+   */
+  async getLatestProducts(limit: number = 50): Promise<AffiliateProduct[]> {
+    return this.findLatest(limit);
   }
 
   /**
@@ -226,6 +270,45 @@ export class AffiliateProductRepository {
       return (data || []) as AffiliateProduct[];
     } catch (error) {
       log.error({ error, platform }, 'Error fetching products by platform');
+      return [];
+    }
+  }
+
+  /**
+   * Find products for AI enrichment
+   */
+  async findForEnrichment(options: {
+    sourceType?: string;
+    keyword?: string;
+    minQualityScore?: number;
+    limit?: number;
+  } = {}): Promise<AffiliateProduct[]> {
+    try {
+      const client = getSupabaseClient();
+      let query = client
+        .from(this.tableName)
+        .select('*')
+        .is('status', null)
+        .order('created_at', { ascending: false })
+        .limit(options.limit || 50);
+
+      if (options.sourceType) {
+        query = query.eq('source_type', options.sourceType);
+      }
+      if (options.keyword) {
+        query = query.ilike('title', `%${options.keyword}%`);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        log.error({ error }, 'Failed to fetch products for enrichment');
+        return [];
+      }
+
+      return (data || []) as AffiliateProduct[];
+    } catch (error) {
+      log.error({ error }, 'Error fetching products for enrichment');
       return [];
     }
   }
@@ -314,6 +397,34 @@ export class AffiliateProductRepository {
     } catch (error) {
       log.error({ error }, 'Error counting products');
       return 0;
+    }
+  }
+
+  /**
+   * Count products by status
+   */
+  async countByStatus(): Promise<Record<string, number>> {
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client
+        .from(this.tableName)
+        .select('status', { count: 'exact' });
+
+      if (error) {
+        log.error({ error }, 'Failed to count products by status');
+        return {};
+      }
+
+      const counts: Record<string, number> = {};
+      for (const item of data || []) {
+        const status = item.status || 'null';
+        counts[status] = (counts[status] || 0) + 1;
+      }
+
+      return counts;
+    } catch (error) {
+      log.error({ error }, 'Error counting products by status');
+      return {};
     }
   }
 }

@@ -360,3 +360,8 @@ export function safeParseAffiliateContent(
     rawText,
   };
 }
+
+/**
+ * Alias for internal repairJsonIssues — exported for compatibility
+ */
+export const repairMinorJsonIssues = repairJsonIssues;

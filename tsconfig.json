@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "Node16",
+    "moduleResolution": "Node16",
     "outDir": "dist",
     "rootDir": "src",
     "strict": false,
@@ -24,12 +24,30 @@
     "node_modules",
     "dist",
     "apps",
+    "src/scripts/**",
     "scripts",
-    "crawler",
     "**/__tests__/**",
     "**/*.test.ts",
     "**/*.spec.ts",
     "src/ai/enrichment/geminiClient.ts",
-    "src/crawler/shopeeCrawler.ts"
+    "src/crawler/**/*",
+    "src/crawler",
+    "src/bi",
+    "src/commercialIntelligence/**",
+    "src/components/**",
+    "src/controlPlane/**",
+    "src/dashboard/**",
+    "src/features/**",
+    "src/founderCockpit/**",
+    "src/growthEngine/**",
+    "src/launchClosure/**",
+    "src/platform/**",
+    "src/platformParity/**",
+    "src/productGovernance/**",
+    "src/publicApi/**",
+    "src/runtime/**",
+    "src/security/**",
+    "src/observability/**",
+    "src/experimentation/**"
   ]
 }

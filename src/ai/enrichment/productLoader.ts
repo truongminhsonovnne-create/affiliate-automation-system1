@@ -4,7 +4,7 @@
  * Loads products from affiliate_products for AI enrichment.
  */
 
-import type { AffiliateProductRepository } from '../../repositories/affiliateProductRepository.js';
+import type { AffiliateProductRepository } from '../../db/repositories/affiliateProductRepository.js';
 import type { AffiliateProductInput, AiEnrichmentLogger } from './types.js';
 
 /**

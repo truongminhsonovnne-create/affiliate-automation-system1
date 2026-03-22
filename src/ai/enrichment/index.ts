@@ -36,7 +36,6 @@ export type {
   AiEnrichmentLogger,
   AiGenerationTrace,
   AiContentQualityIssue,
-  AiContentValidationResult,
 } from './types.js';
 
 // ============================================
