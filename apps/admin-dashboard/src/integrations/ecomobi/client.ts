@@ -164,9 +164,7 @@ class EcomobiApiClientImpl {
 
       // TODO: Replace with real Ecomobi response shape once docs are available.
       // Expected: { data: EcomobiRawItem[], pagination: { page, per_page, total, total_pages } }
-      // @ts-expect-error PENDING: raw shape TBD
       const data: EcomobiRawItem[] = raw?.data ?? [];
-      // @ts-expect-error PENDING: raw shape TBD
       const pagination: EcomobiPaginationMeta = raw?.pagination ?? {
         page, per_page: limit, total: 0, total_pages: 0,
       };
@@ -242,8 +240,8 @@ class EcomobiApiClientImpl {
       return {
         connected: true,
         apiKeyConfigured: true,
-        // @ts-expect-error PENDING: raw shape TBD
-        publisherId: (raw?.publisher_id as string) ?? getConfig().publisherId ?? undefined,
+        // publisher_id field name confirmed once Ecomobi docs are available
+        publisherId: (raw?.publisher_id as string | undefined) ?? getConfig().publisherId ?? undefined,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
