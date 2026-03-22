@@ -20,6 +20,11 @@ import { AnalyticsProvider } from '@/lib/public/analytics-context';
 
 // Default site URL — override via NEXT_PUBLIC_SITE_URL env var
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://voucherfinder.app';
+
+// All public pages use dynamic rendering to avoid:
+//   1. Stale voucher data from static pre-rendering
+//   2. useContext null crashes from AnalyticsProvider not being mounted at build time
+export const dynamic = 'force-dynamic';
 const SITE_NAME = 'VoucherFinder';
 const SITE_DESCRIPTION =
   'Dán link sản phẩm Shopee để tìm mã giảm giá tốt nhất. Nhanh, miễn phí, không quảng cáo.';

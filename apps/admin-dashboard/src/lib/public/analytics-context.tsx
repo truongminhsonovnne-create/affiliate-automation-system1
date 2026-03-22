@@ -66,7 +66,16 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
  *   trackEvent('voucher_copy', { voucherCode: 'X', discountValue: '50K' });
  */
 export function useAnalytics(): AnalyticsContextValue {
-  return useContext(AnalyticsContext);
+  const ctx = useContext(AnalyticsContext);
+  if (!ctx) {
+    // Context is null during SSR/static generation when no <AnalyticsProvider> is in scope.
+    // Return a no-op stub so components never crash at build time or on the server.
+    return {
+      trackEvent: () => { /* no-op during SSR */ },
+      trackPageView: () => { /* no-op during SSR */ },
+    };
+  }
+  return ctx;
 }
 
 // Re-export types for consumers
