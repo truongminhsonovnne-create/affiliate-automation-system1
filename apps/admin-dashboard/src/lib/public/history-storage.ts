@@ -9,7 +9,7 @@
  * submitted), generic voucher metadata, and timestamps.
  */
 
-import { v4 as uuidv4 } from 'uuid';
+const uuidv4 = () => crypto.randomUUID();
 import type {
   LookupHistoryEntry,
   LookupResult,
