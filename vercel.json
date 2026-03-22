@@ -1,12 +1,9 @@
 {
-  "buildCommand": "npm run build:web",
-  "outputDirectory": "apps/admin-dashboard/.next",
-  "installCommand": "npm install --prefix apps/admin-dashboard",
+  "rootDirectory": "apps/admin-dashboard",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
   "framework": "nextjs",
   "regions": ["sin1"],
-  "env": {
-    "NODE_ENV": "production"
-  },
   "headers": [
     {
       "source": "/api/(.*)",
