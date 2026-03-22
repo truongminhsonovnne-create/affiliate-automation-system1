@@ -12,17 +12,14 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['lucide-react'],
 
-  // Prevent the Pages Router layer from picking up files outside apps/admin-dashboard.
-  // In this monorepo, the root D:/Affiliate/src/app/ contains Pages Router
-  // components (src/app/(public)/layout.tsx) that conflict with the App Router
-  // during the internal Pages Router pre-render phase for /404 and /500.
+  // Exclude the monorepo root's src/ directory from the Pages Router
+  // error page build traces. In this monorepo, the parent D:/Affiliate/src/
+  // contains App Router hybrid files that conflict during Pages Router
+  // pre-render for /404 and /500.
   experimental: {
-    outputFileTracingExcludes: [
-      // Exclude the monorepo root (parent of apps/admin-dashboard) so Next.js
-      // never tries to bundle Pages Router files from src/app/ into the admin
-      // dashboard's build graph.
-      'D:/Affiliate/src/**',
-    ],
+    outputFileTracingExcludes: {
+      '/**': ['../../../src/**'],
+    },
   },
 
   // Security headers for all public responses
