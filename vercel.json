@@ -1,9 +1,8 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs",
-  "buildCommand": "cd ../.. && npm run build:web",
-  "installCommand": "npm ci --prefix apps/admin-dashboard",
+  "buildCommand": "npm run build:web",
   "outputDirectory": "apps/admin-dashboard/.next",
+  "installCommand": "npm ci --prefix apps/admin-dashboard",
+  "framework": "nextjs",
   "regions": ["sin1"],
   "env": {
     "NODE_ENV": "production"
@@ -14,7 +13,7 @@
       "headers": [
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+        { "key": "Referrer-Policy", value: "strict-origin-when-cross-origin" }
       ]
     }
   ]
