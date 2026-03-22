@@ -7,11 +7,13 @@
  */
 
 import type {
+  BestMatchDetail,
   BestMatchCard,
   CandidateCard,
   ExplanationCard,
   PerformanceMeta,
   WarningItem,
+  DataFreshnessLevel,
 } from './api-client';
 
 export type { PerformanceMeta, WarningItem };
@@ -57,6 +59,15 @@ export interface LookupHistoryEntry {
 
   /** Whether this entry is pinned by the user */
   pinned: boolean;
+
+  /** Confidence score 0-1 */
+  confidenceScore?: number;
+
+  /** Source that provided the best match */
+  matchedSource?: string;
+
+  /** Data freshness level */
+  dataFreshness?: DataFreshnessLevel;
 }
 
 // =============================================================================
@@ -79,7 +90,7 @@ export type LookupOutcome =
 /** The voucher data stored in history — fully serializable. */
 export interface LookupResult {
   /** Best voucher card data */
-  bestMatch: BestMatchCard | null;
+  bestMatch: BestMatchDetail | null;
 
   /** Alternative candidates (stored in full for re-copy) */
   candidates: CandidateCard[];

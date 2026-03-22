@@ -45,18 +45,29 @@ export type AnalyticsEventName =
   // ── Page views ────────────────────────────────────────────────────────────
   | 'page_view'
 
-  // ── Funnel: CTA ───────────────────────────────────────────────────────────
-  | 'homepage_cta_click'
-  | 'header_cta_click'
+  // ── Funnel: Hero / CTA ───────────────────────────────────────────────────
+  | 'hero_cta_click'
 
-  // ── Funnel: Search / resolution ───────────────────────────────────────────
-  | 'link_submit'
-  | 'link_submit_success'
-  | 'link_submit_fail'
+  // ── Funnel: Resolution ────────────────────────────────────────────────────
+  | 'resolve_submit'
+  | 'resolve_success'
+  | 'resolve_no_result'
+  | 'resolve_low_confidence'
+  | 'resolve_error'
 
-  // ── Funnel: Result ────────────────────────────────────────────────────────
-  | 'voucher_copy'
+  // ── Funnel: Result interaction ─────────────────────────────────────────────
+  | 'best_result_click'
+  | 'alternative_click'
+  | 'coupon_copy'
   | 'outbound_shopee_click'
+
+  // ── Feedback ─────────────────────────────────────────────────────────────
+  | 'feedback_positive'
+  | 'feedback_negative'
+
+  // ── History ──────────────────────────────────────────────────────────────
+  | 'recent_search_open'
+  | 'save_link'
 
   // ── Content / discovery ───────────────────────────────────────────────────
   | 'article_view'
@@ -68,7 +79,7 @@ export type AnalyticsEventName =
   | 'footer_cta_click'
   | 'contact_click'
 
-  // ── Contact form ─────────────────────────────────────────────────────────
+  // ── Contact form ──────────────────────────────────────────────────────────
   | 'contact_submit_success'
   | 'contact_submit_fail';
 
@@ -93,41 +104,69 @@ export interface EventProperties {
     isFirstPageView: boolean;
   };
 
-  homepage_cta_click: BaseEventProperties;
-  header_cta_click: BaseEventProperties;
+  // ── Hero / CTA ──────────────────────────────────────────────────────────
+  hero_cta_click: BaseEventProperties;
 
-  link_submit: BaseEventProperties & {
-    /** The raw input URL the user submitted */
+  // ── Resolution ────────────────────────────────────────────────────────────
+  resolve_submit: BaseEventProperties & {
     inputLength: number;
-    /** Whether the input passed client-side validation */
     passedValidation: boolean;
   };
-  link_submit_success: BaseEventProperties & {
-    /** Whether a best-match voucher was found */
+  resolve_success: BaseEventProperties & {
     hasVoucher: boolean;
-    /** Number of candidate vouchers returned */
     candidateCount: number;
-    /** Total resolution latency in ms (client-measured) */
-    clientLatencyMs: number;
-    /** Whether served from cache */
-    servedFromCache: boolean;
+    confidenceBucket: 'high' | 'medium' | 'low' | 'unknown';
+    sourceType: 'exact' | 'fallback' | 'broad' | 'unknown';
+    resultCount: number;
   };
-  link_submit_fail: BaseEventProperties & {
-    /** Error code (e.g. "NETWORK_ERROR", "RATE_LIMITED", "INVALID_LINK") */
+  resolve_no_result: BaseEventProperties & {
+    confidenceBucket: 'high' | 'medium' | 'low' | 'unknown';
+    sourceType: 'exact' | 'fallback' | 'broad' | 'unknown';
     errorCode: string;
-    /** User-friendly error message (no stack traces, no URLs) */
+  };
+  resolve_low_confidence: BaseEventProperties & {
+    confidenceScore?: number;
+    confidenceBucket: 'high' | 'medium' | 'low' | 'unknown';
+    sourceType: 'exact' | 'fallback' | 'broad' | 'unknown';
+    hasVoucher: boolean;
+  };
+  resolve_error: BaseEventProperties & {
+    errorCode: string;
     errorMessage: string;
   };
 
-  voucher_copy: BaseEventProperties & {
-    /** The voucher code that was copied */
+  // ── Result interaction ───────────────────────────────────────────────────
+  best_result_click: BaseEventProperties & {
+    target: 'best' | 'alternative';
     voucherCode: string;
-    /** Discount value string (e.g. "50K", "15%") */
+    discountValue: string;
+  };
+  alternative_click: BaseEventProperties & {
+    voucherCode: string;
+    discountValue: string;
+  };
+  coupon_copy: BaseEventProperties & {
+    source: 'best_result' | 'alternative' | 'history';
+    voucherCode: string;
     discountValue: string;
   };
   outbound_shopee_click: BaseEventProperties & {
-    /** The product URL the user is navigating to */
     productUrl: string;
+  };
+
+  // ── Feedback ─────────────────────────────────────────────────────────────
+  feedback_positive: BaseEventProperties & {
+    context: 'result' | 'alternative' | 'page';
+  };
+  feedback_negative: BaseEventProperties & {
+    context: 'result' | 'alternative' | 'page';
+    reason?: string;
+  };
+
+  // ── History ───────────────────────────────────────────────────────────────
+  recent_search_open: BaseEventProperties;
+  save_link: BaseEventProperties & {
+    fromHistory: boolean;
   };
 
   article_view: BaseEventProperties & {

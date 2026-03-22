@@ -37,7 +37,15 @@ export interface PublicVoucherResolveResponse {
   cache?: PublicResolutionCacheMeta;
   explanation: PublicVoucherExplanationDto | null;
   warnings: PublicApiWarning[];
+  /** Confidence score 0-1 indicating quality of match */
+  confidenceScore?: number;
+  /** Source that provided the best match (e.g. "AccessTrade", "MasOffer", "MasOffer_broad") */
+  matchedSource?: string;
+  /** Data freshness descriptor */
+  dataFreshness?: DataFreshnessLevel;
 }
+
+export type DataFreshnessLevel = 'live' | 'recent' | 'stale' | 'unknown';
 
 export type PublicVoucherResolveStatus =
   | 'success'

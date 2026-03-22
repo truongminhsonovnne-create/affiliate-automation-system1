@@ -2,8 +2,8 @@
  * Ecomobi Integration — Types
  *
  * Raw API DTO types for Ecomobi Publisher API.
- * All interfaces are marked PENDING — will be filled once
- * Ecomobi API documentation and/or sandbox access is available.
+ * All interfaces are placeholders — will be replaced with real shapes
+ * once Ecomobi API documentation and/or sandbox access is available.
  *
  * Expected API base: https://api.ecomobi.com (TBD — pending confirmation)
  * Auth method: Bearer token (TBD)
@@ -15,19 +15,14 @@ import type { NormalisedOffer } from '@/lib/api/supabase-write';
 
 // ── Raw API DTOs (PENDING — replace with real shapes from Ecomobi docs) ───────
 
-/**
- * @ts-expect-error PENDING: awaiting Ecomobi API documentation.
- * Ecomobi API paginated response wrapper — structure TBD.
- */
+// @ts-expect-error PENDING: awaiting Ecomobi API documentation.
 export interface EcomobiPaginatedResponse<T> {
   // TODO: fill once Ecomobi API docs are available
+  data?: T[];
+  pagination?: EcomobiPaginationMeta;
 }
 
-/**
- * @ts-expect-error PENDING: awaiting Ecomobi API documentation.
- * Raw offer / campaign / voucher item from Ecomobi API.
- * Field names and structure are placeholders.
- */
+// @ts-expect-error PENDING: awaiting Ecomobi API documentation.
 export interface EcomobiRawItem {
   // TODO: fill once Ecomobi API docs are available
   // Expected fields (TBD based on Ecomobi API):
@@ -51,15 +46,10 @@ export interface EcomobiRawItem {
   // - verified?: boolean
 }
 
-/**
- * @ts-expect-error PENDING: awaiting Ecomobi API documentation.
- * Ecomobi deals/campaigns list response.
- */
+// @ts-expect-error PENDING: awaiting Ecomobi API documentation.
 export interface EcomobiOffersResponse {
   // TODO: fill once Ecomobi API docs are available
-  // Expected:
-  // data: EcomobiRawItem[]
-  // pagination?: { page: number; per_page: number; total: number }
+  data?: EcomobiRawItem[];
 }
 
 // ── Domain types ───────────────────────────────────────────────────────────────
@@ -98,6 +88,13 @@ export interface EcomobiConfig {
   baseUrl: string;
   timeoutMs: number;
   maxRetries: number;
+}
+
+export interface EcomobiPaginationMeta {
+  page: number;
+  per_page: number;
+  total: number;
+  total_pages: number;
 }
 
 export const ECOMOBI_DEFAULT_CONFIG: Pick<

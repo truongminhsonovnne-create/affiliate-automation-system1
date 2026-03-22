@@ -195,6 +195,9 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
         warnings: entry.warnings,
         explanation: entry.result?.explanation ?? null,
         error: null,
+        confidenceScore: entry.confidenceScore,
+        matchedSource: entry.matchedSource,
+        dataFreshness: entry.dataFreshness,
       };
 
       return {

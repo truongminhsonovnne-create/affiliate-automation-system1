@@ -207,6 +207,9 @@ export function buildHistoryEntry(
     performance: state.performance ?? null,
     warnings: state.warnings,
     pinned: false,
+    confidenceScore: state.confidenceScore,
+    matchedSource: state.matchedSource,
+    dataFreshness: state.dataFreshness,
   };
 }
 
