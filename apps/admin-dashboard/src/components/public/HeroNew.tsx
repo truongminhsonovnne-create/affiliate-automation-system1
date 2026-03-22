@@ -96,7 +96,6 @@ export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: 
         <input
           id="hero-search-input"
           type="text"
-          role="combobox"
           aria-label="Link sản phẩm Shopee"
           autoComplete="off"
           autoCorrect="off"
