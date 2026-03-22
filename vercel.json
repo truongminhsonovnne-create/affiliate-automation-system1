@@ -1,8 +1,8 @@
 {
-  "buildCommand": "cd apps/admin-dashboard && npm run build",
+  "framework": null,
+  "buildCommand": "npm run build",
   "installCommand": "npm install --prefix apps/admin-dashboard",
   "outputDirectory": "apps/admin-dashboard/.next",
-  "framework": "nextjs",
   "headers": [
     {
       "source": "/api/(.*)",
