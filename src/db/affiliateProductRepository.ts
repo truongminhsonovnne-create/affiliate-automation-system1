@@ -575,4 +575,3 @@ export type {
   PaginatedResult,
 };
 
-export { AffiliateProductRepository };

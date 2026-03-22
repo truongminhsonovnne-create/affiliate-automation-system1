@@ -1,0 +1,83 @@
+# =============================================================================
+# Reusable Build Workflow
+# =============================================================================
+# Standardized build process for all environments.
+# Can be called from other workflows.
+#
+# Usage:
+#   workflows:
+#     call: ./.github/workflows/reusable-build.yml
+#     with:
+#       node_version: '20'
+#       build_script: 'build'
+#       artifact_name: 'build-output'
+# =============================================================================
+
+name: Reusable Build
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: 'Node.js version'
+        required: false
+        default: '20'
+        type: string
+      build_script:
+        description: 'Build script to run'
+        required: false
+        default: 'build'
+        type: string
+      artifact_name:
+        description: 'Name for build artifact'
+        required: false
+        default: 'build-artifacts'
+        type: string
+      environment:
+        description: 'Build environment'
+        required: false
+        default: 'development'
+        type: string
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Run build
+        run: npm run ${{ inputs.build_script }}
+        env:
+          NODE_ENV: ${{ inputs.environment }}
+          BUILD_VERSION: ${{ github.sha }}
+
+      - name: Verify build output
+        run: |
+          if [ -d "dist" ]; then
+            echo "Build artifacts created successfully"
+            ls -la dist/
+          else
+            echo "Warning: dist directory not found"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: |
+            dist/
+            .next/
+          retention-days: 7

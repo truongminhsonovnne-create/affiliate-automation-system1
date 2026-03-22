@@ -1,6 +1,9 @@
 /**
  * Migration Script
  * Run SQL migration to Supabase
+ *
+ * SECURITY: All credentials come from environment variables — never hardcoded.
+ * Run: npx tsx src/scripts/runMigration.ts
  */
 
 import pg from 'pg';
@@ -14,13 +17,39 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Supabase connection config
-const config = {
-  host: 'db.qenmkvlzxidmgeqviplf.supabase.co',
+// ── Required env vars ───────────────────────────────────────────────────────────
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_DB_PASSWORD = process.env.SUPABASE_DB_PASSWORD; // Direct DB password from Supabase dashboard
+
+if (!SUPABASE_URL) {
+  console.error('❌ Missing SUPABASE_URL environment variable.');
+  console.error('   Set it to your Supabase project URL (e.g. https://xxx.supabase.co)');
+  process.exit(1);
+}
+
+if (!SUPABASE_DB_PASSWORD) {
+  console.error('❌ Missing SUPABASE_DB_PASSWORD environment variable.');
+  console.error('   Set it to your Supabase database password (from Supabase Dashboard → Settings → Database).');
+  console.error('   NOTE: This is the direct DB password, NOT the service role key.');
+  process.exit(1);
+}
+
+// Extract host from SUPABASE_URL (e.g. https://xxx.supabase.co → db.xxx.supabase.co)
+const hostMatch = SUPABASE_URL.match(/https?:\/\/([^.]+)/);
+if (!hostMatch) {
+  console.error('❌ Invalid SUPABASE_URL format.');
+  process.exit(1);
+}
+const projectRef = hostMatch[1];
+const dbHost = `db.${projectRef}.supabase.co`;
+
+// Supabase connection config — all values from env
+const config: pg.ClientConfig = {
+  host: dbHost,
   port: 5432,
   database: 'postgres',
   user: 'postgres',
-  password: 'hoanglam123',
+  password: SUPABASE_DB_PASSWORD,
   ssl: { rejectUnauthorized: false },
 };
 

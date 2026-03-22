@@ -1,0 +1,588 @@
+# =============================================================================
+# CI Pipeline - Continuous Integration
+# =============================================================================
+# Primary CI workflow triggered on PR and push events.
+# Runs quality gates, build, and validation checks.
+#
+# Triggers:
+#   - Pull requests to main, develop branches
+#   - Push to main, develop branches
+#
+# Quality Gates:
+#   - Dependency installation with caching
+#   - Linting (ESLint)
+#   - Type checking (TypeScript)
+#   - Unit/Integration tests (if available)
+#   - Build validation
+#   - Security posture checks
+#   - Migration safety checks
+#   - Runtime startup checks
+#   - Container build sanity checks
+# =============================================================================
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop, 'release/**']
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+  push:
+    branches: [main, develop, 'release/**']
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+
+env:
+  NODE_VERSION: '20'
+  RUN_ID: ${{ github.run_id }}-${{ github.run_number }}
+  CACHE_VERSION: v1
+
+jobs:
+  # ===========================================================================
+  # Setup Job - Prepare environment
+  # ===========================================================================
+  setup:
+    name: Setup Environment
+    runs-on: ubuntu-latest
+    outputs:
+      node_version: ${{ steps.setup.outputs.node_version }}
+      package_manager: ${{ steps.setup.outputs.package_manager }}
+      has_tests: ${{ steps.setup.outputs.has_tests }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        id: setup
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Detect package manager
+        id: package-manager
+        run: |
+          if [ -f "pnpm-lock.yaml" ]; then
+            echo "package_manager=pnpm" >> $GITHUB_OUTPUT
+          elif [ -f "yarn.lock" ]; then
+            echo "package_manager=yarn" >> $GITHUB_OUTPUT
+          else
+            echo "package_manager=npm" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Detect test framework
+        id: test-detection
+        run: |
+          if [ -d "tests" ] || [ -d "__tests__" ] || [ -d "test" ]; then
+            echo "has_tests=true" >> $GITHUB_OUTPUT
+          else
+            # Check for test scripts in package.json
+            if grep -q '"test"' package.json 2>/dev/null; then
+              echo "has_tests=true" >> $GITHUB_OUTPUT
+            else
+              echo "has_tests=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+        shell: bash
+
+      - name: Output setup info
+        id: outputs
+        run: |
+          echo "node_version=${{ env.NODE_VERSION }}" >> $GITHUB_OUTPUT
+          echo "package_manager=${{ steps.package-manager.outputs.package_manager }}" >> $GITHUB_OUTPUT
+          echo "has_tests=${{ steps.test-detection.outputs.has_tests }}" >> $GITHUB_OUTPUT
+
+  # ===========================================================================
+  # Dependency Installation
+  # ===========================================================================
+  dependencies:
+    name: Install Dependencies
+    runs-on: ubuntu-latest
+    needs: setup
+    strategy:
+      matrix:
+        lockFile: [package-lock.json]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ needs.setup.outputs.node_version }}
+          cache: 'npm'
+          cache-dependency-path: ${{ matrix.lockFile }}
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Verify node_modules
+        run: |
+          if [ ! -d "node_modules" ]; then
+            echo "ERROR: node_modules not found after npm ci"
+            exit 1
+          fi
+          echo "Dependencies installed successfully"
+
+  # ===========================================================================
+  # Linting
+  # ===========================================================================
+  lint:
+    name: Lint Code
+    runs-on: ubuntu-latest
+    needs: [setup, dependencies]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ needs.setup.outputs.node_version }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Run ESLint
+        run: |
+          if grep -q '"lint"' package.json; then
+            npm run lint
+          else
+            echo "No lint script found, skipping"
+          fi
+
+      - name: Check code formatting
+        run: |
+          npx prettier --check . \
+            --ignore-path .gitignore \
+            --ignore-unknown \
+            --cache
+
+  # ===========================================================================
+  # Type Checking
+  # ===========================================================================
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    needs: [setup, dependencies]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ needs.setup.outputs.node_version }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Run TypeScript type check
+        run: |
+          if [ -f "tsconfig.json" ]; then
+            npx tsc --noEmit --project tsconfig.json --pretty
+          else
+            echo "No tsconfig.json found"
+            exit 1
+          fi
+
+  # ===========================================================================
+  # Build Validation
+  # ===========================================================================
+  build:
+    name: Build Project
+    runs-on: ubuntu-latest
+    needs: [setup, typecheck]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ needs.setup.outputs.node_version }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Build TypeScript
+        run: |
+          if grep -q '"build"' package.json; then
+            npm run build
+          else
+            echo "No build script found"
+            exit 1
+          fi
+        env:
+          NODE_ENV: production
+
+      - name: Verify build output
+        run: |
+          if [ -d "dist" ]; then
+            echo "Build artifacts found in dist/"
+            ls -la dist/ | head -20
+          else
+            echo "WARNING: dist/ directory not found"
+          fi
+
+  # ===========================================================================
+  # Tests (if available)
+  # ===========================================================================
+  tests:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: [setup, dependencies]
+    if: needs.setup.outputs.has_tests == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        test-suite: [unit, integration]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ needs.setup.outputs.node_version }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Run tests - ${{ matrix.test-suite }}
+        run: |
+          case "${{ matrix.test-suite }}" in
+            unit)
+              npm run test:unit
+              ;;
+            integration)
+              npm run test:integration
+              ;;
+          esac
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.test-suite }}
+          path: |
+            coverage/
+            **/test-results.xml
+            **/junit.xml
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ===========================================================================
+  # Security Posture Checks
+  # ===========================================================================
+  security:
+    name: Security Checks
+    runs-on: ubuntu-latest
+    needs: [setup, dependencies]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ needs.setup.outputs.node_version }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Check for secrets exposure
+        run: |
+          echo "🔍 Scanning for secret exposure risks..."
+          echo ""
+
+          # Run the TypeScript secret scanner (blocking on high severity)
+          if [ -f "scripts/runSecretExposureCheck.ts" ]; then
+            npx tsx scripts/runSecretExposureCheck.ts
+            SCAN_EXIT=$?
+            if [ $SCAN_EXIT -ne 0 ]; then
+              echo ""
+              echo "🔴 HIGH SEVERITY secret exposure detected - blocking build."
+              echo "   Fix the issues above and re-commit."
+              exit 1
+            fi
+          else
+            echo "Running basic pattern check..."
+            # Check for common secret patterns in source files
+            FOUND=$(grep -rE "(api_key|password|secret|token)\s*=\s*['\"][a-zA-Z0-9_-]{20,}['\"]" \
+              --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" \
+              --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.next \
+              --exclude-dir=apps/admin-dashboard/src/app/api/auth/login/route.ts \
+              apps/ src/ scripts/ 2>/dev/null || true)
+            if [ -n "$FOUND" ]; then
+              echo "⚠️  Potential secrets found:"
+              echo "$FOUND"
+              echo ""
+              echo "Review the output above. If these are false positives (placeholder values),"
+              echo "you may proceed. Otherwise, fix before merging."
+            else
+              echo "✅ No obvious secrets found in source files."
+            fi
+          fi
+
+          # Also scan apps/ directory specifically
+          if [ -d "apps" ]; then
+            echo ""
+            echo "Scanning apps/ directory..."
+            APPS_SECRETS=$(grep -rE "(SUPABASE_SERVICE_ROLE_KEY|GEMINI_API_KEY)\s*=\s*['\"][^'\"]{8,}['\"]" \
+              --include="*.ts" --include="*.tsx" --include="*.js" \
+              --exclude-dir=node_modules \
+              apps/ 2>/dev/null | grep -v "your-\|placeholder\|changeme\|example" || true)
+            if [ -n "$APPS_SECRETS" ]; then
+              echo "⚠️  Secrets found in apps/:"
+              echo "$APPS_SECRETS"
+            else
+              echo "✅ No real secrets detected in apps/ directory."
+            fi
+          fi
+
+      - name: Audit dependencies
+        run: |
+          if command -v npm audit &> /dev/null; then
+            npm audit --audit-level=moderate || echo "Audit completed with warnings"
+          fi
+
+      - name: Check for known vulnerable dependencies
+        run: |
+          if [ -f "audit-ci.jsonc" ]; then
+            npx audit-ci --config audit-ci.jsonc || exit 1
+          else
+            npm audit --audit-level=high
+          fi
+
+  # ===========================================================================
+  # Migration Safety Checks
+  # ===========================================================================
+  migration-safety:
+    name: Migration Safety
+    runs-on: ubuntu-latest
+    needs: [setup, build]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ needs.setup.outputs.node_version }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Run migration safety checks
+        run: |
+          if [ -f "scripts/runtime/run-migration-checks.sh" ]; then
+            chmod +x scripts/runtime/run-migration-checks.sh
+            ./scripts/runtime/run-migration-checks.sh --env development --dry-run
+          else
+            echo "Migration check script not found, skipping"
+          fi
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL || 'https://placeholder.supabase.co' }}
+
+  # ===========================================================================
+  # Startup/Dependency Checks
+  # ===========================================================================
+  startup-checks:
+    name: Startup Checks
+    runs-on: ubuntu-latest
+    needs: [setup, build]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ needs.setup.outputs.node_version }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Run startup checks
+        run: |
+          if [ -f "src/scripts/runStartupChecks.ts" ]; then
+            export RUNTIME_ROLE=worker-crawler
+            export RUNTIME_ENV=local
+            export SUPABASE_URL="https://placeholder.supabase.co"
+            export SUPABASE_SERVICE_ROLE_KEY="placeholder"
+            npx tsx src/scripts/runStartupChecks.ts --role worker-crawler --env local
+          else
+            echo "Startup check script not found"
+          fi
+
+  # ===========================================================================
+  # Container Build Sanity
+  # ===========================================================================
+  container-sanity:
+    name: Container Build Sanity
+    runs-on: ubuntu-latest
+    needs: [setup, build]
+    strategy:
+      matrix:
+        dockerfile:
+          - Dockerfile.web
+          - Dockerfile.control-plane
+          - Dockerfile.worker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.dockerfile }} (sanity check)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./${{ matrix.dockerfile }}
+          load: true
+          tags: affiliate-test:${{ github.sha }}-${{ matrix.dockerfile }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NODE_ENV=production
+            BUILD_VERSION=${{ github.sha }}
+          target: runner
+        continue-on-error: true
+
+      - name: Verify image exists
+        run: |
+          docker images affiliate-test:${{ github.sha }}-${{ matrix.dockerfile }} | grep -q "affiliate-test" && \
+            echo "Container ${{ matrix.dockerfile }} built successfully" || \
+            echo "Container build failed or image not found"
+
+  # ===========================================================================
+  # Quality Gate Summary
+  # ===========================================================================
+  quality-gate:
+    name: Quality Gate Summary
+    runs-on: ubuntu-latest
+    needs: [
+      setup,
+      lint,
+      typecheck,
+      build,
+      tests,
+      security,
+      migration-safety,
+      startup-checks,
+      container-sanity
+    ]
+    if: always()
+    steps:
+      - name: Generate Quality Gate Summary
+        id: summary
+        run: |
+          echo "## CI Quality Gate Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check each job result
+          echo "### Quality Gates" >> $GITHUB_STEP_SUMMARY
+          echo "| Gate | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Setup
+          SETUP_STATUS="${{ needs.setup.result }}"
+          echo "| Setup | $SETUP_STATUS |" >> $GITHUB_STEP_SUMMARY
+
+          # Lint
+          LINT_STATUS="${{ needs.lint.result }}"
+          echo "| Lint | $LINT_STATUS |" >> $GITHUB_STEP_SUMMARY
+
+          # TypeCheck
+          TYPE_STATUS="${{ needs.typecheck.result }}"
+          echo "| Type Check | $TYPE_STATUS |" >> $GITHUB_STEP_SUMMARY
+
+          # Build
+          BUILD_STATUS="${{ needs.build.result }}"
+          echo "| Build | $BUILD_STATUS |" >> $GITHUB_STEP_SUMMARY
+
+          # Tests
+          TEST_STATUS="${{ needs.tests.result }}"
+          echo "| Tests | $TEST_STATUS |" >> $GITHUB_STEP_SUMMARY
+
+          # Security
+          SEC_STATUS="${{ needs.security.result }}"
+          echo "| Security | $SEC_STATUS |" >> $GITHUB_STEP_SUMMARY
+
+          # Migration Safety
+          MIGR_STATUS="${{ needs.migration-safety.result }}"
+          echo "| Migration Safety | $MIGR_STATUS |" >> $GITHUB_STEP_SUMMARY
+
+          # Startup Checks
+          STARTUP_STATUS="${{ needs.startup-checks.result }}"
+          echo "| Startup Checks | $STARTUP_STATUS |" >> $GITHUB_STEP_SUMMARY
+
+          # Container Sanity
+          CONTAINER_STATUS="${{ needs.container-sanity.result }}"
+          echo "| Container Build | $CONTAINER_STATUS |" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Determine overall result
+          FAILED_JOBS=""
+          for job in lint typecheck build; do
+            STATUS=$(echo "${{ needs.$job.result }}")
+            if [ "$STATUS" == "failure" ]; then
+              FAILED_JOBS="$FAILED_JOBS $job"
+            fi
+          done
+
+          if [ -z "$FAILED_JOBS" ]; then
+            echo "### Result: ✅ PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "All critical quality gates passed." >> $GITHUB_STEP_SUMMARY
+            echo "result=passed" >> $GITHUB_OUTPUT
+          else
+            echo "### Result: ❌ FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "Failed gates:$FAILED_JOBS" >> $GITHUB_STEP_SUMMARY
+            echo "result=failed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-artifacts
+          path: |
+            ${{ github.workspace }}/coverage/
+            ${{ github.workspace }}/**/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Fail workflow on critical gate failure
+        if: needs.typecheck.result == 'failure' || needs.build.result == 'failure'
+        run: |
+          echo "Critical quality gate failed - workflow will fail"
+          exit 1

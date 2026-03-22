@@ -1,0 +1,129 @@
+# =============================================================================
+# Development Docker Compose
+# =============================================================================
+# Development environment configuration
+
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------
+  # Web/Admin Application
+  # ---------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: affiliate-web-dev
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - RUNTIME_ROLE=web
+      - RUNTIME_ENV=development
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      - NEXT_PUBLIC_API_URL=http://localhost:4000
+      - LOG_LEVEL=debug
+    volumes:
+      - ./src:/app/src:ro
+      - ./public:/app/public:ro
+    depends_on:
+      - control-plane
+    networks:
+      - affiliate-dev-network
+
+  # ---------------------------------------------------------------------
+  # Control Plane API
+  # ---------------------------------------------------------------------
+  control-plane:
+    build:
+      context: .
+      dockerfile: Dockerfile.control-plane
+    container_name: affiliate-control-plane-dev
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=development
+      - RUNTIME_ROLE=control-plane
+      - RUNTIME_ENV=development
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - INTERNAL_AUTH_SECRET=${INTERNAL_AUTH_SECRET:-dev-secret-change-in-production}
+      - SESSION_SECRET=${SESSION_SECRET:-dev-secret-change-in-production}
+      - LOG_LEVEL=debug
+    volumes:
+      - ./src:/app/src:ro
+    networks:
+      - affiliate-dev-network
+
+  # ---------------------------------------------------------------------
+  # Worker: Crawler (Development - single worker)
+  # ---------------------------------------------------------------------
+  worker-crawler:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: affiliate-worker-crawler-dev
+    environment:
+      - NODE_ENV=development
+      - RUNTIME_ROLE=worker-crawler
+      - RUNTIME_ENV=development
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - WORKER_CONCURRENCY=2
+      - QUEUE_POLL_INTERVAL=5000
+      - LOG_LEVEL=debug
+    depends_on:
+      - control-plane
+    networks:
+      - affiliate-dev-network
+
+  # ---------------------------------------------------------------------
+  # Worker: AI (Development - single worker)
+  # ---------------------------------------------------------------------
+  worker-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: affiliate-worker-ai-dev
+    environment:
+      - NODE_ENV=development
+      - RUNTIME_ROLE=worker-ai
+      - RUNTIME_ENV=development
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - WORKER_CONCURRENCY=2
+      - QUEUE_POLL_INTERVAL=5000
+      - LOG_LEVEL=debug
+    depends_on:
+      - control-plane
+    networks:
+      - affiliate-dev-network
+
+  # ---------------------------------------------------------------------
+  # Worker: Publisher (Development - single worker)
+  # ---------------------------------------------------------------------
+  worker-publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: affiliate-worker-publisher-dev
+    environment:
+      - NODE_ENV=development
+      - RUNTIME_ROLE=worker-publisher
+      - RUNTIME_ENV=development
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - WORKER_CONCURRENCY=2
+      - QUEUE_POLL_INTERVAL=5000
+      - LOG_LEVEL=debug
+    depends_on:
+      - control-plane
+    networks:
+      - affiliate-dev-network
+
+networks:
+  affiliate-dev-network:
+    driver: bridge

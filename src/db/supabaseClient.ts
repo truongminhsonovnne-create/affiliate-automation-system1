@@ -8,6 +8,31 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { env } from '../config/env.js';
 
 // ============================================
+// Helper Functions
+// ============================================
+
+/**
+ * Extract HTTP URL from PostgreSQL connection string
+ * Format: postgresql://user:pass@host:port/database
+ */
+function extractHttpUrl(pgUrl: string): string {
+  // If already HTTP URL, return as-is
+  if (pgUrl.startsWith('http://') || pgUrl.startsWith('https://')) {
+    return pgUrl;
+  }
+
+  // Parse PostgreSQL URL
+  const match = pgUrl.match(/postgresql:\/\/[^@]+@([^:]+):(\d+)\/(\w+)/);
+  if (match) {
+    const [, host] = match;
+    // Supabase HTTP URL format
+    return `https://${host}`;
+  }
+
+  return pgUrl;
+}
+
+// ============================================
 // Singleton Instance
 // ============================================
 
@@ -23,7 +48,10 @@ export function getSupabaseClient(): SupabaseClient {
       throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
     }
 
-    supabaseClient = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+    // Extract HTTP URL from PostgreSQL connection string
+    const httpUrl = extractHttpUrl(env.SUPABASE_URL);
+
+    supabaseClient = createClient(httpUrl, env.SUPABASE_SERVICE_ROLE_KEY, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
@@ -42,4 +70,9 @@ export function getSupabaseUrl(): string {
 }
 
 export type { SupabaseClient };
-export default getSupabaseClient;
+
+// Default export - get the client instance
+// This allows: import supabase from '../../db/supabaseClient.js'
+// Then: supabase.from('table')
+const supabase = getSupabaseClient();
+export default supabase;

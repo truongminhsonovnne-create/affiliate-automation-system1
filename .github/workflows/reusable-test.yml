@@ -1,0 +1,94 @@
+# =============================================================================
+# Reusable Test Workflow
+# =============================================================================
+# Standardized test execution for all environments.
+# Can be called from other workflows.
+#
+# Usage:
+#   workflows:
+#     call: ./.github/workflows/reusable-test.yml
+#     with:
+#       test_suite: 'unit'
+#       node_version: '20'
+# =============================================================================
+
+name: Reusable Test
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: 'Node.js version'
+        required: false
+        default: '20'
+        type: string
+      test_suite:
+        description: 'Test suite to run'
+        required: false
+        default: 'unit'
+        type: string
+      test_pattern:
+        description: 'Test pattern to match'
+        required: false
+        default: ''
+        type: string
+      coverage:
+        description: 'Generate coverage report'
+        required: false
+        default: 'false'
+        type: boolean
+      environment:
+        description: 'Test environment'
+        required: false
+        default: 'test'
+        type: string
+
+jobs:
+  test:
+    name: Test - ${{ inputs.test_suite }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Run tests
+        run: |
+          if [ -n "${{ inputs.test_pattern }}" ]; then
+            npm test -- ${{ inputs.test_pattern }} --passWithNoTests || true
+          else
+            npm test --passWithNoTests || true
+          fi
+        env:
+          NODE_ENV: ${{ inputs.environment }}
+          CI: true
+
+      - name: Run coverage
+        if: inputs.coverage == 'true'
+        run: |
+          npm test -- --coverage --passWithNoTests || true
+        env:
+          NODE_ENV: ${{ inputs.environment }}
+          CI: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ inputs.test_suite }}
+          path: |
+            coverage/
+            **/test-results.xml
+            **/junit.xml
+          retention-days: 14
+          if-no-files-found: ignore

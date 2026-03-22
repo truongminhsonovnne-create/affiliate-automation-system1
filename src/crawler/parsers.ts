@@ -606,25 +606,3 @@ export function parseRating(text: string): number | null {
   return rating;
 }
 
-// ============================================
-// Export
-// ============================================
-
-export {
-  parsePrice,
-  parsePriceRange,
-  cleanText,
-  stripHtml,
-  cleanProductTitle,
-  normalizeProductUrl,
-  extractProductId,
-  extractShopId,
-  convertShopeeUrl,
-  normalizeImageUrl,
-  getHighResImageUrl,
-  normalizeRawProduct,
-  isValidNormalizedProduct,
-  parseVietnameseNumber,
-  parseSoldCount,
-  parseRating,
-};

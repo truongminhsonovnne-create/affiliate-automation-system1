@@ -422,4 +422,3 @@ export type {
   ContentGenerationResult,
 };
 
-export { GeminiService };

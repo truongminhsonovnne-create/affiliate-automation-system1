@@ -8,7 +8,7 @@ import { Page, BrowserContext } from 'playwright';
 
 // Config & Environment
 import { env } from '../config/env.js';
-import { log } from '../utils/logger.js';
+import logger from '../utils/logger.js'; const log = logger;
 
 // Browser
 import { createShopeeBrowserContext, closeBrowser, setupBrowserCleanup } from '../crawler/browser.js';
@@ -91,7 +91,7 @@ const DEFAULT_CONFIG: PipelineConfig = {
  */
 function pipelineLog(config: PipelineConfig, message: string, meta?: Record<string, unknown>): void {
   if (config.verbose) {
-    log.info(meta, `[PIPELINE] ${message}`);
+    log.info(`[PIPELINE] ${message}`);
   }
 }
 
@@ -537,4 +537,3 @@ Usage:
 // Run if executed directly
 main();
 
-export { runFlashSalePipeline, runSearchPipeline, runMultiSearchPipeline };

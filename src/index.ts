@@ -24,3 +24,9 @@ export * from './db/affiliateProductRepository.js';
 
 // Orchestrator
 export * from './orchestrator/pipeline.js';
+
+// Platform Parity
+export * from './platformParity/index.js';
+
+// Launch Closure
+export * from './launchClosure/index.js';

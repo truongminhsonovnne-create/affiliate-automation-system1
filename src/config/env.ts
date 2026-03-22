@@ -1,6 +1,11 @@
 /**
  * Environment Configuration Module
  * Validates and exports environment variables for Affiliate Automation System
+ *
+ * SECURITY GUARANTEES:
+ * - All critical secrets throw at startup if missing (no silent fallbacks)
+ * - Secret values are NEVER logged or included in error messages
+ * - Validation errors list the missing variable NAMES only
  */
 
 import { z } from 'zod';
@@ -14,9 +19,10 @@ const __dirname = path.dirname(__filename);
 // Load .env file from project root
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-/**
- * Environment variables schema with validation
- */
+// =============================================================================
+// Schema Definition
+// =============================================================================
+
 const envSchema = z.object({
   // ============================================
   // Shopee Configuration (Required)
@@ -34,6 +40,9 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().min(1, 'GEMINI_API_KEY is required'),
   GEMINI_MODEL: z.string().min(1).default('gemini-2.0-flash'),
 
+  // Groq API Key (optional)
+  GROQ_API_KEY: z.string().optional(),
+
   // ============================================
   // Supabase Configuration (Required)
   // ============================================
@@ -41,7 +50,32 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1, 'SUPABASE_SERVICE_ROLE_KEY is required'),
 
   // ============================================
-  // Optional Configuration
+  // Admin Dashboard Authentication (Required)
+  // ============================================
+  ADMIN_USERNAME: z.string().min(1, 'ADMIN_USERNAME is required'),
+  // Password: either bcrypt hash (ADMIN_PASSWORD_HASH, production) or plain text (ADMIN_PASSWORD, dev/test)
+  // Validation accepts any non-empty string — the login route validates the format
+  ADMIN_PASSWORD: z.string().optional(),
+  ADMIN_PASSWORD_HASH: z.string().optional(),
+
+  // Session signing
+  SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
+  SESSION_VERSION: z.coerce.number().int().nonnegative().default(1),
+
+  // ============================================
+  // Control Plane Security (Required)
+  // ============================================
+  CONTROL_PLANE_INTERNAL_SECRET: z
+    .string()
+    .min(16, 'CONTROL_PLANE_INTERNAL_SECRET must be at least 16 characters'),
+
+  // ============================================
+  // Experiment Salt (Required for privacy)
+  // ============================================
+  EXPERIMENT_SALT: z.string().min(16, 'EXPERIMENT_SALT must be at least 16 characters'),
+
+  // ============================================
+  // Application Configuration (Optional)
   // ============================================
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
@@ -54,19 +88,26 @@ const envSchema = z.object({
   CRAWLER_DELAY_MAX: z.coerce.number().int().positive().default(3000),
 });
 
-/**
- * TypeScript type inferred from schema
- */
+// =============================================================================
+// TypeScript Type
+// =============================================================================
+
 export type EnvConfig = z.infer<typeof envSchema>;
 
-/**
- * Singleton instance - parsed and validated environment
- */
+// =============================================================================
+// Singleton Instance
+// =============================================================================
+
 let envInstance: EnvConfig | null = null;
 
+// =============================================================================
+// Validation (fail-fast)
+// =============================================================================
+
 /**
- * Get validated environment config
- * Throws clear error if validation fails
+ * Get validated environment config.
+ * THROWS at startup if any required variable is missing or invalid.
+ * Secret values are NEVER logged.
  */
 export function getEnv(): EnvConfig {
   if (envInstance) {
@@ -76,16 +117,28 @@ export function getEnv(): EnvConfig {
   const result = envSchema.safeParse(process.env);
 
   if (!result.success) {
-    const formattedErrors = formatValidationErrors(result.error);
+    const missingVars = result.error.issues.map((issue) => issue.path.join('.'));
+    const uniqueMissing = [...new Set(missingVars)];
 
-    console.error('\n❌ ENVIRONMENT VALIDATION FAILED\n');
-    console.error('='.repeat(50));
-    console.error('Missing or invalid environment variables:\n');
-    console.error(formattedErrors);
-    console.error('='.repeat(50));
-    console.error('\n📝 Please check your .env file and restart the application.\n');
+    // Print to stderr so logs don't mix with stdout
+    console.error('\n═══════════════════════════════════════════════════════');
+    console.error('  ❌  ENVIRONMENT VALIDATION FAILED');
+    console.error('═══════════════════════════════════════════════════════\n');
+    console.error('  The following required environment variables are missing');
+    console.error('  or have invalid values:\n');
 
-    throw new Error(`Environment validation failed: ${formattedErrors}`);
+    for (const name of uniqueMissing) {
+      console.error(`  • ${name}`);
+    }
+
+    console.error('\n  Copy .env.example to .env and fill in the values.');
+    console.error('  NEVER commit .env with real secrets.\n');
+    console.error('═══════════════════════════════════════════════════════\n');
+
+    throw new Error(
+      `Environment validation failed. Missing variables: ${uniqueMissing.join(', ')}. ` +
+        'See stderr for details.'
+    );
   }
 
   envInstance = result.data;
@@ -93,32 +146,18 @@ export function getEnv(): EnvConfig {
 }
 
 /**
- * Format Zod validation errors into readable output
- */
-function formatValidationErrors(error: z.ZodError): string {
-  const issues = error.issues.map((issue) => {
-    const path = issue.path.join('.');
-    if (issue.code === 'invalid_type') {
-      return `  • ${path}: ${issue.message}`;
-    }
-    return `  • ${path}: ${issue.message}`;
-  });
-
-  return issues.join('\n');
-}
-
-/**
- * Validate a specific env var exists
+ * Validate a specific env var exists and is non-empty.
+ * Throws with the variable name only - never logs the value.
  */
 export function requireEnv(key: keyof EnvConfig): string {
   const env = getEnv();
   const value = env[key];
 
   if (!value || (typeof value === 'string' && value.trim() === '')) {
-    throw new Error(`Required environment variable ${key} is not set`);
+    throw new Error(`Required environment variable ${String(key)} is not set`);
   }
 
-  return value;
+  return String(value);
 }
 
 /**
@@ -136,6 +175,10 @@ export function isTest(): boolean {
   return getEnv().NODE_ENV === 'test';
 }
 
+// =============================================================================
+// Derived Config Getters
+// =============================================================================
+
 /**
  * Get browser config derived from env
  */
@@ -146,7 +189,6 @@ export function getBrowserConfig() {
     userDataDir: env.SHOPEE_USER_DATA_DIR,
     headless: env.BROWSER_HEADLESS,
     timeout: env.BROWSER_TIMEOUT,
-    maxRetries: env.CRAWLER_MAX_RETRIES,
     mobileUserAgent: env.SHOPEE_MOBILE_USER_AGENT,
   };
 }
@@ -159,6 +201,7 @@ export function getAIConfig() {
 
   return {
     apiKey: env.GEMINI_API_KEY,
+    groqApiKey: env.GROQ_API_KEY,
     model: env.GEMINI_MODEL,
     batchSize: env.AI_ANALYSIS_BATCH_SIZE,
     confidenceThreshold: env.AI_CONFIDENCE_THRESHOLD,
@@ -178,8 +221,34 @@ export function getDatabaseConfig() {
 }
 
 /**
- * Export validated env object (singleton)
+ * Get admin credentials (for use in auth middleware - server-side only)
  */
+export function getAdminCredentials() {
+  const env = getEnv();
+  return {
+    username: env.ADMIN_USERNAME,
+    password: env.ADMIN_PASSWORD,
+  };
+}
+
+/**
+ * Get control plane internal secret (for server-side use only)
+ */
+export function getControlPlaneSecret(): string {
+  return getEnv().CONTROL_PLANE_INTERNAL_SECRET;
+}
+
+/**
+ * Get session secret (for server-side cookie signing only)
+ */
+export function getSessionSecret(): string {
+  return getEnv().SESSION_SECRET;
+}
+
+// =============================================================================
+// Export validated env singleton
+// =============================================================================
+
 export const env = getEnv();
 
 export default env;

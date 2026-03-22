@@ -1,0 +1,15 @@
+{
+  // Affiliate Automation System — Dependency Vulnerability Scan Config
+  // https://github.com/IBM/audit-ci
+  "allowlist": [
+    // Known issues with acceptable risk or already addressed:
+    // Keep this list minimal. Every entry should have a comment explaining why it's allowed.
+  ],
+  "moderate": true,
+  "package-manager": "npm",
+  "report-type": "json",
+  "output": "audit-report.json",
+  // Block HIGH and CRITICAL vulnerabilities only.
+  // Allow MEDIUM to not break builds for minor issues that require upstream fixes.
+  "allowFailuresOn": []
+}

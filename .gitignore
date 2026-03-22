@@ -2,6 +2,9 @@
 # Affiliate Automation System - .gitignore
 # ============================================
 
+# Duplicate / nested copy — must NOT be committed
+Affiliate/
+
 # ----------------------------------------
 # Node.js / Package Manager
 # ----------------------------------------
@@ -31,9 +34,19 @@ coverage/
 .env
 .env.local
 .env.development
+.env.test
 .env.production
 .env.*.local
+.env.*.secret
 !.env.example
+
+# Per-app env files (apps/* has its own .env handling)
+apps/*/.env
+apps/*/.env.local
+apps/*/.env.development
+apps/*/.env.production
+apps/*/.env.*.local
+apps/*/.env.*.secret
 
 # ----------------------------------------
 # Logs / Temp / Cache

@@ -1,0 +1,162 @@
+# =============================================================================
+# Local Development Docker Compose
+# =============================================================================
+# Production-like setup for local development
+
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------
+  # Web/Admin Application
+  # ---------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: affiliate-web
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=local
+      - RUNTIME_ROLE=web
+      - RUNTIME_ENV=local
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      - NEXT_PUBLIC_API_URL=http://localhost:4000
+    volumes:
+      - ./sessions:/app/data/sessions
+      - ./logs:/app/logs
+    depends_on:
+      - control-plane
+    networks:
+      - affiliate-network
+
+  # ---------------------------------------------------------------------
+  # Control Plane API
+  # ---------------------------------------------------------------------
+  control-plane:
+    build:
+      context: .
+      dockerfile: Dockerfile.control-plane
+    container_name: affiliate-control-plane
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=local
+      - RUNTIME_ROLE=control-plane
+      - RUNTIME_ENV=local
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - INTERNAL_AUTH_SECRET=${INTERNAL_AUTH_SECRET:-dev-secret-change-in-production}
+      - SESSION_SECRET=${SESSION_SECRET:-dev-secret-change-in-production}
+    volumes:
+      - ./sessions:/app/data/sessions
+      - ./logs:/app/logs
+    networks:
+      - affiliate-network
+
+  # ---------------------------------------------------------------------
+  # Worker: Crawler
+  # ---------------------------------------------------------------------
+  worker-crawler:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: affiliate-worker-crawler
+    environment:
+      - NODE_ENV=local
+      - RUNTIME_ROLE=worker-crawler
+      - RUNTIME_ENV=local
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - WORKER_CONCURRENCY=1
+      - QUEUE_POLL_INTERVAL=10000
+    volumes:
+      - ./sessions:/app/data/sessions
+      - ./logs:/app/logs
+      - ./cache:/app/.cache
+    depends_on:
+      - control-plane
+      - database
+    networks:
+      - affiliate-network
+
+  # ---------------------------------------------------------------------
+  # Worker: AI Enrichment
+  # ---------------------------------------------------------------------
+  worker-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: affiliate-worker-ai
+    environment:
+      - NODE_ENV=local
+      - RUNTIME_ROLE=worker-ai
+      - RUNTIME_ENV=local
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - WORKER_CONCURRENCY=1
+      - QUEUE_POLL_INTERVAL=10000
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - control-plane
+      - database
+    networks:
+      - affiliate-network
+
+  # ---------------------------------------------------------------------
+  # Worker: Publisher
+  # ---------------------------------------------------------------------
+  worker-publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: affiliate-worker-publisher
+    environment:
+      - NODE_ENV=local
+      - RUNTIME_ROLE=worker-publisher
+      - RUNTIME_ENV=local
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - WORKER_CONCURRENCY=1
+      - QUEUE_POLL_INTERVAL=10000
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - control-plane
+      - database
+    networks:
+      - affiliate-network
+
+  # ---------------------------------------------------------------------
+  # Worker: Ops Runner
+  # ---------------------------------------------------------------------
+  worker-ops:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: affiliate-worker-ops
+    environment:
+      - NODE_ENV=local
+      - RUNTIME_ROLE=ops-runner
+      - RUNTIME_ENV=local
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - control-plane
+      - database
+    networks:
+      - affiliate-network
+
+networks:
+  affiliate-network:
+    driver: bridge
+
+# volumes:
+#   sessions:
+#     driver: local

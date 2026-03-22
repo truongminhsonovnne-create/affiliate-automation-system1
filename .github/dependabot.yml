@@ -1,0 +1,94 @@
+# =============================================================================
+# Dependabot Configuration
+# =============================================================================
+# Production-grade dependency update policy for security and stability.
+# =============================================================================
+
+version: 2
+enable-beta-ecosystem: false
+
+# Package manager configurations
+updates:
+  # Enable npm dependency updates
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      # Weekly updates to balance noise and security
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+
+    # Focus on production-critical dependencies
+    groups:
+      # Major updates in separate PRs
+      major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+        exclude-patterns:
+          - "eslint-*"
+          - "@types/*"
+
+      # Dev tools can update together
+      dev-tools:
+        patterns:
+          - "eslint-*"
+          - "prettier-*"
+          - "@types/*"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # TypeScript related
+      typescript:
+        patterns:
+          - "typescript"
+          - "ts-*"
+          - "@types/*"
+        update-types:
+          - "minor"
+          - "patch"
+
+    # Security updates always welcome
+    versioning-strategy: increase
+
+    # Labels for categorizing PRs
+    labels:
+      - "dependencies"
+      - "security"
+
+    # Milestone for tracking
+    milestone: 1
+
+    # Ignore certain updates
+    ignore:
+      # Skip major updates to Next.js unless security-critical
+      - dependency-name: "next"
+        update-types:
+          - "major"
+        reason: "Next.js major updates require comprehensive testing"
+
+      # Keep Node.js version in sync with CI
+      - dependency-name: "@types/node"
+        update-types:
+          - "major"
+
+  # Docker dependency updates (if using base images)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "docker"
+
+# Security updates (always enabled)
+registries:
+  npm:
+    type: npm-registry
+    url: https://registry.npmjs.org
+    username: ${{secrets.NPM_USERNAME}}
+    token: ${{secrets.NPM_TOKEN}}

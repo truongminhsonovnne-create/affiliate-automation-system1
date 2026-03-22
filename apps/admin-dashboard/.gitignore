@@ -1,0 +1,27 @@
+# Environment — NEVER commit secrets
+.env.local
+.env.production
+.env.*.local
+.env.*.secret
+
+# Next.js build output (already in root .gitignore, but explicit here for clarity)
+.next/
+dist/
+out/
+
+# Build artifacts
+tsconfig.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/

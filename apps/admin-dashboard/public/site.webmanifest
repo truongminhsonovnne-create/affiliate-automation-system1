@@ -1,0 +1,20 @@
+{
+  "name": "VoucherFinder",
+  "short_name": "VoucherFinder",
+  "description": "Tra cứu mã giảm giá Shopee miễn phí — dán link, nhận mã trong 3 giây.",
+  "start_url": "/home",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f97316",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["shopping", "utilities"],
+  "lang": "vi",
+  "orientation": "portrait-primary"
+}

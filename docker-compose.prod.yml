@@ -1,0 +1,204 @@
+# =============================================================================
+# Production Docker Compose
+# =============================================================================
+# Production environment configuration with proper security defaults
+# Usage: docker-compose -f docker-compose.prod.yml up -d
+#
+# IMPORTANT: Set required environment variables before running:
+#   - CONTROL_PLANE_INTERNAL_SECRET (min 32 chars)
+#   - ADMIN_USERNAME
+#   - ADMIN_PASSWORD (min 12 chars)
+#   - SESSION_SECRET (min 32 chars)
+#   - USE_REDIS_RATE_LIMIT=true
+#   - REDIS_URL=redis://redis:6379
+
+version: '3.8'
+
+services:
+  # -------------------------------------------------------------------------
+  # Public Web Application (exposed on port 3000)
+  # -------------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: affiliate-web-prod
+    ports:
+      - "127.0.0.1:3000:3000"  # Bind to localhost only
+    environment:
+      - NODE_ENV=production
+      - RUNTIME_ROLE=web
+      - RUNTIME_ENV=production
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-https://your-domain.com}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://your-domain.com/api}
+      - LOG_LEVEL=warn
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+    networks:
+      - affiliate-prod-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # Do NOT expose to public - use reverse proxy
+    profiles:
+      - web
+
+  # -------------------------------------------------------------------------
+  # Internal Control Plane API (NOT exposed publicly)
+  # -------------------------------------------------------------------------
+  control-plane:
+    build:
+      context: .
+      dockerfile: Dockerfile.control-plane
+    container_name: affiliate-control-plane-prod
+    # NOT exposed to host - only accessible via internal network
+    expose:
+      - "4000"
+    environment:
+      - NODE_ENV=production
+      - RUNTIME_ROLE=control-plane
+      - RUNTIME_ENV=production
+      - CONTROL_PLANE_HOST=127.0.0.1
+      - CONTROL_PLANE_ENABLE_CORS=false
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - CONTROL_PLANE_INTERNAL_SECRET=${CONTROL_PLANE_INTERNAL_SECRET}
+      - ADMIN_USERNAME=${ADMIN_USERNAME}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - LOG_LEVEL=warn
+      # Rate limiting
+      - USE_REDIS_RATE_LIMIT=${USE_REDIS_RATE_LIMIT:-true}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      # Trust proxy (configure for your load balancer)
+      - TRUST_PROXY=${TRUST_PROXY:-true}
+      - TRUSTED_PROXY_IPS=${TRUSTED_PROXY_IPS:-10.0.0.0/8,172.16.0.0/12}
+    networks:
+      - affiliate-prod-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    profiles:
+      - internal
+
+  # -------------------------------------------------------------------------
+  # Redis for Rate Limiting (Production)
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: affiliate-redis-prod
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme}
+    volumes:
+      - redis-data:/data
+    networks:
+      - affiliate-prod-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    profiles:
+      - backend
+
+  # -------------------------------------------------------------------------
+  # Crawler Worker
+  # -------------------------------------------------------------------------
+  worker-crawler:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: affiliate-worker-crawler-prod
+    environment:
+      - NODE_ENV=production
+      - RUNTIME_ROLE=worker-crawler
+      - RUNTIME_ENV=production
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - WORKER_CONCURRENCY=3
+      - LOG_LEVEL=warn
+    networks:
+      - affiliate-prod-network
+    healthcheck:
+      test: ["CMD", "kill", "-0", "1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    profiles:
+      - worker
+    deploy:
+      replicas: 2
+
+  # -------------------------------------------------------------------------
+  # AI Worker
+  # -------------------------------------------------------------------------
+  worker-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: affiliate-worker-ai-prod
+    environment:
+      - NODE_ENV=production
+      - RUNTIME_ROLE=worker-ai
+      - RUNTIME_ENV=production
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - WORKER_CONCURRENCY=5
+      - LOG_LEVEL=warn
+    networks:
+      - affiliate-prod-network
+    healthcheck:
+      test: ["CMD", "kill", "-0", "1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    profiles:
+      - worker
+
+  # -------------------------------------------------------------------------
+  # Publisher Worker
+  # -------------------------------------------------------------------------
+  worker-publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: affiliate-worker-publisher-prod
+    environment:
+      - NODE_ENV=production
+      - RUNTIME_ROLE=worker-publisher
+      - RUNTIME_ENV=production
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - WORKER_CONCURRENCY=10
+      - LOG_LEVEL=warn
+    networks:
+      - affiliate-prod-network
+    healthcheck:
+      test: ["CMD", "kill", "-0", "1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    profiles:
+      - worker
+    deploy:
+      replicas: 2
+
+networks:
+  affiliate-prod-network:
+    driver: bridge
+
+volumes:
+  redis-data:

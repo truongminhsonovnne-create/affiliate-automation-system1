@@ -1,282 +1,299 @@
 /**
- * Browser Factory for Shopee Crawler
+ * Crawler Foundation Layer - Browser Context Management
  *
- * Provides Playwright browser with stealth configuration
- * using persistent context for session persistence.
+ * Hardened browser context creation with playwright-extra and stealth plugin.
+ * Provides production-grade browser automation with mobile profile support.
  */
 
-import { chromium, Browser, BrowserContext, Page } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { chromium as playwrightExtra } from 'playwright-extra';
-import stealth from 'puppeteer-extra-plugin-stealth';
-import { env } from '../config/env.js';
-import { log } from '../utils/logger.js';
+
+import type {
+  CreateShopeeBrowserContextOptions,
+  CreateShopeeBrowserContextResult,
+  ShopeeMobileProfile,
+  BrowserHealthStatus,
+  CrawlerLogger,
+} from './types.js';
+import {
+  getShopeeMobileProfile,
+  getContextOptionsFromProfile,
+  validateProfile,
+} from './browserProfile.js';
+import { getEnabledInitScripts } from './initScripts.js';
+import { TIMEOUT, BROWSER_ARGS, LOGGING } from './constants.js';
 
 // ============================================
-// Types & Interfaces
-// ============================================
-
-/**
- * Browser configuration options
- */
-export interface BrowserOptions {
-  /** Run browser in headless mode (default: from env or true) */
-  headless?: boolean;
-
-  /** Browser user data dir for persistent session */
-  userDataDir?: string;
-
-  /** Custom user agent (default: from env) */
-  userAgent?: string;
-
-  /** Browser timeout in ms (default: 30000) */
-  timeout?: number;
-
-  /** Enable stealth mode (default: true) */
-  stealth?: boolean;
-
-  /** Show browser devtools (default: false) */
-  devtools?: boolean;
-}
-
-/**
- * Mobile viewport configuration for Shopee mobile
- */
-export const MOBILE_VIEWPORT = {
-  width: 375,  // iPhone width
-  height: 812, // iPhone height
-  deviceScaleFactor: 3,
-  isMobile: true,
-  hasTouch: true,
-} as const;
-
-/**
- * Desktop viewport configuration
- */
-export const DESKTOP_VIEWPORT = {
-  width: 1920,
-  height: 1080,
-  deviceScaleFactor: 1,
-  isMobile: false,
-  hasTouch: false,
-} as const;
-
-/**
- * Default launch arguments for stealth
- */
-const DEFAULT_LAUNCH_ARGS = [
-  '--disable-blink-features=AutomationControlled',
-  '--disable-dev-shm-usage',
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-web-security',
-  '--disable-features=IsolateOrigins,site-per-process',
-  '--disable-background-networking',
-  '--disable-default-apps',
-  '--disable-extensions',
-  '--disable-sync',
-  '--disable-translate',
-  '--metrics-recording-only',
-  '--mute-audio',
-  '--no-first-run',
-  '--safebrowsing-disable-auto-update',
-];
-
-// ============================================
-// Singleton Instances
+// Singleton State
 // ============================================
 
 let browserInstance: Browser | null = null;
 let persistentContext: BrowserContext | null = null;
 
 // ============================================
-// Core Functions
+// Logger
+// ============================================
+
+function createCrawlerLogger(enableDebug: boolean = false): CrawlerLogger {
+  return {
+    info: (message: string, meta?: Record<string, unknown>) => {
+      console.log(`${LOGGING.PREFIX} ℹ️ ${message}`, meta ? JSON.stringify(meta) : '');
+    },
+    warn: (message: string, meta?: Record<string, unknown>) => {
+      console.warn(`${LOGGING.PREFIX} ⚠️ ${message}`, meta ? JSON.stringify(meta) : '');
+    },
+    debug: (message: string, meta?: Record<string, unknown>) => {
+      if (enableDebug) {
+        console.debug(`${LOGGING.PREFIX} 🔍 ${message}`, meta ? JSON.stringify(meta) : '');
+      }
+    },
+    error: (message: string, meta?: Record<string, unknown>) => {
+      console.error(`${LOGGING.PREFIX} ❌ ${message}`, meta ? JSON.stringify(meta) : '');
+    },
+  };
+}
+
+// ============================================
+// Stealth Plugin
+// ============================================
+
+let stealthInitialized = false;
+
+function initStealth(logger?: CrawlerLogger): void {
+  if (stealthInitialized) {
+    return;
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const stealth = require('puppeteer-extra-plugin-stealth');
+    playwrightExtra.use(stealth());
+    stealthInitialized = true;
+    logger?.debug('Stealth plugin initialized');
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    logger?.warn('Failed to initialize stealth plugin, continuing without it: ' + errMsg);
+  }
+}
+
+// ============================================
+// Main Functions
 // ============================================
 
 /**
- * Initialize stealth plugin with playwright-extra
+ * Create a hardened Shopee browser context
  */
-function initStealth(): void {
+export async function createShopeeBrowserContext(
+  options: CreateShopeeBrowserContextOptions = {}
+): Promise<CreateShopeeBrowserContextResult> {
+  const startTime = Date.now();
+  const logger = createCrawlerLogger(options.enableDebugLogging);
+
+  const profile = getShopeeMobileProfile(options.profileOverride);
+
+  const validation = validateProfile(profile);
+  if (!validation.valid) {
+    logger.error('Invalid mobile profile', { errors: validation.errors });
+    return {
+      ok: false,
+      error: `Invalid profile: ${validation.errors.join(', ')}`,
+      createdAt: startTime,
+    };
+  }
+
   try {
-    playwrightExtra.use(stealth());
-    log.debug('Stealth plugin initialized');
+    logger.info('Creating Shopee browser context', {
+      profile: profile.profileName,
+      headless: options.headless ?? true,
+    });
+
+    initStealth(logger);
+
+    const launchArgs = [
+      ...BROWSER_ARGS.ESSENTIAL,
+      ...BROWSER_ARGS.STABILITY,
+      ...BROWSER_ARGS.SECURITY,
+      ...(options.launchArgs || []),
+    ];
+
+    const contextOptions = getContextOptionsFromProfile(profile);
+    const initScripts = getEnabledInitScripts();
+
+    const browser = await playwrightExtra.launch({
+      headless: options.headless ?? true,
+      args: launchArgs,
+      slowMo: options.slowMo,
+      executablePath: options.executablePath,
+    });
+
+    const context = await browser.newContext({
+      ...contextOptions,
+    });
+
+    context.setDefaultTimeout(options.timeoutOverride ?? TIMEOUT.NAVIGATION);
+    context.setDefaultNavigationTimeout(options.timeoutOverride ?? TIMEOUT.NAVIGATION);
+
+    for (const { name, script } of initScripts) {
+      await context.addInitScript(script);
+      logger.debug(`Applied init script: ${name}`);
+    }
+
+    if (options.proxy) {
+      await context.setProxy(options.proxy);
+      logger.info('Proxy configured', { server: options.proxy.server });
+    }
+
+    const duration = Date.now() - startTime;
+    logger.info('Browser context created successfully', {
+      duration: `${duration}ms`,
+      profile: profile.profileName,
+    });
+
+    return {
+      ok: true,
+      browser,
+      context,
+      profile,
+      createdAt: startTime,
+    };
   } catch (error) {
-    log.warn({ error }, 'Failed to initialize stealth plugin, continuing without it');
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to create browser context', { error: errorMessage });
+
+    return {
+      ok: false,
+      error: errorMessage,
+      createdAt: startTime,
+    };
   }
 }
 
 /**
- * Get browser launch options based on environment
+ * Close Shopee browser context safely
  */
-function getLaunchOptions(options: BrowserOptions = {}): {
-  headless: boolean;
-  args: string[];
-  devtools: boolean;
-} {
-  const headless = options.headless ?? env.BROWSER_HEADLESS ?? true;
-  const devtools = options.devtools ?? false;
+export async function closeShopeeBrowserContext(
+  context?: BrowserContext,
+  browser?: Browser
+): Promise<void> {
+  const logger = createCrawlerLogger();
 
-  return {
-    headless,
-    args: DEFAULT_LAUNCH_ARGS,
-    devtools,
-  };
+  try {
+    if (context) {
+      await context.close();
+      logger.info('Browser context closed');
+    }
+
+    if (browser) {
+      await browser.close();
+      logger.info('Browser closed');
+    } else if (browserInstance && browserInstance.isConnected()) {
+      await browserInstance.close();
+      browserInstance = null;
+      logger.info('Browser closed');
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error('Error closing browser context', { error: errorMessage });
+  }
 }
 
 /**
- * Get persistent context options for Shopee mobile
+ * Create a new page in the given context
  */
-function getContextOptions(options: BrowserOptions = {}): {
-  userAgent: string;
-  viewport: typeof MOBILE_VIEWPORT;
-  locale: string;
-  timezoneId: string;
-  permissions: string[];
-  extraHTTPHeaders: Record<string, string>;
-  storageState?: string;
-} {
-  const userAgent = options.userAgent || env.SHOPEE_MOBILE_USER_AGENT;
-  const userDataDir = options.userDataDir || env.SHOPEE_USER_DATA_DIR;
+export async function createShopeePage(
+  context: BrowserContext
+): Promise<{
+  ok: boolean;
+  page?: Page;
+  error?: string;
+}> {
+  const logger = createCrawlerLogger();
 
-  return {
-    userAgent,
-    viewport: MOBILE_VIEWPORT,
-    locale: 'vi-VN',
-    timezoneId: 'Asia/Ho_Chi_Minh',
-    permissions: ['geolocation'],
-    extraHTTPHeaders: {
-      'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-      'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache',
-    },
-    // Keep session storage if userDataDir is provided
-    ...(userDataDir && { storageState: undefined }),
-  };
+  try {
+    const page = await context.newPage();
+    logger.debug('New page created in context');
+    return { ok: true, page };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to create page', { error: errorMessage });
+    return { ok: false, error: errorMessage };
+  }
 }
 
 /**
- * Launch browser with stealth mode
+ * Check browser health status
  */
-async function launchBrowser(options: BrowserOptions = {}): Promise<Browser> {
+export async function checkBrowserHealth(
+  browser: Browser,
+  context?: BrowserContext
+): Promise<BrowserHealthStatus> {
+  const warnings: string[] = [];
+  let browserConnected = false;
+  let contextValid = false;
+  let pageCount = 0;
+
+  try {
+    browserConnected = browser.isConnected();
+
+    if (!browserConnected) {
+      warnings.push('Browser is not connected');
+    }
+
+    if (context) {
+      try {
+        const pages = context.pages();
+        contextValid = pages.length >= 0;
+        pageCount = pages.length;
+      } catch {
+        contextValid = false;
+        warnings.push('Context is not accessible');
+      }
+    }
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    warnings.push(`Health check error: ${errMsg}`);
+  }
+
+  return {
+    healthy: browserConnected && (context ? contextValid : true),
+    browserConnected,
+    contextValid: context ? contextValid : true,
+    pageCount,
+    warnings,
+    checkedAt: Date.now(),
+  };
+}
+
+// ============================================
+// Legacy Functions
+// ============================================
+
+export async function launchBrowser(options: CreateShopeeBrowserContextOptions = {}): Promise<Browser> {
   if (browserInstance && browserInstance.isConnected()) {
     return browserInstance;
   }
 
-  const launchOptions = getLaunchOptions(options);
+  const logger = createCrawlerLogger(options.enableDebugLogging);
+  initStealth(logger);
 
-  log.info(
-    {
-      headless: launchOptions.headless,
-      userDataDir: options.userDataDir || env.SHOPEE_USER_DATA_DIR,
-    },
-    'Launching browser...'
-  );
+  const profile = getShopeeMobileProfile(options.profileOverride);
+  const launchArgs = [
+    ...BROWSER_ARGS.ESSENTIAL,
+    ...BROWSER_ARGS.STABILITY,
+    ...BROWSER_ARGS.SECURITY,
+    ...(options.launchArgs || []),
+  ];
 
-  try {
-    // Initialize stealth
-    initStealth();
+  browserInstance = await playwrightExtra.launch({
+    headless: options.headless ?? true,
+    args: launchArgs,
+    slowMo: options.slowMo,
+    executablePath: options.executablePath,
+  });
 
-    // Launch with playwright-extra
-    browserInstance = await playwrightExtra.launch({
-      headless: launchOptions.headless,
-      args: launchOptions.args,
-      devtools: launchOptions.devtools,
-      // Use userDataDir for persistent session
-      userDataDir: options.userDataDir || env.SHOPEE_USER_DATA_DIR,
-    });
-
-    log.info('Browser launched successfully');
-
-    return browserInstance;
-  } catch (error) {
-    log.error({ error }, 'Failed to launch browser');
-    throw error;
-  }
+  return browserInstance;
 }
 
-/**
- * Create a new browser context (non-persistent)
- */
-export async function createBrowserContext(options: BrowserOptions = {}): Promise<BrowserContext> {
-  const browser = await launchBrowser(options);
-  const contextOptions = getContextOptions(options);
-
-  const context = await browser.newContext(contextOptions);
-
-  // Set default timeout
-  const timeout = options.timeout || env.BROWSER_TIMEOUT || 30000;
-  context.setDefaultTimeout(timeout);
-
-  log.debug({ userAgent: contextOptions.userAgent }, 'Created new browser context');
-
-  return context;
-}
-
-/**
- * Create persistent context for Shopee with session persistence
- * This allows login state to be maintained across restarts
- */
-export async function createShopeeBrowserContext(
-  options: BrowserOptions = {}
-): Promise<BrowserContext> {
-  const userDataDir = options.userDataDir || env.SHOPEE_USER_DATA_DIR;
-
-  if (!userDataDir) {
-    log.warn('SHOPEE_USER_DATA_DIR not set, using non-persistent context');
-    return createBrowserContext(options);
-  }
-
-  // If we already have a persistent context, return it
-  if (persistentContext && persistentContext.pages().length > 0) {
-    log.debug('Reusing existing persistent context');
-    return persistentContext;
-  }
-
-  log.info({ userDataDir }, 'Creating persistent browser context...');
-
-  try {
-    const browser = await launchBrowser(options);
-    const contextOptions = getContextOptions(options);
-
-    // Create persistent context
-    persistentContext = await browser.launchPersistentContext(userDataDir, {
-      ...contextOptions,
-      headless: options.headless ?? env.BROWSER_HEADLESS ?? true,
-      // Persist session data
-      args: [
-        ...DEFAULT_LAUNCH_ARGS,
-        `--user-data-dir=${userDataDir}`,
-      ],
-    });
-
-    // Set default timeout
-    const timeout = options.timeout || env.BROWSER_TIMEOUT || 30000;
-    persistentContext.setDefaultTimeout(timeout);
-
-    log.info('Persistent browser context created successfully');
-
-    return persistentContext;
-  } catch (error) {
-    log.error({ error, userDataDir }, 'Failed to create persistent context');
-    throw error;
-  }
-}
-
-/**
- * Create a new page in the persistent context
- */
-export async function createShopeePage(options: BrowserOptions = {}): Promise<Page> {
-  const context = await createShopeeBrowserContext(options);
-  const page = await context.newPage();
-
-  log.debug('Created new page in persistent context');
-
-  return page;
-}
-
-/**
- * Get the current browser instance
- */
 export async function getBrowser(): Promise<Browser> {
   if (!browserInstance || !browserInstance.isConnected()) {
     return launchBrowser();
@@ -284,27 +301,53 @@ export async function getBrowser(): Promise<Browser> {
   return browserInstance;
 }
 
-/**
- * Get all open pages
- */
-export async function getPages(): Promise<Page[]> {
-  const context = persistentContext;
-  if (!context) return [];
+export async function createBrowserContext(
+  options: CreateShopeeBrowserContextOptions = {}
+): Promise<BrowserContext> {
+  const browser = await launchBrowser(options);
+  const profile = getShopeeMobileProfile(options.profileOverride);
+  const contextOptions = getContextOptionsFromProfile(profile);
 
-  return context.pages();
+  const context = await browser.newContext(contextOptions);
+  context.setDefaultTimeout(options.timeoutOverride ?? TIMEOUT.NAVIGATION);
+
+  return context;
 }
 
-/**
- * Close a specific context
- */
-export async function closeContext(context: BrowserContext): Promise<void> {
-  await context.close();
-  log.debug('Browser context closed');
+export async function createShopeePersistentContext(
+  options: CreateShopeeBrowserContextOptions = {}
+): Promise<BrowserContext> {
+  if (persistentContext) {
+    try {
+      const pages = persistentContext.pages();
+      if (pages.length > 0) {
+        const logger = createCrawlerLogger(options.enableDebugLogging);
+        logger.debug('Reusing existing persistent context');
+        return persistentContext;
+      }
+    } catch {
+      // Continue to create new
+    }
+  }
+
+  const logger = createCrawlerLogger(options.enableDebugLogging);
+  logger.info({ userDataDir: options.userDataDir }, 'Creating persistent browser context...');
+
+  const browser = await launchBrowser(options);
+  const profile = getShopeeMobileProfile(options.profileOverride);
+  const contextOptions = getContextOptionsFromProfile(profile);
+
+  persistentContext = await browser.newContext({
+    ...contextOptions,
+  });
+
+  persistentContext.setDefaultTimeout(options.timeoutOverride ?? TIMEOUT.NAVIGATION);
+
+  logger.info('Persistent browser context created successfully');
+
+  return persistentContext;
 }
 
-/**
- * Close all browser instances and contexts
- */
 export async function closeBrowser(): Promise<void> {
   if (persistentContext) {
     await persistentContext.close().catch(() => {});
@@ -316,15 +359,19 @@ export async function closeBrowser(): Promise<void> {
     browserInstance = null;
   }
 
-  log.info('Browser closed');
+  const logger = createCrawlerLogger();
+  logger.info('Browser closed');
 }
 
-/**
- * Setup cleanup handlers for process exit
- */
+export function isBrowserConnected(): boolean {
+  return browserInstance !== null && browserInstance.isConnected();
+}
+
 export function setupBrowserCleanup(): void {
+  const logger = createCrawlerLogger();
+
   const cleanup = async () => {
-    log.info('Cleaning up browser...');
+    logger.info('Cleaning up browser...');
     await closeBrowser();
   };
 
@@ -338,65 +385,17 @@ export function setupBrowserCleanup(): void {
     process.exit(0);
   });
 
-  log.debug('Browser cleanup handlers registered');
+  logger.debug('Browser cleanup handlers registered');
 }
 
 // ============================================
-// Utility Functions
+// Types Export
 // ============================================
 
-/**
- * Check if browser is running
- */
-export function isBrowserConnected(): boolean {
-  return browserInstance !== null && browserInstance.isConnected();
-}
-
-/**
- * Get browser version
- */
-export async function getBrowserVersion(): Promise<string> {
-  const browser = await getBrowser();
-  return browser.version();
-}
-
-/**
- * Clear all cookies in context
- */
-export async function clearCookies(context: BrowserContext): Promise<void> {
-  await context.clearCookies();
-  log.debug('Cookies cleared');
-}
-
-/**
- * Clear all storage (cookies, localStorage, sessionStorage)
- */
-export async function clearStorage(context: BrowserContext): Promise<void> {
-  const pages = context.pages();
-  for (const page of pages) {
-    await page.evaluate(() => {
-      localStorage.clear();
-      sessionStorage.clear();
-    });
-  }
-  await context.clearCookies();
-  log.debug('Storage cleared');
-}
-
-// ============================================
-// Export
-// ============================================
-
-export {
-  Browser,
-  BrowserContext,
-  Page,
-  MOBILE_VIEWPORT,
-  DESKTOP_VIEWPORT,
-  createBrowserContext,
-  createShopeeBrowserContext,
-  createShopeePage,
-  getBrowser,
-  closeBrowser,
-  setupBrowserCleanup,
+export type {
+  CreateShopeeBrowserContextOptions,
+  CreateShopeeBrowserContextResult,
+  ShopeeMobileProfile,
+  BrowserHealthStatus,
+  CrawlerLogger,
 };

@@ -1,0 +1,89 @@
+# Dependencies
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp
+.pnp.js
+
+# Build outputs
+dist
+.next
+out
+build
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+.env.*.local
+
+# Secrets (should not be in repo)
+*.pem
+*.key
+credentials.json
+service-account.json
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Testing
+coverage
+.nyc_output
+
+# Git
+.git
+.gitignore
+
+# Documentation
+docs
+*.md
+!README.md
+
+# Scripts (only production scripts needed)
+scripts
+supabase/migrations
+
+# Development files
+src/scripts
+src/**/*.test.ts
+src/**/*.spec.ts
+__tests__
+
+# Temporary files
+tmp
+temp
+*.tmp
+
+# Cache
+.cache
+.eslintcache
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Docker (not needed in image)
+Dockerfile*
+docker-compose*
+.dockerignore
+.docker
+
+# Misc
+*.bak
+*.backup
+*.swp

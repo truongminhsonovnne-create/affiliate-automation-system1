@@ -1,0 +1,391 @@
+# =============================================================================
+# PR Quality Gates - Pull Request Validation
+# =============================================================================
+# Strict quality gates that must pass before PR can be merged.
+# This runs on every PR and provides detailed feedback.
+#
+# Key Gates:
+#   - Branch hygiene
+#   - Code quality (lint, format)
+#   - Type safety
+#   - Buildability
+#   - Migration risk assessment
+#   - Secret exposure checks
+#   - Container build sanity
+# =============================================================================
+
+name: PR Quality Gates
+
+on:
+  pull_request:
+    branches: [main, develop, 'release/**']
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+# Prevent concurrent PR checks
+concurrency:
+  group: pr-quality-${{ github.event.pull_request.number || 'manual' }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  CACHE_VERSION: v1
+
+jobs:
+  # ===========================================================================
+  # Branch Hygiene Check
+  # ===========================================================================
+  branch-hygiene:
+    name: Branch Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check branch name format
+        run: |
+          BRANCH_NAME="${{ github.head_ref }}"
+          echo "PR branch: $BRANCH_NAME"
+
+          # Valid branch patterns
+          VALID_PATTERNS="^(main|develop|release/|hotfix/|feature/|bugfix/)"
+
+          if ! echo "$BRANCH_NAME" | grep -qE "$VALID_PATTERNS"; then
+            echo "⚠️ Warning: Branch name doesn't follow standard convention"
+            echo "Expected patterns: $VALID_PATTERNS"
+          else
+            echo "✅ Branch name follows convention"
+          fi
+
+      - name: Check for sensitive files modified
+        run: |
+          # Check if sensitive files were modified
+          SENSITIVE_FILES=(
+            ".env"
+            ".env.local"
+            "*.pem"
+            "*.key"
+            "credentials.json"
+            "service-account.json"
+          )
+
+          for pattern in "${SENSITIVE_FILES[@]}"; do
+            if git diff --name-only HEAD~1 -- "$pattern" 2>/dev/null | grep -q .; then
+              echo "⚠️ Warning: Potentially sensitive file pattern '$pattern' was modified"
+            fi
+          done
+
+  # ===========================================================================
+  # Code Quality Gates
+  # ===========================================================================
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Check code formatting (Prettier)
+        run: |
+          npx prettier --check . \
+            --ignore-path .gitignore \
+            --ignore-unknown \
+            || echo "FORMAT_WARNING=true" >> $GITHUB_ENV
+
+      - name: Check ESLint rules
+        run: |
+          if [ -f ".eslintrc.json" ] || [ -f ".eslintrc.js" ]; then
+            npx eslint src/ --ext .ts,.tsx,.js,.jsx \
+              --format stylish \
+              || echo "LINT_WARNING=true" >> $GITHUB_ENV
+          else
+            echo "No ESLint config found, skipping"
+          fi
+
+      - name: Report formatting issues
+        if: env.FORMAT_WARNING == 'true'
+        run: |
+          echo "⚠️ Code formatting issues detected"
+          echo "Please run: npx prettier --write ."
+          exit 1
+
+  # ===========================================================================
+  # Type Safety Gate
+  # ===========================================================================
+  type-safety:
+    name: Type Safety
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Run strict TypeScript check
+        run: |
+          if [ -f "tsconfig.json" ]; then
+            npx tsc --noEmit --strict \
+              --noImplicitAny \
+              --noImplicitReturns \
+              --noFallthroughCasesInSwitch \
+              --noUncheckedIndexedAccess \
+              || echo "TYPE_WARNING=true" >> $GITHUB_ENV
+          fi
+
+      - name: Report type errors
+        if: env.TYPE_WARNING == 'true'
+        run: |
+          echo "❌ TypeScript strict checks failed"
+          echo "Please fix type errors before merging"
+          exit 1
+
+  # ===========================================================================
+  # Buildability Gate
+  # ===========================================================================
+  buildability:
+    name: Buildability
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Build project
+        run: |
+          if grep -q '"build"' package.json; then
+            npm run build
+          else
+            echo "No build script found"
+            exit 1
+          fi
+
+      - name: Verify dist output
+        run: |
+          if [ ! -d "dist" ]; then
+            echo "❌ Build failed - dist directory not created"
+            exit 1
+          fi
+          echo "✅ Build successful"
+
+  # ===========================================================================
+  # Migration Risk Assessment
+  # ===========================================================================
+  migration-risk:
+    name: Migration Risk
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Analyze migration changes
+        run: |
+          echo "## Migration Risk Assessment" >> $GITHUB_STEP_SUMMARY
+
+          # Check for new migration files
+          NEW_MIGRATIONS=$(git diff --name-only origin/main -- "supabase/migrations/*.sql" 2>/dev/null || echo "")
+
+          if [ -n "$NEW_MIGRATIONS" ]; then
+            echo "### New Migrations Detected" >> $GITHUB_STEP_SUMMARY
+            echo "$NEW_MIGRATIONS" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Check for dangerous operations
+            DANGEROUS=0
+
+            for file in $NEW_MIGRATIONS; do
+              if grep -qiE "(DROP TABLE|DROP COLUMN|TRUNCATE|ALTER.*DROP)" "$file" 2>/dev/null; then
+                echo "⚠️ Warning: $file contains potentially dangerous operations" >> $GITHUB_STEP_SUMMARY
+                DANGEROUS=$((DANGEROUS + 1))
+              fi
+            done
+
+            if [ $DANGEROUS -gt 0 ]; then
+              echo "### Risk Level: HIGH" >> $GITHUB_STEP_SUMMARY
+              echo "Found $DANGEROUS potentially dangerous migration operations" >> $GITHUB_STEP_SUMMARY
+              exit 1
+            else
+              echo "### Risk Level: LOW" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "No new migrations detected" >> $GITHUB_STEP_SUMMARY
+            echo "### Risk Level: NONE" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ===========================================================================
+  # Secret Exposure Check
+  # ===========================================================================
+  secret-check:
+    name: Secret Exposure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run secret detection
+        run: |
+          echo "## Secret Exposure Check" >> $GITHUB_STEP_SUMMARY
+
+          # Check for exposed secrets in code
+          SECRET_PATTERNS=(
+            "AKIA[0-9A-Z]{16}"  # AWS Access Key
+            "ghp_[a-zA-Z0-9]{36}"  # GitHub Personal Access Token
+            "sk-[a-zA-Z0-9]{48}"  # OpenAI API Key
+            "sk-proj-[a-zA-Z0-9_-]{48}"  # OpenAI Project Key
+          )
+
+          FOUND_SECRETS=0
+
+          for pattern in "${SECRET_PATTERNS[@]}"; do
+            if grep -rE "$pattern" \
+              --include="*.ts" --include="*.js" --include="*.json" \
+              --include="*.yaml" --include="*.yml" \
+              --exclude-dir=node_modules --exclude-dir=dist \
+              . 2>/dev/null | grep -v "placeholder\|example\|test\|fake"; then
+              echo "⚠️ Potential secret detected matching: $pattern"
+              FOUND_SECRETS=$((FOUND_SECRETS + 1))
+            fi
+          done
+
+          if [ $FOUND_SECRETS -gt 0 ]; then
+            echo "### Result: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "Found $FOUND_SECRETS potential secret exposures"
+            exit 1
+          else
+            echo "### Result: PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "No obvious secrets detected"
+          fi
+
+      - name: Check .env files aren't committed
+        run: |
+          if git diff --name-only | grep -qE "\.env(\.local|\..+)?$"; then
+            echo "❌ .env files should not be committed"
+            git diff --name-only | grep -E "\.env"
+            exit 1
+          fi
+
+  # ===========================================================================
+  # Container Build Sanity
+  # ===========================================================================
+  container-sanity:
+    name: Container Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build all container images (quick sanity)
+        run: |
+          echo "## Container Build Sanity" >> $GITHUB_STEP_SUMMARY
+
+          for dockerfile in Dockerfile.web Dockerfile.control-plane Dockerfile.worker; do
+            if [ -f "$dockerfile" ]; then
+              echo "Building $dockerfile..." >> $GITHUB_STEP_SUMMARY
+
+              if docker build -f "$dockerfile" \
+                --target runner \
+                --tag "sanity-test:$(basename $dockerfile)" \
+                --quiet .; then
+                echo "✅ $dockerfile built successfully" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "❌ $dockerfile build failed" >> $GITHUB_STEP_SUMMARY
+                exit 1
+              fi
+            fi
+          done
+
+  # ===========================================================================
+  # PR Gate Summary
+  # ===========================================================================
+  gate-summary:
+    name: Gate Summary
+    runs-on: ubuntu-latest
+    needs: [
+      branch-hygiene,
+      code-quality,
+      type-safety,
+      buildability,
+      migration-risk,
+      secret-check,
+      container-sanity
+    ]
+    if: always()
+    steps:
+      - name: Generate PR Gate Summary
+        run: |
+          echo "## PR Quality Gate Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Gate | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch Hygiene | ${{ needs.branch-hygiene.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Code Quality | ${{ needs.code-quality.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Type Safety | ${{ needs.type-safety.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Buildability | ${{ needs.buildability.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Migration Risk | ${{ needs.migration-risk.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secret Exposure | ${{ needs.secret-check.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Container Build | ${{ needs.container-sanity.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check for failures
+          FAILED=0
+          for job in branch-hygiene code-quality type-safety buildability migration-risk secret-check container-sanity; do
+            if [ "${{ needs.$job.result }}" == "failure" ]; then
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          if [ $FAILED -eq 0 ]; then
+            echo "### ✅ All Gates Passed" >> $GITHUB_STEP_SUMMARY
+            echo "PR is ready for review and merge."
+          else
+            echo "### ❌ $FAILED Gate(s) Failed" >> $GITHUB_STEP_SUMMARY
+            echo "Please address the failing gates before merging."
+            exit 1
+          fi
+
+      - name: Fail workflow on gate failure
+        if: needs.code-quality.result == 'failure' || needs.type-safety.result == 'failure' || needs.buildability.result == 'failure' || needs.secret-check.result == 'failure'
+        run: |
+          echo "Critical PR quality gate failed"
+          exit 1

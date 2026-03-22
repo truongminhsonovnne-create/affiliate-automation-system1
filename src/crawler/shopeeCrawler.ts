@@ -727,16 +727,3 @@ export async function createShopeeCrawler(): Promise<ShopeeCrawler> {
   await crawler.init();
   return crawler;
 }
-
-// ============================================
-// Export
-// ============================================
-
-export type { CrawlerOptions, CrawlResult };
-export {
-  crawlFlashSaleProducts,
-  crawlSearchProducts,
-  crawlProductDetails,
-  extractProductCardData,
-  extractProductDetailData,
-};

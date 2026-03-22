@@ -1,0 +1,69 @@
+# ============================================================
+# VoucherFinder — Docker Compose
+# ============================================================
+# Usage:
+#   cp .env.example .env
+#   # edit .env with your real values
+#   docker compose up -d
+#
+# Then:
+#   curl http://localhost:3000/api/health   # healthcheck
+#   curl http://localhost:3000/home         # site
+#
+# HTTPS note: This serves HTTP only.
+# For HTTPS, either:
+#   - Add a reverse proxy (Caddy/Nginx) in front
+#   - Use Cloudflare tunnel
+#   - Use hosting platform's built-in HTTPS (Railway, Render, etc.)
+# ============================================================
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: voucherfinder
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      # These override .env if set (useful for CI/CD overrides)
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    # Resource limits (optional — adjust to your server)
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+# Uncomment and configure if you have a separate backend service:
+#
+#   backend:
+#     image: voucherfinder-backend:latest
+#     container_name: vf-backend
+#     restart: unless-stopped
+#     ports:
+#       - "3001:3001"
+#     env_file:
+#       - .env.backend
+#     networks:
+#       - voucherfinder
+#
+#   app:
+#     environment:
+#       NEXT_PUBLIC_INTERNAL_API_URL: http://backend:3001
+#
+# networks:
+#   voucherfinder:
+#     driver: bridge

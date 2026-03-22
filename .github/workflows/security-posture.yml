@@ -1,0 +1,38 @@
+name: Security Posture Check
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  security-posture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run security posture check
+        env:
+          NODE_ENV: production
+          CONTROL_PLANE_INTERNAL_SECRET: ${{ secrets.CONTROL_PLANE_INTERNAL_SECRET }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          USE_REDIS_RATE_LIMIT: ${{ vars.USE_REDIS_RATE_LIMIT || 'true' }}
+          REDIS_URL: ${{ vars.REDIS_URL }}
+        run: |
+          echo "=== Security Posture Check ==="
+          npx ts-node scripts/verify-security-posture.ts
+        continue-on-error: false
+
+      - name: Run linter
+        run: npm run lint || true

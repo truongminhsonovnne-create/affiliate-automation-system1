@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF5722"/>
+      <stop offset="100%" style="stop-color:#FF7043"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <text x="600" y="280" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="white" text-anchor="middle">Shopee Voucher Finder</text>
+  <text x="600" y="360" font-family="Arial, sans-serif" font-size="36" fill="white" text-anchor="middle">Tìm mã giảm giá tự động</text>
+  <text x="600" y="420" font-family="Arial, sans-serif" font-size="28" fill="rgba(255,255,255,0.9)" text-anchor="middle">Dán link sản phẩm - Tìm mã tốt nhất - Tiết kiệm ngay</text>
+  <rect x="450" y="470" width="300" height="60" rx="30" fill="white"/>
+  <text x="600" y="510" font-family="Arial, sans-serif" font-size="28" fill="#FF5722" text-anchor="middle">Miễn phí - Không cần đăng nhập</text>
+</svg>
