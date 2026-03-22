@@ -1,5 +1,7 @@
 {
   "framework": "nextjs",
+  "installCommand": "cd apps/admin-dashboard && npm install",
+  "buildCommand": "cd apps/admin-dashboard && npm run build",
   "headers": [
     {
       "source": "/api/(.*)",
