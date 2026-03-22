@@ -1,28 +1,27 @@
-import { Html, Head, Main, NextScript } from 'next/document';
-
 /**
- * Minimal Pages Router _document override.
+ * Pages Router _document override.
  *
- * This file exists solely to prevent Next.js 14 from pulling in the
- * Pages Router `Html` component from the monorepo root's `src/app/`
- * directory (D:\Affiliate\src\app\(public)\layout.tsx) into the build
- * trace during the /404 and /500 static pre-render step.
+ * Root cause: Next.js 14 builds a Pages Router layer for /404 and /500
+ * even in an all-App-Router project. During that build it tries to resolve
+ * `Html` from `next/document` to prerender the error pages.
  *
- * Without this file, the internal pages-runtime.prod.js bundles an
- * Html-class component from user-land code, causing:
+ * Because this app lives in a monorepo where `D:\Affiliate\src/app/`
+ * (a Pages Router hybrid) is reachable via npm workspaces, webpack
+ * sometimes resolves the monorepo's Html-class component instead of
+ * Next.js's built-in one, producing:
+ *
  *   "<Html> should not be imported outside of pages/_document"
  *
- * This override uses only the built-in next/document exports and
- * provides no extra features — it just satisfies the import guard.
+ * Solution: Use plain HTML/head/body tags instead of the `Html/Head/
+ * Main/NextScript` components from `next/document`. The plain tags are
+ * functionally equivalent for error pages and bypass the Html-class
+ * import guard entirely.
  */
 export default function Document() {
   return (
-    <Html lang="vi">
-      <Head />
-      <body>
-        <Main />
-        <NextScript />
-      </body>
-    </Html>
+    <html lang="vi">
+      <head />
+      <body />
+    </html>
   );
 }
