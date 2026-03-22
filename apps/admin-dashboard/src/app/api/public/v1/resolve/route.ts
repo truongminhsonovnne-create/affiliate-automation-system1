@@ -3,191 +3,133 @@
  *
  * Architecture: Supabase-first, INTERNAL_API_URL as optional enrich layer.
  *
- * Flow:
- *   1. Normalize input (extract shop_id / item_id from URL)
- *   2. Query Supabase offers table — ranking by confidence_score + recency
- *   3. Build bestMatch + candidates from DB result
- *   4. (Optional) Call INTERNAL_API_URL to enrich with additional data
- *   5. Fallback: return DB result even if INTERNAL_API_URL is unavailable
- *   6. Only 503 if Supabase itself fails (true unavailability)
+ * Pipeline:
+ *   1. normalizeInput     — validate + extract shop/item IDs
+ *   2. querySupabase     — ranked candidates from DB
+ *   3. rankCandidates     — rule-based scoring
+ *   4. decide             — sufficient? → return | enrich recommended? → call enrich
+ *   5. optional enrich     — INTERNAL_API_URL call (5s timeout, failures ignored)
+ *   6. build response     — always returns a useful response
  *
- * INTERNAL_API_URL is NOT a hard requirement for the happy path.
+ * HTTP status codes:
+ *   200 — success (found or no_match)
+ *   400 — invalid input
+ *   503 — only when Supabase itself is down AND no fallback possible
+ *
+ * INTERNAL_API_URL is NOT a hard requirement. Missing env or enrich failure
+ * never causes a 503 if Supabase path returned usable data.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { validateInput } from '@/lib/public/resolve-normalize';
+import type { NormalizedInput } from '@/lib/public/resolve-normalize';
+import {
+  rankOffers,
+  assessCandidates,
+  computeConfidence,
+  extractAlternatives,
+  buildBestMatch,
+} from '@/lib/public/resolve-ranking';
+import type { RankedOffer, DbOffer } from '@/lib/public/resolve-ranking';
+import { buildCacheKey, getFromCache, setCache } from '@/lib/public/resolve-cache';
+
+// ── Env ───────────────────────────────────────────────────────────────────────
+
+const INTERNAL_API_URL = process.env.INTERNAL_API_URL ?? '';
+const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 
 // ── Supabase client ───────────────────────────────────────────────────────────
 
 function getSupabase() {
   const { createClient } = require('@supabase/supabase-js');
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    throw new Error('MISSING_SUPABASE_ENV: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set');
   }
-  return createClient(url, key, {
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
-// ── Input normalization ────────────────────────────────────────────────────────
+// ── Phase timing ──────────────────────────────────────────────────────────────
 
-interface NormalizedInput {
-  platform: 'shopee' | 'lazada' | 'tiki' | 'tiktok' | 'unknown';
-  shopId: string | null;
-  itemId: string | null;
-  originalUrl: string;
+interface PhaseTimings {
+  normalize: number;
+  cacheHit: number;
+  supabaseQuery: number;
+  ranking: number;
+  enrich: number;
+  total: number;
 }
 
-/**
- * Extract platform + shop/item IDs from a product URL.
- * Handles: shopee.vn, lazada.vn, tiki.vn, tiktok.com
- */
-function normalizeInput(raw: string): NormalizedInput {
-  const url = raw.trim();
-  const lower = url.toLowerCase();
+// ── Supabase query ───────────────────────────────────────────────────────────
 
-  const result: NormalizedInput = {
-    platform: 'unknown',
-    shopId: null,
-    itemId: null,
-    originalUrl: url,
-  };
-
-  if (lower.includes('shopee')) {
-    result.platform = 'shopee';
-    // https://shopee.vn/.../SOME_ID
-    // or ?shopId=XXX&itemId=YYY
-    const pathMatch = url.match(/-i\.(\d+)\.(\d+)/);
-    if (pathMatch) {
-      result.shopId = pathMatch[1];
-      result.itemId = pathMatch[2];
-    } else {
-      const qsShop = url.match(/[?&]shopid=(\d+)/i);
-      const qsItem = url.match(/[?&]itemid=(\d+)/i);
-      if (qsShop) result.shopId = qsShop[1];
-      if (qsItem) result.itemId = qsItem[1];
-    }
-  } else if (lower.includes('lazada')) {
-    result.platform = 'lazada';
-    // https://www.lazada.vn/products/.../SKU_ID
-    const skuMatch = url.match(/(\d+)\.html/i);
-    if (skuMatch) result.itemId = skuMatch[1];
-    const shopMatch = url.match(/[?&]shop(?:_id|Id)=(\d+)/i);
-    if (shopMatch) result.shopId = shopMatch[1];
-  } else if (lower.includes('tiki')) {
-    result.platform = 'tiki';
-    // https://tiki.vn/.../p123456.html
-    const pMatch = url.match(/\/p(\d+)/);
-    if (pMatch) result.itemId = pMatch[1];
-  } else if (lower.includes('tiktok')) {
-    result.platform = 'tiktok';
-    // https://tiktok.com/@shop/item/123
-    const itemMatch = url.match(/\/item\/(\d+)/);
-    const shopMatch = url.match(/@([^/]+)/);
-    if (itemMatch) result.itemId = itemMatch[1];
-    if (shopMatch) result.shopId = shopMatch[1];
-  }
-
-  return result;
-}
-
-// ── Supabase query + ranking ───────────────────────────────────────────────────
-
-interface DbOffer {
-  id: string;
-  external_id: string;
-  source: string;
-  source_type: string;
-  title: string;
-  merchant_name: string;
-  merchant_id: string | null;
-  category: string | null;
-  deal_subtype: string | null;
-  coupon_code: string | null;
-  discount_type: string | null;
-  discount_value: number | null;
-  max_discount: number | null;
-  min_order_value: number | null;
-  destination_url: string | null;
-  terms: string | null;
-  image_url: string | null;
-  start_at: string | null;
-  end_at: string | null;
-  status: string;
-  confidence_score: number;
-  hotness_score: number | null;
-  url_quality_score: number | null;
-  freshness_score: number | null;
-  is_pushsale: boolean | null;
-  is_exclusive: boolean | null;
-  synced_at: string | null;
-}
-
-interface QueryResult {
+interface SupabaseResult {
   offers: DbOffer[];
   found: boolean;
   freshness: 'live' | 'recent' | 'stale' | 'unknown';
+  error?: string;
 }
 
 /**
- * Query Supabase for matching offers.
- * Matches by shop_id first, then falls back to broad promotions.
- * Orders by confidence_score desc, then recency.
+ * Query offers from Supabase with ranking filters.
+ * Orders by confidence_score desc to support the ranking layer above it.
  */
-async function querySupabase(normalized: NormalizedInput): Promise<QueryResult> {
-  const sb = getSupabase();
+async function querySupabase(
+  normalized: NormalizedInput,
+  phaseStart: number
+): Promise<SupabaseResult> {
+  const t0 = Date.now() - phaseStart;
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    return { offers: [], found: false, freshness: 'unknown', error: 'MISSING_SUPABASE_ENV' };
+  }
 
   try {
-    // Build filter conditions
-    // Prefer offers that match the specific shop/item
-    // Also include broad promotions (shop_id IS NULL or generic)
-    const conditions: string[] = [`status.eq.active`];
+    const sb = getSupabase();
+    const conditions: string[] = ['status.eq.active'];
 
     if (normalized.shopId) {
-      // Match specific shop OR broad promotions
-      conditions.push(
-        `(merchant_id.eq.${normalized.shopId},merchant_id.is.null)`
-      );
+      // Specific shop offers first, then broad promotions
+      conditions.push(`(merchant_id.eq.${normalized.shopId},merchant_id.is.null)`);
     }
 
-    if (normalized.itemId) {
-      // Some sources store item-level IDs in external_id or category
-      conditions.push(
-        `or(external_id.ilike.%${normalized.itemId}%,category.ilike.%${normalized.itemId}%)`
-      );
-    }
-
-    const query = sb
+    const { data, error } = await sb
       .from('offers')
       .select('*')
       .or(conditions.join(','))
       .order('confidence_score', { ascending: false, nulls: 'last' })
-      .order('hotness_score', { ascending: false, nulls: 'last' })
       .order('synced_at', { ascending: false, nulls: 'last' })
       .limit(20);
 
-    const { data, error } = await query;
+    const queryTime = Date.now() - phaseStart - t0;
 
     if (error) {
-      console.error('[resolve/supabase] Query error:', error.message);
-      throw error;
+      log('error', 'SUPABASE_QUERY_FAILED', {
+        platform: normalized.platform,
+        error: error.message,
+        queryTimeMs: queryTime,
+      });
+      return { offers: [], found: false, freshness: 'unknown', error: error.message };
     }
 
     const offers = (data ?? []) as DbOffer[];
-
-    if (offers.length === 0) {
-      return { offers: [], found: false, freshness: 'unknown' };
-    }
-
-    // Determine data freshness from synced_at
     const freshness = computeFreshness(offers[0]?.synced_at);
 
-    return { offers, found: true, freshness };
+    log('info', offers.length > 0 ? 'SUPABASE_MATCH_FOUND' : 'SUPABASE_NO_MATCH', {
+      platform: normalized.platform,
+      shopId: normalized.shopId,
+      itemId: normalized.itemId,
+      offerCount: offers.length,
+      freshness,
+      queryTimeMs: queryTime,
+    });
+
+    return { offers, found: offers.length > 0, freshness };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error('[resolve/supabase] Unexpected error:', msg);
-    throw err;
+    log('error', 'SUPABASE_UNEXPECTED_ERROR', { platform: normalized.platform, error: msg });
+    return { offers: [], found: false, freshness: 'unknown', error: msg };
   }
 }
 
@@ -196,154 +138,31 @@ function computeFreshness(syncedAt: string | null | undefined): 'live' | 'recent
   const ageHours = (Date.now() - new Date(syncedAt).getTime()) / (1000 * 60 * 60);
   if (ageHours < 1) return 'live';
   if (ageHours < 24) return 'recent';
-  if (ageHours < 72) return 'stale';
-  return 'stale';
+  return ageHours < 72 ? 'stale' : 'stale';
 }
 
-// ── Response building ──────────────────────────────────────────────────────────
-
-const SOURCE_LABELS: Record<string, string> = {
-  masoffer: 'MasOffer',
-  accesstrade: 'AccessTrade',
-  ecomobi: 'Ecomobi',
-};
-
-const DISCOUNT_TYPE_MAP: Record<string, string> = {
-  percent: 'percentage',
-  percentage: 'percentage',
-  fixed: 'fixed_amount',
-  fixed_amount: 'fixed_amount',
-  free_shipping: 'free_shipping',
-  buy_x_get_y: 'buy_x_get_y',
-};
-
-interface CandidateRow {
-  code: string;
-  discountText: string;
-  rank: number;
-  voucherId: string;
-  reason: string;
-}
-
-function buildDiscountText(offer: DbOffer): string {
-  if (!offer.discount_type && offer.discount_value == null) {
-    return 'Khuyến mãi';
-  }
-  switch (offer.discount_type) {
-    case 'percent':
-      return `${offer.discount_value}%`;
-    case 'fixed':
-      return `${(offer.discount_value ?? 0).toLocaleString('vi-VN')}đ`;
-    case 'free_shipping':
-      return 'Freeship';
-    default:
-      return offer.discount_value != null ? `${offer.discount_value}%` : 'Khuyến mãi';
-  }
-}
-
-function buildDiscountType(discountType: string | null): string {
-  if (!discountType) return 'percentage';
-  return DISCOUNT_TYPE_MAP[discountType] ?? 'percentage';
-}
-
-function buildMinSpend(minOrderValue: number | null): string | null {
-  if (minOrderValue == null) return null;
-  return `${minOrderValue.toLocaleString('vi-VN')}đ`;
-}
-
-function buildHeadline(offer: DbOffer): string {
-  const parts: string[] = [];
-  if (offer.discount_type === 'free_shipping') {
-    parts.push('Miễn phí vận chuyển');
-  } else if (offer.discount_value != null) {
-    if (offer.discount_type === 'percent') {
-      parts.push(`Giảm ${offer.discount_value}%`);
-    } else {
-      parts.push(`Giảm ${offer.discount_value.toLocaleString('vi-VN')}đ`);
-    }
-  }
-  if (offer.coupon_code) {
-    parts.push(`Mã: ${offer.coupon_code}`);
-  }
-  if (offer.merchant_name) {
-    parts.push(`từ ${offer.merchant_name}`);
-  }
-  return parts.join(' · ') || 'Ưu đãi hấp dẫn';
-}
-
-function buildCandidates(offers: DbOffer[]): CandidateRow[] {
-  return offers.slice(0, 10).map((offer, index) => ({
-    code: offer.coupon_code ?? '',
-    discountText: buildDiscountText(offer),
-    rank: index + 1,
-    voucherId: offer.external_id,
-    reason: buildSelectionReason(offer, index),
-  }));
-}
-
-function buildBestMatch(offers: DbOffer[], matchedSource: string): {
-  voucherId: string;
-  code: string;
-  discountType: string;
-  discountValue: string;
-  minSpend: string | null;
-  maxDiscount: string | null;
-  validUntil: string;
-  headline: string;
-  applicableCategories: string[];
-} | null {
-  if (offers.length === 0) return null;
-  const top = offers[0];
-  return {
-    voucherId: top.external_id,
-    code: top.coupon_code ?? '',
-    discountType: buildDiscountType(top.discount_type),
-    discountValue: top.discount_value != null ? `${top.discount_value}%` : '',
-    minSpend: buildMinSpend(top.min_order_value),
-    maxDiscount: top.max_discount != null ? `${top.max_discount.toLocaleString('vi-VN')}đ` : null,
-    validUntil: top.end_at ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-    headline: buildHeadline(top),
-    applicableCategories: top.category ? [top.category] : [],
-  };
-}
-
-function buildSelectionReason(offer: DbOffer, rank: number): string {
-  const sourceLabel = SOURCE_LABELS[offer.source] ?? offer.source;
-  const parts: string[] = [sourceLabel];
-
-  if (offer.confidence_score >= 0.8) parts.push('Độ tin cậy cao');
-  else if (offer.confidence_score >= 0.5) parts.push('Độ tin cậy trung bình');
-
-  if (offer.is_exclusive) parts.push('Ưu đãi độc quyền');
-  if (offer.is_pushsale) parts.push('Flash sale');
-
-  if (rank === 0) parts.push('Lựa chọn tốt nhất');
-  else parts.push(`#${rank + 1} trong danh sách`);
-
-  return parts.join(' · ');
-}
-
-// ── Enrich from INTERNAL_API_URL (optional) ───────────────────────────────────
+// ── Optional enrich ───────────────────────────────────────────────────────────
 
 interface EnrichResult {
   enriched: boolean;
+  skipReason?: string;
   confidenceBoost?: number;
   sourceOverride?: string;
+  latencyMs: number;
 }
 
-const INTERNAL_API_URL = process.env.INTERNAL_API_URL;
 const ENRICH_TIMEOUT_MS = 5_000;
 
-/**
- * Optional enrich step — calls INTERNAL_API_URL if configured.
- * Failures here are silently ignored (DB result is still returned).
- */
-async function enrichFromInternalApi(
-  input: string,
-  dbOffers: DbOffer[]
+async function tryEnrich(
+  input: NormalizedInput,
+  ranked: RankedOffer[],
+  phaseStart: number
 ): Promise<EnrichResult> {
-  if (!INTERNAL_API_URL || dbOffers.length === 0) {
-    return { enriched: false };
+  const t0 = Date.now();
+
+  if (!INTERNAL_API_URL) {
+    log('warn', 'OPTIONAL_ENRICH_SKIPPED', { reason: 'MISSING_INTERNAL_API_URL' });
+    return { enriched: false, skipReason: 'MISSING_INTERNAL_API_URL', latencyMs: Date.now() - t0 };
   }
 
   try {
@@ -353,231 +172,411 @@ async function enrichFromInternalApi(
     const res = await fetch(`${INTERNAL_API_URL}/api/public/v1/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ input }),
+      body: JSON.stringify({ input: input.originalUrl }),
       signal: controller.signal,
     });
 
     clearTimeout(timer);
+    const latencyMs = Date.now() - t0;
 
     if (!res.ok) {
-      console.warn(`[resolve/enrich] Internal API returned ${res.status}, ignoring`);
-      return { enriched: false };
+      log('warn', 'ENRICH_BACKEND_UNAVAILABLE', {
+        status: res.status,
+        latencyMs,
+      });
+      return { enriched: false, skipReason: `HTTP_${res.status}`, latencyMs };
     }
 
     const data = await res.json() as Record<string, unknown>;
-    // If enrich provides better candidates, they can boost confidence
-    if (data.confidenceScore != null && typeof data.confidenceScore === 'number') {
-      return {
-        enriched: true,
-        confidenceBoost: data.confidenceScore as number,
-        sourceOverride: (data.matchedSource as string | undefined) ?? undefined,
-      };
-    }
 
-    return { enriched: false };
-  } catch {
-    // Silently ignore enrich failures — DB result is the source of truth
-    return { enriched: false };
+    log('info', 'ENRICH_SUCCESS', {
+      confidenceBoost: data.confidenceScore,
+      matchedSource: data.matchedSource,
+      latencyMs,
+    });
+
+    return {
+      enriched: true,
+      confidenceBoost: typeof data.confidenceScore === 'number' ? data.confidenceScore : undefined,
+      sourceOverride: typeof data.matchedSource === 'string' ? data.matchedSource : undefined,
+      latencyMs,
+    };
+  } catch (err) {
+    const latencyMs = Date.now() - t0;
+    const isTimeout =
+      err instanceof DOMException && err.name === 'AbortException';
+    log('warn', isTimeout ? 'ENRICH_TIMEOUT' : 'ENRICH_ERROR', {
+      error: err instanceof Error ? err.message : String(err),
+      isTimeout,
+      latencyMs,
+    });
+    return {
+      enriched: false,
+      skipReason: isTimeout ? 'TIMEOUT' : 'FETCH_ERROR',
+      latencyMs,
+    };
   }
 }
 
-// ── Input validation ───────────────────────────────────────────────────────────
+// ── Response building ─────────────────────────────────────────────────────────
 
-function validateInput(raw: unknown): NormalizedInput | { valid: false; message: string } {
-  if (typeof raw !== 'string') return { valid: false, message: 'Input must be a string' };
-  if (raw.trim().length < 10) return { valid: false, message: 'Link quá ngắn' };
-  if (raw.length > 2000) return { valid: false, message: 'Link quá dài' };
-  return normalizeInput(raw);
+const SOURCE_LABELS: Record<string, string> = {
+  masoffer: 'MasOffer',
+  accesstrade: 'AccessTrade',
+  ecomobi: 'Ecomobi',
+};
+
+interface PerformanceMeta {
+  totalLatencyMs: number;
+  phaseTimings: PhaseTimings;
+  servedFromCache: boolean;
+  resolvedAt: string;
 }
 
-// ── Main route handler ────────────────────────────────────────────────────────
+function buildSuccessResponse(
+  ranked: RankedOffer[],
+  enrich: EnrichResult,
+  timings: PhaseTimings,
+  resolveMode: string
+): Record<string, unknown> {
+  const top = ranked[0];
+  const bestMatch = buildBestMatch(ranked);
+  const alternatives = extractAlternatives(ranked);
+  const confidenceBoost = enrich.confidenceBoost ?? 0;
+  const sourceConf = top?.offer.confidence_score ?? 0.5;
+  const topScore = top?.score ?? 0;
+  const normalizedScore = Math.min(topScore / 100, 1);
+  const finalConfidence = Math.max(normalizedScore, sourceConf, confidenceBoost);
+  const matchedSource = enrich.sourceOverride
+    ?? SOURCE_LABELS[top?.offer.source ?? '']
+    ?? top?.offer.source
+    ?? 'Unknown';
+
+  const warnings: Array<{ code: string; message: string; severity: 'info' | 'warning' }> = [];
+  if (enrich.enriched) {
+    warnings.push({
+      code: 'ENRICHED',
+      message: 'Kết quả được bổ sung từ nguồn nâng cao.',
+      severity: 'info',
+    });
+  }
+  if (top?.confidenceLevel === 'low') {
+    warnings.push({
+      code: 'LOW_CONFIDENCE_RESULT',
+      message: 'Kết quả có độ tin cậy thấp — nên kiểm tra kỹ trước khi dùng.',
+      severity: 'warning',
+    });
+  }
+  if (enrich.skipReason && enrich.skipReason !== 'MISSING_INTERNAL_API_URL') {
+    warnings.push({
+      code: enrich.skipReason.startsWith('HTTP_') ? 'ENRICH_BACKEND_UNAVAILABLE' : 'ENRICH_SKIPPED',
+      message: `Tính năng bổ sung tạm thời không khả dụng. Kết quả cơ bản vẫn chính xác.`,
+      severity: 'info',
+    });
+  }
+
+  return {
+    requestId: '',
+    status: 'success',
+    bestMatch,
+    candidates: alternatives,
+    performance: {
+      totalLatencyMs: timings.total,
+      phaseTimings: timings,
+      servedFromCache: false,
+      resolvedAt: new Date().toISOString(),
+    },
+    confidenceScore: Math.round(finalConfidence * 100) / 100,
+    matchedSource,
+    dataFreshness: top?.offer.synced_at
+      ? computeFreshness(top.offer.synced_at)
+      : 'unknown',
+    explanation: buildExplanation(bestMatch, top, alternatives.length),
+    warnings,
+    _meta: {
+      resolveMode,
+      enrichAttempted: !!INTERNAL_API_URL,
+      enrichEnriched: enrich.enriched,
+      enrichSkipReason: enrich.skipReason,
+      enrichLatencyMs: enrich.latencyMs,
+      totalOffers: ranked.length,
+    },
+  };
+}
+
+function buildNoMatchResponse(
+  timings: PhaseTimings,
+  enrich: EnrichResult
+): Record<string, unknown> {
+  return {
+    requestId: '',
+    status: 'no_match',
+    bestMatch: null,
+    candidates: [],
+    performance: {
+      totalLatencyMs: timings.total,
+      phaseTimings: timings,
+      servedFromCache: false,
+      resolvedAt: new Date().toISOString(),
+    },
+    dataFreshness: 'unknown',
+    explanation: {
+      summary: 'Chưa tìm thấy voucher phù hợp cho sản phẩm này.',
+      tips: [
+        'Thử kiểm tra lại link sản phẩm cụ thể.',
+        'Voucher có thể chưa được cập nhật cho sản phẩm này.',
+        'Sản phẩm có thể không nằm trong chương trình khuyến mãi hiện tại.',
+      ],
+    },
+    warnings: enrich.enriched
+      ? []
+      : INTERNAL_API_URL
+        ? []
+        : [{
+            code: 'OPTIONAL_ENRICH_SKIPPED',
+            message: 'INTERNAL_API_URL không được cấu hình. Kết quả chỉ từ cơ sở dữ liệu.',
+            severity: 'info',
+          }],
+    _meta: {
+      resolveMode: enrich.enriched ? 'enrich_only_fallback' : 'no_match',
+      enrichAttempted: !!INTERNAL_API_URL,
+      enrichEnriched: enrich.enriched,
+      totalOffers: 0,
+    },
+  };
+}
+
+function buildExplanation(
+  bestMatch: ReturnType<typeof buildBestMatch>,
+  top: RankedOffer | undefined,
+  altCount: number
+): { summary: string; tips: string[] } {
+  const tips: string[] = [];
+  if (!bestMatch) return { summary: 'Không tìm thấy voucher phù hợp.', tips };
+
+  if (bestMatch.code) {
+    tips.push(`Nhập mã ${bestMatch.code} khi thanh toán`);
+  } else {
+    tips.push('Voucher tự động áp dụng — không cần nhập mã');
+  }
+  if (bestMatch.minSpend) tips.push(`Áp dụng cho đơn từ ${bestMatch.minSpend}`);
+  if (bestMatch.maxDiscount) tips.push(`Giảm tối đa ${bestMatch.maxDiscount}`);
+  if (top?.offer.is_exclusive) tips.push('Ưu đãi độc quyền từ đối tác');
+  if (altCount > 0) tips.push(`Có ${altCount} lựa chọn khác bên dưới`);
+
+  const summaryParts: string[] = [];
+  if (bestMatch.minSpend) summaryParts.push(`Đơn từ ${bestMatch.minSpend}`);
+  if (bestMatch.discountValue) summaryParts.push(`Giảm ${bestMatch.discountValue}`);
+
+  return {
+    summary: summaryParts.join(' · ') || 'Tìm thấy voucher phù hợp.',
+    tips,
+  };
+}
+
+// ── Server logging ─────────────────────────────────────────────────────────────
+
+type LogLevel = 'info' | 'warn' | 'error';
+
+function log(
+  level: LogLevel,
+  code: string,
+  meta: Record<string, unknown>
+): void {
+  const entry = {
+    ts: new Date().toISOString(),
+    level,
+    route: '/api/public/v1/resolve',
+    code,
+    ...meta,
+  };
+  if (level === 'error') {
+    console.error(JSON.stringify(entry));
+  } else if (level === 'warn') {
+    console.warn(JSON.stringify(entry));
+  } else {
+    console.info(JSON.stringify(entry));
+  }
+}
+
+// ── Main route handler ─────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-  const start = Date.now();
+  const totalStart = Date.now();
+  const phases: PhaseTimings = {
+    normalize: 0,
+    cacheHit: 0,
+    supabaseQuery: 0,
+    ranking: 0,
+    enrich: 0,
+    total: 0,
+  };
 
+  // ── 1. Parse body ─────────────────────────────────────────────────────────
   let body: unknown;
   try {
     body = await request.json();
   } catch {
+    phases.total = Date.now() - totalStart;
     return NextResponse.json(
-      {
-        requestId: '',
-        status: 'invalid_input',
-        bestMatch: null,
-        candidates: [],
-        performance: {
-          totalLatencyMs: Date.now() - start,
-          servedFromCache: false,
-          resolvedAt: new Date().toISOString(),
-        },
-        explanation: {
-          summary: 'Yêu cầu không hợp lệ.',
-          tips: ['Vui lòng nhập link sản phẩm Shopee, Lazada, Tiki hợp lệ.'],
-        },
-        warnings: [{ code: 'INVALID_INPUT', message: 'Invalid JSON body', severity: 'warning' }],
-      },
+      { status: 'invalid_input', code: 'INVALID_JSON', warnings: [{ code: 'INVALID_INPUT', message: 'Yêu cầu không hợp lệ.', severity: 'warning' }] },
       { status: 400 }
     );
   }
 
   const { input: rawInput } = body as { input?: unknown };
 
+  // ── 2. Normalize input ─────────────────────────────────────────────────────
+  const normalizeStart = Date.now();
   const validation = validateInput(rawInput);
-  if (!('platform' in validation)) {
+  phases.normalize = Date.now() - normalizeStart;
+
+  if (!validation.valid) {
+    phases.total = Date.now() - totalStart;
     return NextResponse.json(
       {
         requestId: '',
         status: 'invalid_input',
         bestMatch: null,
         candidates: [],
-        performance: {
-          totalLatencyMs: Date.now() - start,
-          servedFromCache: false,
-          resolvedAt: new Date().toISOString(),
-        },
-        explanation: {
-          summary: 'Link không hợp lệ.',
-          tips: ['Vui lòng nhập link sản phẩm Shopee, Lazada, Tiki, TikTok hợp lệ.'],
-        },
-        warnings: [{ code: 'INVALID_INPUT', message: validation.message, severity: 'warning' }],
+        performance: { totalLatencyMs: phases.total, phaseTimings: phases, servedFromCache: false, resolvedAt: new Date().toISOString() },
+        explanation: { summary: 'Link không hợp lệ.', tips: ['Vui lòng nhập link sản phẩm Shopee, Lazada, Tiki, TikTok hợp lệ.'] },
+        warnings: [{ code: validation.code, message: validation.message, severity: 'warning' }],
       },
       { status: 400 }
     );
   }
 
-  const normalized = validation;
-  let enrichResult: EnrichResult = { enriched: false };
+  const normalized = validation.normalized;
 
-  // ── Step 1: Supabase query (the primary path) ──────────────────────────────
-  let dbResult: QueryResult;
-  try {
-    dbResult = await querySupabase(normalized);
-  } catch (err) {
-    // Supabase is truly unavailable — this is the only case for 503
-    const msg = err instanceof Error ? err.message : 'Database unavailable';
-    console.error('[resolve] Critical: Supabase query failed:', msg);
+  // ── 3. Cache lookup ────────────────────────────────────────────────────────
+  const cacheStart = Date.now();
+  const cacheKey = buildCacheKey(normalized);
+  const cached = getFromCache(cacheKey);
+  phases.cacheHit = Date.now() - cacheStart;
+
+  if (cached) {
+    phases.total = Date.now() - totalStart;
+    log('info', 'CACHE_HIT', { cacheKey, totalMs: phases.total });
+    return NextResponse.json(
+      { ...(cached.result as Record<string, unknown>), performance: { ...(cached.result as Record<string, unknown>).performance as object, totalLatencyMs: phases.total, servedFromCache: true, resolvedAt: new Date().toISOString() } },
+      { status: 200 }
+    );
+  }
+
+  // ── 4. Supabase query ──────────────────────────────────────────────────────
+  const supabaseStart = Date.now();
+  const dbResult = await querySupabase(normalized, supabaseStart);
+  phases.supabaseQuery = Date.now() - supabaseStart;
+
+  // CRITICAL: only 503 when Supabase itself fails AND we have no data
+  if (dbResult.error && !dbResult.found) {
+    phases.total = Date.now() - totalStart;
+    log('error', 'FULL_RESOLVE_UNAVAILABLE', {
+      supabaseError: dbResult.error,
+      totalMs: phases.total,
+    });
     return NextResponse.json(
       {
         requestId: '',
         status: 'error',
         bestMatch: null,
         candidates: [],
-        performance: {
-          totalLatencyMs: Date.now() - start,
-          servedFromCache: false,
-          resolvedAt: new Date().toISOString(),
-        },
-        explanation: {
-          summary: 'Dịch vụ tạm thời gián đoạn.',
-          tips: ['Vui lòng thử lại trong giây lát.'],
-        },
-        warnings: [{ code: 'DATABASE_ERROR', message: msg, severity: 'warning' }],
+        performance: { totalLatencyMs: phases.total, phaseTimings: phases, servedFromCache: false, resolvedAt: new Date().toISOString() },
+        explanation: { summary: 'Dịch vụ tạm thời gián đoạn.', tips: ['Vui lòng thử lại trong giây lát.'] },
+        warnings: [{ code: 'FULL_RESOLVE_UNAVAILABLE', message: 'Không thể truy vấn dữ liệu. Vui lòng thử lại sau.', severity: 'warning' }],
       },
       { status: 503 }
     );
   }
 
-  // ── Step 2: Build response from DB result ─────────────────────────────────
-  const { offers, found, freshness } = dbResult;
+  // ── 5. Rank candidates ─────────────────────────────────────────────────────
+  const rankingStart = Date.now();
+  const ranked = rankOffers(dbResult.offers, { shopId: normalized.shopId, itemId: normalized.itemId });
+  phases.ranking = Date.now() - rankingStart;
 
-  if (!found || offers.length === 0) {
-    // Still attempt enrich even on no_match — internal API might have data we don't
-    if (INTERNAL_API_URL) {
-      // Fire-and-forget enrich for potential enrichment on next request
-      enrichFromInternalApi(normalized.originalUrl, []).catch(() => {});
-    }
+  const assessment = assessCandidates(ranked);
+  let resolveMode: string;
 
-    return NextResponse.json({
-      requestId: '',
-      status: 'no_match',
-      bestMatch: null,
-      candidates: [],
-      performance: {
-        totalLatencyMs: Date.now() - start,
-        servedFromCache: false,
-        resolvedAt: new Date().toISOString(),
-      },
-      dataFreshness: freshness,
-      explanation: {
-        summary: 'Chưa tìm thấy voucher phù hợp cho sản phẩm này.',
-        tips: [
-          'Thử kiểm tra lại link sản phẩm.',
-          'Voucher có thể chưa được cập nhật cho sản phẩm này.',
-          'Có thể sản phẩm không nằm trong chương trình khuyến mãi.',
-        ],
-      },
-      warnings: [],
-    });
+  if (assessment === 'sufficient') {
+    resolveMode = 'supabase_only';
+  } else if (assessment === 'enrich_recommended' && INTERNAL_API_URL) {
+    resolveMode = 'supabase_plus_enrich';
+  } else if (assessment === 'no_result' && INTERNAL_API_URL) {
+    resolveMode = 'enrich_only_fallback';
+  } else {
+    resolveMode = assessment === 'no_result' ? 'no_match' : 'supabase_only';
   }
 
-  // ── Step 3: Optional enrich from INTERNAL_API_URL ──────────────────────────
-  // Fire this in parallel — don't block the response
-  enrichFromInternalApi(normalized.originalUrl, offers)
-    .then((result) => { enrichResult = result; })
-    .catch(() => {});
+  // ── 6. Optional enrich ─────────────────────────────────────────────────────
+  const enrichStart = Date.now();
+  let enrichResult: EnrichResult = { enriched: false, latencyMs: 0 };
 
-  // ── Step 4: Build final response ──────────────────────────────────────────
-  const bestMatch = buildBestMatch(offers, SOURCE_LABELS[offers[0]?.source] ?? 'Unknown');
-  const candidates = buildCandidates(offers);
-  const confidenceBoost = enrichResult.confidenceBoost;
-  const finalConfidence = confidenceBoost != null
-    ? Math.max(offers[0]?.confidence_score ?? 0, confidenceBoost)
-    : (offers[0]?.confidence_score ?? 0.5);
-  const matchedSource = enrichResult.sourceOverride ?? SOURCE_LABELS[offers[0]?.source] ?? offers[0]?.source;
+  if ((assessment === 'enrich_recommended' || assessment === 'no_result') && INTERNAL_API_URL) {
+    enrichResult = await tryEnrich(normalized, ranked, enrichStart);
+  }
+  phases.enrich = Date.now() - enrichStart;
+  phases.total = Date.now() - totalStart;
 
-  return NextResponse.json({
-    requestId: '',
-    status: 'success',
-    bestMatch,
-    candidates,
-    performance: {
-      totalLatencyMs: Date.now() - start,
-      servedFromCache: false,
-      resolvedAt: new Date().toISOString(),
-    },
-    confidenceScore: Math.round(finalConfidence * 100) / 100,
-    matchedSource,
-    dataFreshness: freshness,
-    explanation: buildExplanation(bestMatch, offers),
-    warnings: enrichResult.enriched
-      ? [{ code: 'ENRICHED', message: 'Kết quả đã được bổ sung từ nguồn nâng cao.', severity: 'info' }]
-      : [],
+  // ── 7. Build response ──────────────────────────────────────────────────────
+  let response: Record<string, unknown>;
+
+  if (ranked.length === 0 && !enrichResult.enriched) {
+    response = buildNoMatchResponse(phases, enrichResult);
+  } else {
+    // Re-rank after potential enrich (enrich could have boosted confidence)
+    if (enrichResult.enriched && enrichResult.confidenceBoost) {
+      // Merge enriched score back into top offer for display
+      const merged = ranked.map((r, i) =>
+        i === 0 ? { ...r, score: r.score + enrichResult.confidenceBoost! * 50 } : r
+      );
+      response = buildSuccessResponse(merged, enrichResult, phases, resolveMode);
+    } else {
+      response = buildSuccessResponse(ranked, enrichResult, phases, resolveMode);
+    }
+  }
+
+  // ── 8. Cache the result ────────────────────────────────────────────────────
+  setCache(cacheKey, response, resolveMode, ranked.length);
+
+  // ── 9. Log final decision ─────────────────────────────────────────────────
+  log('info', 'RESOLVE_COMPLETE', {
+    resolveMode,
+    totalMs: phases.total,
+    supabaseMs: phases.supabaseQuery,
+    enrichMs: phases.enrich,
+    rankedCount: ranked.length,
+    confidenceScore: response.confidenceScore,
+    enriched: enrichResult.enriched,
+    enrichSkipReason: enrichResult.skipReason,
+    platform: normalized.platform,
+    shopId: normalized.shopId,
   });
+
+  return NextResponse.json(response, { status: 200 });
 }
 
-// ── Explanation builder ────────────────────────────────────────────────────────
+// ── GET: stub for polling compatibility (no-op for hybrid) ───────────────────
 
-function buildExplanation(
-  bestMatch: ReturnType<typeof buildBestMatch>,
-  offers: DbOffer[]
-): { summary: string; tips: string[] } {
-  if (!bestMatch) {
-    return {
-      summary: 'Không tìm thấy voucher phù hợp.',
-      tips: ['Thử dùng link sản phẩm cụ thể thay vì link danh mục.'],
-    };
-  }
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const requestId = searchParams.get('requestId');
 
-  const parts: string[] = [];
-  if (bestMatch.minSpend) {
-    parts.push(`Áp dụng cho đơn từ ${bestMatch.minSpend}`);
-  }
-  if (bestMatch.maxDiscount) {
-    parts.push(`Giảm tối đa ${bestMatch.maxDiscount}`);
-  }
-  if (offers[0]?.is_exclusive) {
-    parts.push('Ưu đãi độc quyền từ đối tác');
+  if (!requestId || requestId.trim().length < 8) {
+    return NextResponse.json(
+      { error: 'INVALID_REQUEST_ID', message: 'requestId must be at least 8 characters.' },
+      { status: 400 }
+    );
   }
 
-  const tips: string[] = [];
-  if (!bestMatch.code) {
-    tips.push('Voucher tự động áp dụng — không cần nhập mã');
-  } else {
-    tips.push(`Nhập mã ${bestMatch.code} khi thanh toán`);
-  }
-
-  return {
-    summary: parts.join(' · ') || 'Tìm thấy voucher phù hợp cho sản phẩm này.',
-    tips,
-  };
+  // Hybrid pipeline is synchronous — no async polling needed
+  return NextResponse.json(
+    {
+      requestId,
+      status: 'no_match',
+      message: 'Request not found or already expired. Submit a new resolve request.',
+      phase: 'failed',
+    },
+    { status: 200 }
+  );
 }
