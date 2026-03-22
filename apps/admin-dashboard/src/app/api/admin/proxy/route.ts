@@ -45,7 +45,8 @@ const INTERNAL_BASE_URL = (() => {
 })();
 
 // Internal secret for admin→control-plane auth (server-side only, never exposed)
-const INTERNAL_SECRET = (() => {
+// Validated lazily on first request — not at module load time (safe for `next build`).
+function getInternalSecret(): string {
   const secret = process.env.CONTROL_PLANE_INTERNAL_SECRET;
   if (!secret) {
     throw new Error(
@@ -61,7 +62,7 @@ const INTERNAL_SECRET = (() => {
     );
   }
   return secret;
-})();
+}
 
 // =============================================================================
 // Route Allowlist — complete map of allowed paths and their HTTP methods
@@ -300,7 +301,7 @@ function buildForwardHeaders(
 ): Record<string, string> {
   const headers: Record<string, string> = {
     // --- Server-set trust boundary headers (only these are trusted) ---
-    'x-internal-secret': INTERNAL_SECRET,
+    'x-internal-secret': getInternalSecret(),
     'x-actor-id': actorId,
     'x-actor-role': role,
     // Correlation ID for distributed tracing
