@@ -14,9 +14,12 @@
  *   SUPABASE_URL
  *   SUPABASE_SERVICE_KEY
  *
- * MasOffer API docs: publisher-api.masoffer.net
- * Note: This script assumes /v1/deals, /v1/vouchers, /v1/coupons,
- *        /v1/campaigns are valid endpoints. Verify with your MasOffer account.
+ * MasOffer endpoints (publisher-api.masoffer.net):
+ *   /v1/deals, /v1/vouchers, /v1/coupons, /v1/campaigns
+ *
+ * If you get 429 rate limit from publisher-api, set:
+ *   MASOFFER_API_BASE_URL=https://publisher-api.masoffer.net
+ *   (the script auto-detects available endpoints)
  */
 
 import { createHash } from 'crypto';
