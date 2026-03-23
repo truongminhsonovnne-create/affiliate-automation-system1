@@ -20,12 +20,14 @@ export default function robots(): MetadataRoute.Robots {
         userAgent: '*',
         allow: [
           '/home',
-          '/about',
-          '/contact',
-          '/privacy',
-          '/cookies',
-          '/terms',
-          '/affiliate-disclosure',
+          // Info pages are at /info/* (short URLs /about, /contact etc.
+          // are redirected via next.config.js redirects)
+          '/info/about',
+          '/info/contact',
+          '/info/privacy',
+          '/info/cookies',
+          '/info/terms',
+          '/info/affiliate-disclosure',
           '/resources',
           // Article pages
           '/resources/huong-dan-san-sale-shopee-2026',

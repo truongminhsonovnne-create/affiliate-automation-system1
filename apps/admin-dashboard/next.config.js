@@ -55,6 +55,32 @@ const nextConfig = {
         destination: '/home',
         permanent: false,
       },
+      // Info pages: legacy short URLs → actual /info/* routes
+      {
+        source: '/contact',
+        destination: '/info/contact',
+        permanent: false,
+      },
+      {
+        source: '/about',
+        destination: '/info/about',
+        permanent: false,
+      },
+      {
+        source: '/privacy',
+        destination: '/info/privacy',
+        permanent: false,
+      },
+      {
+        source: '/terms',
+        destination: '/info/terms',
+        permanent: false,
+      },
+      {
+        source: '/cookies',
+        destination: '/info/cookies',
+        permanent: false,
+      },
     ];
   },
 
