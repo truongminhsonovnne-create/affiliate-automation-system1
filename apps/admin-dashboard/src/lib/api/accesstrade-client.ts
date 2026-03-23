@@ -260,9 +260,26 @@ export class AccessTradeClient {
     categories: string[];
     source: 'accesstrade';
   } {
-    const firstCode = Array.isArray(offer.coupons) && offer.coupons.length > 0
-      ? offer.coupons[0]
-      : (offer.code ?? null);
+    // coupons is Array<{coupon_code, coupon_desc}> — extract code string
+    let couponCode: string | null = null;
+    if (Array.isArray(offer.coupons) && offer.coupons.length > 0) {
+      const first = offer.coupons[0];
+      if (typeof first === 'object' && first !== null && 'coupon_code' in first) {
+        const code = (first as { coupon_code: string }).coupon_code;
+        if (typeof code === 'string' && code.length > 0) couponCode = code;
+      }
+    }
+    if (!couponCode && typeof offer.code === 'string' && offer.code.length > 0) {
+      couponCode = offer.code;
+    }
+
+    // categories is Array<{category_name, category_name_show, category_no}>
+    const categories: string[] = Array.isArray(offer.categories)
+      ? offer.categories
+          .filter((c) => typeof c === 'object' && c !== null && 'category_name' in c)
+          .map((c) => (c as { category_name: string }).category_name)
+          .filter(Boolean)
+      : [];
 
     return {
       id: String(offer.id),
@@ -270,13 +287,13 @@ export class AccessTradeClient {
       merchant: typeof offer.merchant === 'string' ? offer.merchant.trim() : 'Unknown Merchant',
       domain: typeof offer.domain === 'string' ? offer.domain : '',
       description: typeof offer.content === 'string' ? offer.content : '',
-      couponCode: typeof firstCode === 'string' && firstCode.length > 0 ? firstCode : null,
+      couponCode: couponCode,
       affLink: typeof offer.aff_link === 'string' ? offer.aff_link : null,
       link: typeof offer.link === 'string' ? offer.link : null,
       image: typeof offer.image === 'string' ? offer.image : null,
       startTime: typeof offer.start_time === 'string' ? offer.start_time : null,
       endTime: typeof offer.end_time === 'string' ? offer.end_time : null,
-      categories: Array.isArray(offer.categories) ? offer.categories : [],
+      categories,
       source: 'accesstrade' as const,
     };
   }

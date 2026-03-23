@@ -39,12 +39,29 @@ function inferPlatform(text: string): string {
   return 'unknown';
 }
 
-function inferSourceType(offer: AccessTradeOffer): string {
-  const firstCode = Array.isArray(offer.coupons) && offer.coupons.length > 0
-    ? offer.coupons[0]
-    : offer.code;
+function getFirstCouponCode(offer: AccessTradeOffer): string | null {
+  if (Array.isArray(offer.coupons) && offer.coupons.length > 0) {
+    const first = offer.coupons[0];
+    if (typeof first === 'object' && first !== null && 'coupon_code' in first) {
+      const code = (first as { coupon_code: string }).coupon_code;
+      if (typeof code === 'string' && code.trim().length > 0) return code.trim();
+    }
+  }
+  if (typeof offer.code === 'string' && offer.code.trim().length > 0) return offer.code.trim();
+  return null;
+}
 
-  if (firstCode && typeof firstCode === 'string' && firstCode.length > 0) return 'coupon';
+function getCategories(offer: AccessTradeOffer): string[] {
+  if (!Array.isArray(offer.categories)) return [];
+  return offer.categories
+    .filter((c) => typeof c === 'object' && c !== null && 'category_name' in c)
+    .map((c) => (c as { category_name: string }).category_name)
+    .filter(Boolean);
+}
+
+function inferSourceType(offer: AccessTradeOffer): string {
+  const firstCode = getFirstCouponCode(offer);
+  if (firstCode && firstCode.length > 0) return 'coupon';
 
   const t = `${offer.name ?? ''} ${offer.content ?? ''}`.toLowerCase();
   if (t.includes('free ship') || t.includes('freeshipping')) return 'voucher';
@@ -56,11 +73,8 @@ function inferSourceType(offer: AccessTradeOffer): string {
 function computeConfidence(offer: AccessTradeOffer): number {
   let score = 0.30;
 
-  const firstCode = Array.isArray(offer.coupons) && offer.coupons.length > 0
-    ? offer.coupons[0]
-    : offer.code;
-
-  if (firstCode && typeof firstCode === 'string' && firstCode.length >= 3) score += 0.15;
+  const firstCode = getFirstCouponCode(offer);
+  if (firstCode && firstCode.length >= 3) score += 0.15;
 
   if (offer.end_time) {
     const expiry = new Date(offer.end_time).getTime();
@@ -128,16 +142,11 @@ export function mapOfferToNormalisedOffer(
   const merchantName = typeof offer.merchant === 'string' && offer.merchant.trim().length > 0
     ? offer.merchant.trim() : 'Unknown Merchant';
 
-  const firstCode = Array.isArray(offer.coupons) && offer.coupons.length > 0
-    ? offer.coupons[0]
-    : offer.code;
-
-  const code = typeof firstCode === 'string' && firstCode.trim().length > 0
-    ? firstCode.trim() : null;
-
+  const code = getFirstCouponCode(offer);
   const sourceType = inferSourceType(offer);
-  const category = Array.isArray(offer.categories) && offer.categories.length > 0
-    ? offer.categories.join(', ')
+  const categories = getCategories(offer);
+  const category = categories.length > 0
+    ? categories.join(', ')
     : inferPlatform(`${merchantName} ${title}`);
 
   // Determine status

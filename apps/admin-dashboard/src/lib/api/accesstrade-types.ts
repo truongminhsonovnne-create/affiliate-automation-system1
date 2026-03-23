@@ -15,8 +15,28 @@
 
 /**
  * Real AccessTrade API response from GET /v1/offers_informations
- * Docs: developers.accesstrade.vn — "Lấy thông tin vouchers / coupons / deals"
+ * Verified against live API response:
+ * - categories is Array<{category_name, category_name_show, category_no}>
+ * - coupons is Array<{coupon_code, coupon_desc}>
+ * - banners is Array<{link, width, height}> (may be empty)
  */
+export interface AccessTradeCategory {
+  category_name: string;
+  category_name_show: string;
+  category_no: string;
+}
+
+export interface AccessTradeCoupon {
+  coupon_code: string;
+  coupon_desc: string;
+}
+
+export interface AccessTradeBanner {
+  link: string;
+  width: string;
+  height: string;
+}
+
 export interface AccessTradeOffer {
   id: string;
   name: string;
@@ -26,13 +46,13 @@ export interface AccessTradeOffer {
   link?: string;
   aff_link?: string;
   image?: string;
-  banners?: Array<{ link: string; width: string; height: string }>;
+  banners?: AccessTradeBanner[];
   start_time?: string;
   end_time?: string;
-  categories?: string[];
-  /** Coupon codes as string array, e.g. ["ABC123", "XYZ789"] */
-  coupons?: string[];
-  /** Flat code fallback */
+  categories?: AccessTradeCategory[];
+  /** Coupon objects with code and description */
+  coupons?: AccessTradeCoupon[];
+  /** Flat code fallback (sometimes present alongside coupons) */
   code?: string;
 }
 
