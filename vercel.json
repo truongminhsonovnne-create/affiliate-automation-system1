@@ -1,0 +1,5 @@
+{
+  "outputDirectory": "apps/admin-dashboard/.next",
+  "installCommand": "npm install",
+  "buildCommand": "cd apps/admin-dashboard && npm run build"
+}
