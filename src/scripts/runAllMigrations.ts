@@ -9,12 +9,12 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Parse connection from SUPABASE_URL
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const urlMatch = supabaseUrl.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(\w+)/);
+// Parse connection from DATABASE_URL (preferred) or SUPABASE_URL
+const dbUrl = process.env.DATABASE_URL || '';
+const urlMatch = dbUrl.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(\w+)/);
 
 if (!urlMatch) {
-  console.error('❌ Could not parse SUPABASE_URL');
+  console.error('❌ Could not parse DATABASE_URL (or SUPABASE_URL). Ensure DATABASE_URL is set in .env.local');
   process.exit(1);
 }
 
@@ -51,15 +51,18 @@ async function runAllMigrations() {
     await client.connect();
     console.log('✅ Connected to Supabase\n');
 
-    // Migration files to run
+    // Migration files to run (in order)
     const migrations = [
       '001_create_affiliate_tables.sql',
       '002_add_updated_at_trigger.sql',
-      '003_create_publish_jobs.sql'
+      '003_create_publish_jobs.sql',
+      // resolve_requests table — required by /api/public/v1/resolve endpoint
+      // (fixes 503 on POST and REQUEST_NOT_FOUND on GET polling)
+      '005_create_resolve_requests.sql',
     ];
 
     for (const migrationFile of migrations) {
-      const migrationPath = join(process.cwd(), 'supabase/migrations', migrationFile);
+      const migrationPath = join(process.cwd(), 'migrations', migrationFile);
       console.log(`\n📄 Running migration: ${migrationFile}`);
 
       const sql = readFileSync(migrationPath, 'utf-8');
