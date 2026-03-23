@@ -1,13 +1,38 @@
-name: Sync — Offers (AccessTrade & MasOffer)
+name: Sync — Offers
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SCHEDULE (UTC+7 Vietnam = UTC - 7)
+#
+# Incremental: 06:07 → 23:37 Vietnam  =  23:07 → 16:37 UTC
+#   Every 30 min: minute pairs {7,37} on hours 23→16 (wrapping midnight)
+#   Total: 34 runs/day
+#
+# Full sync:   02:17 Vietnam            =  19:17 UTC
+#   Once daily
+#
+# Example — convert Vietnam → UTC:
+#   Vietnam 06:07 = UTC 23:07  (day before)
+#   Vietnam 02:17 = UTC 19:17  (same day)
+# ──────────────────────────────────────────────────────────────────────────────
 
 on:
-  # Run twice daily at 07:00 and 19:00 UTC (2pm and 2am Vietnam: UTC+7)
   schedule:
-    - cron: '0 7,19 * * *'
+    # Incremental: every 30 min from 06:07 → 23:37 Vietnam
+    #   UTC: 23:07, 23:37, 22:07, 22:37, ..., 17:07, 16:37
+    - cron: '7,37 23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,0 * * *'
+    # Full sync: 02:17 Vietnam = 19:17 UTC
+    - cron: '17 19 * * *'
 
-  # Manual trigger from GitHub Actions UI
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'Sync mode'
+        required: false
+        default: 'incremental'
+        type: choice
+        options:
+          - incremental
+          - full
       dry_run:
         description: 'Dry run (no DB writes)'
         required: false
@@ -16,6 +41,11 @@ on:
         options:
           - 'false'
           - 'true'
+
+# Prevent concurrent runs — if a job is already running, cancel it
+concurrency:
+  group: sync-offers
+  cancel-in-progress: true
 
 # ──────────────────────────────────────────────────────────────────────────────
 # REQUIRED GITHUB SECRETS — Settings → Secrets and variables → Actions
@@ -26,8 +56,8 @@ on:
 #   MASOFFER_API_TOKEN   — from publisher.masoffer.net
 #   MASOFFER_PUBLISHER_ID — your MasOffer publisher ID
 # Shared:
-#   SUPABASE_URL         — https://xxx.supabase.co
-#   SUPABASE_SERVICE_KEY — service role key
+#   SUPABASE_URL          — https://xxx.supabase.co
+#   SUPABASE_SERVICE_KEY  — service role key
 # ──────────────────────────────────────────────────────────────────────────────
 
 env:
@@ -39,7 +69,7 @@ env:
 
 jobs:
   sync:
-    name: Sync All Offers
+    name: Sync Offers
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -52,45 +82,43 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Validate Supabase secrets
+      - name: Validate Supabase
         run: |
           if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_KEY" ]; then
-            echo "ERROR: SUPABASE_URL or SUPABASE_SERVICE_KEY is not set in GitHub Secrets"
+            echo "ERROR: SUPABASE_URL or SUPABASE_SERVICE_KEY not set in GitHub Secrets"
             exit 1
           fi
-          echo "✓ Supabase configured: ${SUPABASE_URL:0:40}..."
 
       - name: Sync AccessTrade
         if: env.ACCESSTRADE_API_KEY != ''
         run: |
           EXTRA=""
-          [ "${{ inputs.dry_run || 'false' }}" = "true" ] && EXTRA="--dry-run"
+          DRY="${{ inputs.dry_run || 'false' }}"
+          [ "$DRY" = "true" ] && EXTRA="--dry-run"
           echo ""
-          echo "========== [1/2] AccessTrade =========="
+          echo "====== [1/2] AccessTrade | mode=${{ inputs.mode || 'incremental' }} | dry=$DRY ======"
           node scripts/sync-at-offers.js $EXTRA
-          echo "========================================"
+          echo "================================================================"
 
       - name: Sync MasOffer
         if: env.MASOFFER_API_TOKEN != ''
         run: |
           EXTRA=""
-          [ "${{ inputs.dry_run || 'false' }}" = "true" ] && EXTRA="--dry-run"
+          DRY="${{ inputs.dry_run || 'false' }}"
+          [ "$DRY" = "true" ] && EXTRA="--dry-run"
           echo ""
-          echo "========== [2/2] MasOffer =========="
+          echo "====== [2/2] MasOffer | mode=${{ inputs.mode || 'incremental' }} | dry=$DRY ======"
           node scripts/sync-masoffer-offers.js $EXTRA
-          echo "===================================="
+          echo "=============================================================="
 
-      - name: Skip missing sources report
+      - name: Report skipped sources
         if: always()
         run: |
           if [ -z "$ACCESSTRADE_API_KEY" ]; then
-            echo "⚠  AccessTrade skipped — ACCESSTRADE_API_KEY not set"
+            echo "⚠  AccessTrade skipped — ACCESSTRADE_API_KEY not configured"
           fi
           if [ -z "$MASOFFER_API_TOKEN" ]; then
-            echo "⚠  MasOffer skipped — MASOFFER_API_TOKEN not set"
-          fi
-          if [ -n "$ACCESSTRADE_API_KEY" ] && [ -n "$MASOFFER_API_TOKEN" ]; then
-            echo "✓  Both sources configured"
+            echo "⚠  MasOffer skipped — MASOFFER_API_TOKEN not configured"
           fi
 
       - name: Step summary
@@ -98,9 +126,9 @@ jobs:
         run: |
           echo "## Sync — $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Source | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| AccessTrade | ${{ env.ACCESSTRADE_API_KEY != '' && 'configured' || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| MasOffer | ${{ env.MASOFFER_API_TOKEN != '' && 'configured' || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Source | Configured |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| AccessTrade | $([ -n "$ACCESSTRADE_API_KEY" ] && echo '✅' || echo '❌') |" >> $GITHUB_STEP_SUMMARY
+          echo "| MasOffer | $([ -n "$MASOFFER_API_TOKEN" ] && echo '✅' || echo '❌') |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Run:** ${{ github.event_name }} | **Dry run:** ${{ inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }} | **Mode:** ${{ inputs.mode || 'incremental' }} | **Dry run:** ${{ inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
