@@ -1,4 +1,4 @@
-name: Sync — AccessTrade Offers
+name: Sync — Offers (AccessTrade & MasOffer)
 
 on:
   # Run twice daily at 07:00 and 19:00 UTC (2pm and 2am Vietnam: UTC+7)
@@ -18,38 +18,32 @@ on:
           - 'true'
 
 # ──────────────────────────────────────────────────────────────────────────────
-# REQUIRED GITHUB SECRETS — set in: Settings → Secrets and variables → Actions
+# REQUIRED GITHUB SECRETS — Settings → Secrets and variables → Actions
 # ──────────────────────────────────────────────────────────────────────────────
-# ACCESSTRADE_API_KEY     — AccessTrade API token from pub.accesstrade.vn
-# SUPABASE_URL            — Your Supabase project URL
-# SUPABASE_SERVICE_KEY    — Supabase service role key (write access)
+# AccessTrade:
+#   ACCESSTRADE_API_KEY  — from pub.accesstrade.vn
+# MasOffer:
+#   MASOFFER_API_TOKEN   — from publisher.masoffer.net
+#   MASOFFER_PUBLISHER_ID — your MasOffer publisher ID
+# Shared:
+#   SUPABASE_URL         — https://xxx.supabase.co
+#   SUPABASE_SERVICE_KEY — service role key
 # ──────────────────────────────────────────────────────────────────────────────
 
 env:
   ACCESSTRADE_API_KEY: ${{ secrets.ACCESSTRADE_API_KEY }}
+  MASOFFER_API_TOKEN: ${{ secrets.MASOFFER_API_TOKEN }}
+  MASOFFER_PUBLISHER_ID: ${{ secrets.MASOFFER_PUBLISHER_ID }}
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
   SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
 
 jobs:
   sync:
-    name: Sync AccessTrade Offers
+    name: Sync All Offers
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
-      - name: Validate secrets
-        run: |
-          for var in ACCESSTRADE_API_KEY SUPABASE_URL SUPABASE_SERVICE_KEY; do
-            val=$(printenv $var)
-            if [ -z "$val" ]; then
-              echo "ERROR: $var secret is not set in GitHub Settings → Secrets"
-              exit 1
-            fi
-          done
-          echo "✓ All secrets validated"
-          echo "  SUPABASE_URL: ${SUPABASE_URL:0:40}..."
-          echo "  AT API Key: ${ACCESSTRADE_API_KEY:0:8}..."
-
       - name: Checkout repo
         uses: actions/checkout@v4
 
@@ -58,26 +52,55 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Run AccessTrade sync
-        id: sync
+      - name: Validate Supabase secrets
         run: |
-          EXTRA_ARGS=""
-          if [ "${{ inputs.dry_run || 'false' }}" = "true" ]; then
-            EXTRA_ARGS="--dry-run"
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_KEY" ]; then
+            echo "ERROR: SUPABASE_URL or SUPABASE_SERVICE_KEY is not set in GitHub Secrets"
+            exit 1
           fi
+          echo "✓ Supabase configured: ${SUPABASE_URL:0:40}..."
 
+      - name: Sync AccessTrade
+        if: env.ACCESSTRADE_API_KEY != ''
+        run: |
+          EXTRA=""
+          [ "${{ inputs.dry_run || 'false' }}" = "true" ] && EXTRA="--dry-run"
           echo ""
-          echo "=========================================="
-          echo "  Running AccessTrade sync  |  ${EXTRA_ARGS:-LIVE}"
-          echo "=========================================="
+          echo "========== [1/2] AccessTrade =========="
+          node scripts/sync-at-offers.js $EXTRA
+          echo "========================================"
 
-          node scripts/sync-at-offers.js $EXTRA_ARGS
+      - name: Sync MasOffer
+        if: env.MASOFFER_API_TOKEN != ''
+        run: |
+          EXTRA=""
+          [ "${{ inputs.dry_run || 'false' }}" = "true" ] && EXTRA="--dry-run"
+          echo ""
+          echo "========== [2/2] MasOffer =========="
+          node scripts/sync-masoffer-offers.js $EXTRA
+          echo "===================================="
 
-      - name: Set step summary
+      - name: Skip missing sources report
         if: always()
         run: |
-          echo "## AccessTrade Sync — $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_STEP_SUMMARY
+          if [ -z "$ACCESSTRADE_API_KEY" ]; then
+            echo "⚠  AccessTrade skipped — ACCESSTRADE_API_KEY not set"
+          fi
+          if [ -z "$MASOFFER_API_TOKEN" ]; then
+            echo "⚠  MasOffer skipped — MASOFFER_API_TOKEN not set"
+          fi
+          if [ -n "$ACCESSTRADE_API_KEY" ] && [ -n "$MASOFFER_API_TOKEN" ]; then
+            echo "✓  Both sources configured"
+          fi
+
+      - name: Step summary
+        if: always()
+        run: |
+          echo "## Sync — $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Dry Run:** ${{ inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "| Source | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| AccessTrade | ${{ env.ACCESSTRADE_API_KEY != '' && 'configured' || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| MasOffer | ${{ env.MASOFFER_API_TOKEN != '' && 'configured' || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Run:** ${{ github.event_name }} | **Dry run:** ${{ inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
