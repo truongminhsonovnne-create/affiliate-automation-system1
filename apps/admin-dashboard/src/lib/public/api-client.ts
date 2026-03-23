@@ -236,6 +236,20 @@ export function mapEngineStatusToPhase(
 }
 
 // =============================================================================
+// Request ID helpers
+// =============================================================================
+
+/** Generate a server-safe request ID using crypto.randomUUID() */
+function generateRequestId(): string {
+  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  // Node.js 14+ fallback
+  const { randomBytes } = require('crypto');
+  return randomBytes(12).toString('hex');
+}
+
+// =============================================================================
 // Async Resolution Pipeline
 // =============================================================================
 
@@ -253,13 +267,25 @@ export async function resolveVoucherAsync(
 ): Promise<ResolutionState> {
   const { signal, onPhaseChange, onPoll } = options;
 
+  // Always generate a requestId client-side so the backend can correlate the request.
+  // This is the source of truth for the requestId across the whole flow.
+  const clientRequestId = generateRequestId();
+
   // ---- Step 1: Submit ----
-  const submitResponse = await submitVoucherResolution(input, signal);
+  const submitResponse = await submitVoucherResolution(input, clientRequestId, signal);
   const { requestId } = submitResponse;
+
+  // Use the server-provided requestId if it matches, otherwise fall back to our client ID
+  const resolvedRequestId =
+    (requestId && requestId.length >= 8) ? requestId : clientRequestId;
 
   if (!requestId) {
     // Synchronous result — no async needed
-    return buildResolutionState(submitResponse as PublicVoucherResolveResponse);
+    const state = buildResolutionState(
+      submitResponse as PublicVoucherResolveResponse,
+      { requestId: clientRequestId }
+    );
+    return state;
   }
 
   // We have a requestId — enter polling
@@ -286,7 +312,7 @@ export async function resolveVoucherAsync(
 
     onPoll?.(attempt, elapsedMs);
 
-    const pollResponse = await pollVoucherResolution(requestId, signal);
+    const pollResponse = await pollVoucherResolution(resolvedRequestId, signal);
     const phaseResult = mapEngineStatusToPhase(
       pollResponse.resolutionStatus,
       pollResponse.httpStatus
@@ -306,12 +332,12 @@ export async function resolveVoucherAsync(
         pollResponse.httpStatus === 200
       ) {
         // Build state from the final API result
-        return buildResolutionStateFromPoll(pollResponse);
+        return buildResolutionStateFromPoll(pollResponse, resolvedRequestId);
       }
       // Map final phase to a ResolutionState
       return buildStateFromPhase(
         phaseResult.phase,
-        requestId,
+        resolvedRequestId,
         elapsedMs
       );
     }
@@ -323,17 +349,21 @@ export async function resolveVoucherAsync(
   // Ran out of attempts
   const elapsedMs = Date.now() - startTime;
   if (elapsedMs >= EXPIRED_THRESHOLD_MS) {
-    return buildStateFromPhase('expired', requestId, elapsedMs);
+    return buildStateFromPhase('expired', resolvedRequestId, elapsedMs);
   }
-  return buildStateFromPhase('failed', requestId, elapsedMs);
+  return buildStateFromPhase('failed', resolvedRequestId, elapsedMs);
 }
 
 /**
  * Submit a resolution request. Returns the raw response.
  * May return a queued response with a requestId (async path).
+ *
+ * The requestId is always included so the server can correlate logs and
+ * downstream services can validate it without generating their own.
  */
 export async function submitVoucherResolution(
   input: string,
+  requestId: string,
   signal?: AbortSignal
 ): Promise<PublicVoucherResolveResponse | { requestId: string; queued: true }> {
   const controller = new AbortController();
@@ -344,14 +374,34 @@ export async function submitVoucherResolution(
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      'X-Client-Request-Id': requestId,
     },
-    body: JSON.stringify({ input }),
+    body: JSON.stringify({ input, requestId }),
     signal: controller.signal,
   });
 
   if (!response.ok) {
+    const errorBody = await safeReadJson(response) as Record<string, unknown> | null;
+    const serverCode = errorBody?.code ?? (errorBody?.error as Record<string, unknown>)?.code ?? null;
+
+    // Distinguish validation errors (4xx) from infrastructure errors (5xx)
     if (response.status === 429) {
       throw new ProxyError('RATE_LIMITED', 'Too many requests', response.status);
+    }
+    if (response.status === 400 || response.status === 422) {
+      const msg = extractErrorMessage(errorBody);
+      throw new ProxyError(
+        (serverCode as string) ?? 'VALIDATION_ERROR',
+        msg,
+        response.status
+      );
+    }
+    if (response.status >= 500) {
+      throw new ProxyError(
+        (serverCode as string) ?? 'DOWNSTREAM_ERROR',
+        `Server error (${response.status}). Please retry.`,
+        response.status
+      );
     }
     throw new ProxyError('HTTP_ERROR', `Request failed: ${response.status}`, response.status);
   }
@@ -365,6 +415,29 @@ export async function submitVoucherResolution(
   }
 
   return data;
+}
+
+/** Read JSON safely without throwing */
+async function safeReadJson(response: Response): Promise<unknown> {
+  try {
+    return await response.clone().json();
+  } catch {
+    return null;
+  }
+}
+
+/** Extract a human-readable message from a variety of error body shapes */
+function extractErrorMessage(body: unknown): string {
+  if (!body || typeof body !== 'object') return 'Request failed.';
+  const b = body as Record<string, unknown>;
+  if (typeof b.message === 'string' && b.message.length > 0) return b.message;
+  if (typeof b.error === 'string') return b.error;
+  if (typeof b.error === 'object' && b.error !== null) {
+    const e = b.error as Record<string, unknown>;
+    if (typeof e.message === 'string') return e.message;
+    if (typeof e.code === 'string') return e.code;
+  }
+  return 'Request failed.';
 }
 
 /**
@@ -407,19 +480,31 @@ export async function resolveVoucher(
     options.signal.addEventListener('abort', () => controller.abort());
   }
 
+  const requestId = generateRequestId();
+
   const response = await fetch('/api/public/v1/resolve', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      'X-Client-Request-Id': requestId,
     },
-    body: JSON.stringify({ input }),
+    body: JSON.stringify({ input, requestId }),
     signal: controller.signal,
   });
 
   if (!response.ok) {
+    const errorBody = await safeReadJson(response) as Record<string, unknown> | null;
+    const serverCode = errorBody?.code ?? (errorBody?.error as Record<string, unknown>)?.code ?? null;
     if (response.status === 429) {
       throw new ProxyError('RATE_LIMITED', 'Too many requests', response.status);
+    }
+    if (response.status === 400 || response.status === 422) {
+      throw new ProxyError(
+        (serverCode as string) ?? 'VALIDATION_ERROR',
+        extractErrorMessage(errorBody),
+        response.status
+      );
     }
     throw new ProxyError('HTTP_ERROR', `Request failed: ${response.status}`, response.status);
   }
@@ -457,9 +542,23 @@ export function buildResolutionState(
     resolvedAt: apiResponse.performance.resolvedAt,
   };
 
+  // Use server-provided requestId if valid (>=8 chars), otherwise fall back to client-generated one.
+  // This ensures the requestId is always available even when the server-side pipeline
+  // doesn't return one (e.g. immediate cache hit).
+  const resolvedRequestId =
+    (apiResponse.requestId && apiResponse.requestId.length >= 8)
+      ? apiResponse.requestId
+      : (previousState?.requestId ?? null);
+
+  // Error handling: the error status is driven by the warnings array, not a generic fallback.
+  // Only construct an error when the status is 'error'; no_match is not an error state.
+  const errorWarning = status === 'error'
+    ? (apiResponse.warnings ?? []).find(w => w.severity === 'warning' || w.code.includes('UNAVAILABLE') || w.code.includes('ERROR'))
+    : null;
+
   return {
     status,
-    requestId: apiResponse.requestId,
+    requestId: resolvedRequestId,
     candidates: apiResponse.candidates.map(mapCandidate),
     bestMatch: apiResponse.bestMatch
       ? mapBestMatch(
@@ -479,15 +578,9 @@ export function buildResolutionState(
           context: apiResponse.explanation.context,
         }
       : null,
-    error:
-      status === 'error'
-        ? {
-            code: apiResponse.warnings?.[0]?.code ?? 'UNKNOWN',
-            message:
-              apiResponse.warnings?.[0]?.message ??
-              'Đã xảy ra lỗi. Vui lòng thử lại.',
-          }
-        : null,
+    error: errorWarning
+      ? { code: errorWarning.code, message: errorWarning.message }
+      : null,
     confidenceScore: apiResponse.confidenceScore,
     matchedSource: apiResponse.matchedSource,
     dataFreshness: apiResponse.dataFreshness,
@@ -498,13 +591,14 @@ export function buildResolutionState(
 function buildResolutionStateFromPoll(
   poll: QueuedResolutionResponse & {
     data?: PublicVoucherResolveResponse;
-  }
+  },
+  requestId: string
 ): ResolutionState {
   const data = (poll as unknown as { data?: PublicVoucherResolveResponse }).data;
   if (!data) {
-    return buildStateFromPhase('failed', poll.requestId, poll.durationMs ?? 0);
+    return buildStateFromPhase('failed', requestId, poll.durationMs ?? 0);
   }
-  return buildResolutionState(data);
+  return buildResolutionState(data, { requestId });
 }
 
 /** Build a terminal ResolutionState from a phase */

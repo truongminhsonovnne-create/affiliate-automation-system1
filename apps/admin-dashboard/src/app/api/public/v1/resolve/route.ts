@@ -21,6 +21,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { randomBytes } from 'crypto';
 import { validateInput } from '@/lib/public/resolve-normalize';
 import type { NormalizedInput } from '@/lib/public/resolve-normalize';
 import {
@@ -77,7 +78,8 @@ interface SupabaseResult {
  */
 async function querySupabase(
   normalized: NormalizedInput,
-  phaseStart: number
+  phaseStart: number,
+  requestId: string
 ): Promise<SupabaseResult> {
   const t0 = Date.now() - phaseStart;
 
@@ -106,6 +108,7 @@ async function querySupabase(
 
     if (error) {
       log('error', 'SUPABASE_QUERY_FAILED', {
+        requestId,
         platform: normalized.platform,
         error: error.message,
         queryTimeMs: queryTime,
@@ -117,6 +120,7 @@ async function querySupabase(
     const freshness = computeFreshness(offers[0]?.synced_at);
 
     log('info', offers.length > 0 ? 'SUPABASE_MATCH_FOUND' : 'SUPABASE_NO_MATCH', {
+      requestId,
       platform: normalized.platform,
       shopId: normalized.shopId,
       itemId: normalized.itemId,
@@ -128,7 +132,7 @@ async function querySupabase(
     return { offers, found: offers.length > 0, freshness };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log('error', 'SUPABASE_UNEXPECTED_ERROR', { platform: normalized.platform, error: msg });
+    log('error', 'SUPABASE_UNEXPECTED_ERROR', { requestId, platform: normalized.platform, error: msg });
     return { offers: [], found: false, freshness: 'unknown', error: msg };
   }
 }
@@ -156,12 +160,13 @@ const ENRICH_TIMEOUT_MS = 5_000;
 async function tryEnrich(
   input: NormalizedInput,
   ranked: RankedOffer[],
-  phaseStart: number
+  phaseStart: number,
+  requestId: string
 ): Promise<EnrichResult> {
   const t0 = Date.now();
 
   if (!INTERNAL_API_URL) {
-    log('warn', 'OPTIONAL_ENRICH_SKIPPED', { reason: 'MISSING_INTERNAL_API_URL' });
+    log('warn', 'OPTIONAL_ENRICH_SKIPPED', { requestId, reason: 'MISSING_INTERNAL_API_URL' });
     return { enriched: false, skipReason: 'MISSING_INTERNAL_API_URL', latencyMs: Date.now() - t0 };
   }
 
@@ -171,8 +176,12 @@ async function tryEnrich(
 
     const res = await fetch(`${INTERNAL_API_URL}/api/public/v1/resolve`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ input: input.originalUrl }),
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Client-Request-Id': requestId,
+      },
+      body: JSON.stringify({ input: input.originalUrl, requestId }),
       signal: controller.signal,
     });
 
@@ -180,16 +189,25 @@ async function tryEnrich(
     const latencyMs = Date.now() - t0;
 
     if (!res.ok) {
-      log('warn', 'ENRICH_BACKEND_UNAVAILABLE', {
+      // Distinguish validation errors (4xx) from infrastructure errors (5xx)
+      const isClientError = res.status >= 400 && res.status < 500;
+      log('warn', isClientError ? 'ENRICH_BACKEND_REJECTED' : 'ENRICH_BACKEND_UNAVAILABLE', {
+        requestId,
         status: res.status,
         latencyMs,
       });
-      return { enriched: false, skipReason: `HTTP_${res.status}`, latencyMs };
+      // Don't treat 4xx as service unavailability — just skip enrich
+      return {
+        enriched: false,
+        skipReason: `HTTP_${res.status}`,
+        latencyMs,
+      };
     }
 
     const data = await res.json() as Record<string, unknown>;
 
     log('info', 'ENRICH_SUCCESS', {
+      requestId,
       confidenceBoost: data.confidenceScore,
       matchedSource: data.matchedSource,
       latencyMs,
@@ -206,6 +224,7 @@ async function tryEnrich(
     const isTimeout =
       err instanceof DOMException && err.name === 'AbortException';
     log('warn', isTimeout ? 'ENRICH_TIMEOUT' : 'ENRICH_ERROR', {
+      requestId,
       error: err instanceof Error ? err.message : String(err),
       isTimeout,
       latencyMs,
@@ -237,7 +256,8 @@ function buildSuccessResponse(
   ranked: RankedOffer[],
   enrich: EnrichResult,
   timings: PhaseTimings,
-  resolveMode: string
+  resolveMode: string,
+  requestId: string
 ): Record<string, unknown> {
   const top = ranked[0];
   const bestMatch = buildBestMatch(ranked);
@@ -276,7 +296,7 @@ function buildSuccessResponse(
   }
 
   return {
-    requestId: '',
+    requestId,
     status: 'success',
     bestMatch,
     candidates: alternatives,
@@ -306,10 +326,11 @@ function buildSuccessResponse(
 
 function buildNoMatchResponse(
   timings: PhaseTimings,
-  enrich: EnrichResult
+  enrich: EnrichResult,
+  requestId: string
 ): Record<string, unknown> {
   return {
-    requestId: '',
+    requestId,
     status: 'no_match',
     bestMatch: null,
     candidates: [],
@@ -399,6 +420,29 @@ function log(
   }
 }
 
+// ── Request ID helpers ─────────────────────────────────────────────────────────
+
+/** Minimum length for a valid requestId (matches downstream validation) */
+const MIN_REQUEST_ID_LENGTH = 8;
+
+/**
+ * Resolve the canonical requestId for this request:
+ * - If client sent a valid requestId (>=8 chars), use it.
+ * - Otherwise generate a server-side one.
+ */
+function resolveRequestId(clientRequestId: unknown, xClientRequestId: string | null): string {
+  // Client-provided via header (highest priority — came from the UI layer)
+  if (xClientRequestId && xClientRequestId.length >= MIN_REQUEST_ID_LENGTH) {
+    return xClientRequestId;
+  }
+  // Client-provided via body
+  if (typeof clientRequestId === 'string' && clientRequestId.length >= MIN_REQUEST_ID_LENGTH) {
+    return clientRequestId;
+  }
+  // Generate server-side
+  return randomBytes(12).toString('hex');
+}
+
 // ── Main route handler ─────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
@@ -412,19 +456,34 @@ export async function POST(request: NextRequest) {
     total: 0,
   };
 
+  // Resolve requestId first so every log entry has it
+  const xClientRequestId = request.headers.get('X-Client-Request-Id') ?? null;
+
   // ── 1. Parse body ─────────────────────────────────────────────────────────
   let body: unknown;
   try {
     body = await request.json();
   } catch {
     phases.total = Date.now() - totalStart;
+    const rid = resolveRequestId(undefined, xClientRequestId);
+    log('error', 'INVALID_JSON', { requestId: rid, totalMs: phases.total });
     return NextResponse.json(
-      { status: 'invalid_input', code: 'INVALID_JSON', warnings: [{ code: 'INVALID_INPUT', message: 'Yêu cầu không hợp lệ.', severity: 'warning' }] },
+      {
+        requestId: rid,
+        status: 'invalid_input',
+        code: 'INVALID_JSON',
+        warnings: [{ code: 'INVALID_JSON', message: 'Yêu cầu không hợp lệ.', severity: 'warning' }],
+      },
       { status: 400 }
     );
   }
 
-  const { input: rawInput } = body as { input?: unknown };
+  const { input: rawInput, requestId: bodyRequestId } = body as { input?: unknown; requestId?: unknown };
+
+  // Always have a valid requestId — client-provided if valid, server-generated otherwise
+  const requestId = resolveRequestId(bodyRequestId, xClientRequestId);
+
+  log('info', 'RESOLVE_START', { requestId, totalMs: 0 });
 
   // ── 2. Normalize input ─────────────────────────────────────────────────────
   const normalizeStart = Date.now();
@@ -433,9 +492,10 @@ export async function POST(request: NextRequest) {
 
   if (!validation.valid) {
     phases.total = Date.now() - totalStart;
+    log('warn', 'INVALID_INPUT', { requestId, code: validation.code, message: validation.message, totalMs: phases.total });
     return NextResponse.json(
       {
-        requestId: '',
+        requestId,
         status: 'invalid_input',
         bestMatch: null,
         candidates: [],
@@ -457,28 +517,38 @@ export async function POST(request: NextRequest) {
 
   if (cached) {
     phases.total = Date.now() - totalStart;
-    log('info', 'CACHE_HIT', { cacheKey, totalMs: phases.total });
-    return NextResponse.json(
-      { ...(cached.result as Record<string, unknown>), performance: { ...(cached.result as Record<string, unknown>).performance as object, totalLatencyMs: phases.total, servedFromCache: true, resolvedAt: new Date().toISOString() } },
-      { status: 200 }
-    );
+    log('info', 'CACHE_HIT', { requestId, cacheKey, totalMs: phases.total });
+    // Always ensure requestId is present in cached response
+    const cachedData = cached.result as Record<string, unknown>;
+    const cachedResponse = {
+      ...cachedData,
+      requestId: cachedData.requestId || requestId,
+      performance: {
+        ...(cachedData.performance as Record<string, unknown>),
+        totalLatencyMs: phases.total,
+        servedFromCache: true,
+        resolvedAt: new Date().toISOString(),
+      },
+    };
+    return NextResponse.json(cachedResponse, { status: 200 });
   }
 
   // ── 4. Supabase query ──────────────────────────────────────────────────────
   const supabaseStart = Date.now();
-  const dbResult = await querySupabase(normalized, supabaseStart);
+  const dbResult = await querySupabase(normalized, supabaseStart, requestId);
   phases.supabaseQuery = Date.now() - supabaseStart;
 
   // CRITICAL: only 503 when Supabase itself fails AND we have no data
   if (dbResult.error && !dbResult.found) {
     phases.total = Date.now() - totalStart;
     log('error', 'FULL_RESOLVE_UNAVAILABLE', {
+      requestId,
       supabaseError: dbResult.error,
       totalMs: phases.total,
     });
     return NextResponse.json(
       {
-        requestId: '',
+        requestId,
         status: 'error',
         bestMatch: null,
         candidates: [],
@@ -513,7 +583,7 @@ export async function POST(request: NextRequest) {
   let enrichResult: EnrichResult = { enriched: false, latencyMs: 0 };
 
   if ((assessment === 'enrich_recommended' || assessment === 'no_result') && INTERNAL_API_URL) {
-    enrichResult = await tryEnrich(normalized, ranked, enrichStart);
+    enrichResult = await tryEnrich(normalized, ranked, enrichStart, requestId);
   }
   phases.enrich = Date.now() - enrichStart;
   phases.total = Date.now() - totalStart;
@@ -522,7 +592,7 @@ export async function POST(request: NextRequest) {
   let response: Record<string, unknown>;
 
   if (ranked.length === 0 && !enrichResult.enriched) {
-    response = buildNoMatchResponse(phases, enrichResult);
+    response = buildNoMatchResponse(phases, enrichResult, requestId);
   } else {
     // Re-rank after potential enrich (enrich could have boosted confidence)
     if (enrichResult.enriched && enrichResult.confidenceBoost) {
@@ -530,9 +600,9 @@ export async function POST(request: NextRequest) {
       const merged = ranked.map((r, i) =>
         i === 0 ? { ...r, score: r.score + enrichResult.confidenceBoost! * 50 } : r
       );
-      response = buildSuccessResponse(merged, enrichResult, phases, resolveMode);
+      response = buildSuccessResponse(merged, enrichResult, phases, resolveMode, requestId);
     } else {
-      response = buildSuccessResponse(ranked, enrichResult, phases, resolveMode);
+      response = buildSuccessResponse(ranked, enrichResult, phases, resolveMode, requestId);
     }
   }
 
@@ -541,6 +611,7 @@ export async function POST(request: NextRequest) {
 
   // ── 9. Log final decision ─────────────────────────────────────────────────
   log('info', 'RESOLVE_COMPLETE', {
+    requestId,
     resolveMode,
     totalMs: phases.total,
     supabaseMs: phases.supabaseQuery,
@@ -562,20 +633,29 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const requestId = searchParams.get('requestId');
 
+  // Map missing or too-short requestId → 400 (not 503)
   if (!requestId || requestId.trim().length < 8) {
     return NextResponse.json(
-      { error: 'INVALID_REQUEST_ID', message: 'requestId must be at least 8 characters.' },
+      {
+        error: 'INVALID_REQUEST_ID',
+        code: 'INVALID_REQUEST_ID',
+        message: 'requestId must be at least 8 characters.',
+      },
       { status: 400 }
     );
   }
 
-  // Hybrid pipeline is synchronous — no async polling needed
+  // Hybrid pipeline is synchronous — no async polling needed.
+  // Return 200 with no_match so the polling client can gracefully handle it.
+  log('info', 'GET_RESOLVE_STUB', { requestId });
   return NextResponse.json(
     {
       requestId,
-      status: 'no_match',
-      message: 'Request not found or already expired. Submit a new resolve request.',
-      phase: 'failed',
+      httpStatus: 200,
+      resolutionStatus: null,
+      createdAt: new Date().toISOString(),
+      resolvedAt: null,
+      durationMs: null,
     },
     { status: 200 }
   );
