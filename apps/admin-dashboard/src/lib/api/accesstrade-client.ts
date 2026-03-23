@@ -13,7 +13,7 @@
  *  - Never return raw API keys or auth headers to the browser.
  */
 
-import axios, { type AxiosInstance, type AxiosError } from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 import type {
   AccessTradeOffer,
   AccessTradeOffersResponse,
@@ -115,13 +115,14 @@ function createAxiosInstance(timeout = DEFAULT_TIMEOUT): AxiosInstance {
 
   instance.interceptors.response.use(
     (response) => response,
-    (error: AxiosError) => {
-      const corrId = (error.config?.headers?.['X-Correlation-ID'] as string | undefined) ?? 'unknown';
+    (error: unknown) => {
+      const axiosErr = axios.isAxiosError(error) ? error : null;
+      const corrId = (axiosErr?.config?.headers?.['X-Correlation-ID'] as string | undefined) ?? 'unknown';
       logError('API error', {
-        url: error.config?.url,
-        status: error.response?.status,
+        url: axiosErr?.config?.url,
+        status: axiosErr?.response?.status,
         corrId,
-        message: extractErrorMessage(error),
+        message: axiosErr?.message ?? String(error),
       });
       return Promise.reject(error);
     }
@@ -171,7 +172,7 @@ export class AccessTradeClient {
         success: false,
         response_time_ms: Date.now() - start,
         tested_at: new Date().toISOString(),
-        error: extractErrorMessage(err),
+        error: this.extractErrorMessage(err),
       };
     }
   }
@@ -318,7 +319,7 @@ export class AccessTradeClient {
   // ── Error extraction ───────────────────────────────────────────────────────
 
   private extractErrorMessage(err: unknown): string {
-    if (err instanceof AxiosError) {
+    if (axios.isAxiosError(err)) {
       const data = err.response?.data as Record<string, unknown> | undefined;
       if (typeof data?.message === 'string') return data.message as string;
       if (typeof data?.error === 'string') return data.error as string;

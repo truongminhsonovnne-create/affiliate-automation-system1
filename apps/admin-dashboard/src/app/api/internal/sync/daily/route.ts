@@ -75,12 +75,14 @@ async function getMasOfferClient() {
   return client as unknown as { getDeals: (p: Record<string, unknown>) => Promise<{ data: Array<Record<string, unknown>>; pagination?: { total: number; total_pages: number } }> };
 }
 
-async function getAccessTradeClient() {
-  if (_cache.accesstrade) return _cache.accesstrade as unknown as { getOffers: (p: Record<string, unknown>) => Promise<{ data: Array<Record<string, unknown>> }> };
+async function getAccessTradeClient(): Promise<{
+  getOffers: (p: { page?: number; limit?: number; status?: number }) => Promise<{ data: import('@/lib/api/accesstrade-types').AccessTradeOffer[] }>;
+}> {
+  if (_cache.accesstrade) return _cache.accesstrade as ReturnType<typeof getAccessTradeClient>;
   const { AccessTradeClient } = await import('@/lib/api/accesstrade-client');
   const client = new AccessTradeClient();
   _cache.accesstrade = client;
-  return client as unknown as { getOffers: (p: Record<string, unknown>) => Promise<{ data: Array<Record<string, unknown>> }> };
+  return client as unknown as ReturnType<typeof getAccessTradeClient>;
 }
 
 // ── Checkpoint helpers ──────────────────────────────────────────────────────

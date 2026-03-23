@@ -100,12 +100,15 @@ export function mapOfferToNormalisedOffer(
   slug: string | null;
   description: string | null;
   merchant_name: string;
+  merchant_id: string | null;
   category: string | null;
   destination_url: string | null;
   tracking_url: string | null;
   coupon_code: string | null;
   discount_type: string | null;
   discount_value: number | null;
+  max_discount: number | null;
+  min_order_value: number | null;
   currency: string;
   start_at: string | null;
   end_at: string | null;
@@ -180,12 +183,15 @@ export function mapOfferToNormalisedOffer(
       ? offer.content.trim()
       : null,
     merchant_name: merchantName,
+    merchant_id: null,
     category,
     destination_url: typeof offer.link === 'string' ? offer.link : null,
     tracking_url: typeof offer.aff_link === 'string' ? offer.aff_link : null,
     coupon_code: code,
     discount_type: discountType,
     discount_value: null,    // real API doesn't expose numeric discount
+    max_discount: null,
+    min_order_value: null,
     currency: 'VND',
     start_at: typeof offer.start_time === 'string' ? offer.start_time : null,
     end_at: typeof offer.end_time === 'string' ? offer.end_time : null,

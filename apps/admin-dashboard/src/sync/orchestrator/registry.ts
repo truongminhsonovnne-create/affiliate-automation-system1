@@ -141,7 +141,7 @@ async function createMasOfferAdapter(): Promise<SourceAdapter> {
 
 async function createAccessTradeAdapter(): Promise<SourceAdapter> {
   const { getAccessTradeClient } = await import('@/lib/api/accesstrade-client');
-  const { mapDealToOffer } = await import('@/lib/api/accesstrade-mapper');
+  const { mapOfferToNormalisedOffer } = await import('@/lib/api/accesstrade-mapper');
   const { upsertOfferBatch } = await import('@/lib/api/supabase-write');
   const { updateCheckpoint } = await import('./checkpoint.js');
 
@@ -157,20 +157,22 @@ async function createAccessTradeAdapter(): Promise<SourceAdapter> {
       const client = getAccessTradeClient();
       const start = Date.now();
       const errors: string[] = [];
+      let page = 1;
       let totalFetched = 0;
       let totalInserted = 0;
       let totalUpdated = 0;
       let totalSkipped = 0;
 
       try {
-        const result = await client.getDeals({
-          page: 1,
-          page_size: 100,
-          status: 'active',
-        });
+        // Fetch first page — /v1/offers_informations has no pagination wrapper
+        const firstResult = await client.getOffers({ page, limit: 100, status: 1 });
+        const firstOffers = firstResult.data ?? [];
+        totalFetched += firstOffers.length;
 
-        if (result.data && result.data.length > 0) {
-          const records = result.data.map((d) => mapDealToOffer(d, d as unknown as Record<string, unknown>));
+        if (firstOffers.length > 0) {
+          const records = firstOffers.map((o) =>
+            mapOfferToNormalisedOffer(o, o as unknown as Record<string, unknown>)
+          );
           if (!dryRun) {
             const r = await upsertOfferBatch(records);
             totalInserted += r.inserted;
@@ -179,16 +181,19 @@ async function createAccessTradeAdapter(): Promise<SourceAdapter> {
           } else {
             totalInserted += records.length;
           }
-          totalFetched += result.data.length;
         }
 
-        const tp = result.pagination?.total ?? 1;
-        let page = 2;
-        while (page <= tp && page <= maxPages) {
+        // Fetch remaining pages
+        while (page < maxPages) {
           try {
-            const r = await client.getDeals({ page, page_size: 100, status: 'active' });
-            if (!r.data || r.data.length === 0) break;
-            const records = r.data.map((d) => mapDealToOffer(d, d as unknown as Record<string, unknown>));
+            page++;
+            const r = await client.getOffers({ page, limit: 100, status: 1 });
+            const offers = r.data ?? [];
+            if (offers.length === 0) break;
+
+            const records = offers.map((o) =>
+              mapOfferToNormalisedOffer(o, o as unknown as Record<string, unknown>)
+            );
             if (!dryRun) {
               const res = await upsertOfferBatch(records);
               totalInserted += res.inserted;
@@ -197,8 +202,10 @@ async function createAccessTradeAdapter(): Promise<SourceAdapter> {
             } else {
               totalInserted += records.length;
             }
-            totalFetched += r.data.length;
-            page++;
+            totalFetched += offers.length;
+
+            // If we got fewer than a full page, we've reached the end
+            if (offers.length < 100) break;
           } catch (err) {
             errors.push(`Page ${page}: ${err instanceof Error ? err.message : String(err)}`);
             break;
