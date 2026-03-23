@@ -40,7 +40,46 @@ export interface AccessTradeCampaign {
   updated_at?: string;
 }
 
-/** Deal / voucher type */
+/** AccessTrade /v1/offers_informations record — the canonical offers endpoint.
+ *  All deal/voucher/coupon data comes through this one endpoint.
+ *  Real API fields per https://developers.accesstrade.vn/api-publisher-vietnamese
+ *
+ *  Key fields:
+ *  - coupon = 1 → has a code (treat as coupon), 0 → no code (voucher/promotion)
+ *  - status = 1 → active, 0 → expired/inactive
+ *  - aff_link → the affiliate tracking URL
+ *  - link → the destination/merchant URL
+ *  - coupons[] → array of code objects {code, exp_date, ...}
+ */
+export interface AccessTradeOffer {
+  id: number;
+  name: string;
+  content?: string;          // HTML description / terms
+  domain?: string;            // merchant domain e.g. "shopee.vn"
+  merchant?: string;          // merchant/campaign name
+  link?: string;              // destination URL (merchant page)
+  aff_link?: string;          // affiliate tracking URL
+  image?: string;             // offer image URL
+  banners?: Array<{ url: string; alt?: string }>;
+  start_time?: string;        // ISO date string, e.g. "2024-01-01T00:00:00+07:00"
+  end_time?: string;          // ISO date string
+  categories?: string[];       // category labels
+  /** Number of coupons/codes available for this offer */
+  coupons?: Array<{
+    code: string;
+    exp_date?: string;
+    quantity?: number;
+    description?: string;
+  }>;
+  // ── Flat code fallback (some responses include this directly) ──────────────
+  code?: string;
+  exp_date?: string;
+}
+
+/** AccessTrade offer status: 1 = active, 0 = expired/inactive */
+export type AccessTradeOfferStatus = 1 | 0;
+
+/** AccessTrade deal / voucher type (deprecated — now unified via /v1/offers_informations) */
 export type AccessTradeDealType =
   | 'voucher'
   | 'promotion'
@@ -48,16 +87,16 @@ export type AccessTradeDealType =
   | 'flash_sale'
   | 'pushsale';
 
-/** Separate voucher type (from /v1/vouchers endpoint) */
+/** Separate voucher type (from /v1/vouchers endpoint — DEPRECATED, use /v1/offers_informations) */
 export type AccessTradeVoucherType = 'voucher' | 'free_shipping';
 
-/** Separate coupon type (from /v1/coupons endpoint) */
+/** Separate coupon type (from /v1/coupons endpoint — DEPRECATED, use /v1/offers_informations) */
 export type AccessTradeCouponType = 'coupon' | 'discount_code';
 
-/** Deal status */
+/** Deal status (deprecated) */
 export type AccessTradeDealStatus = 'active' | 'inactive' | 'expired';
 
-/** AccessTrade deal / voucher record */
+/** Legacy deal record (deprecated — kept for backwards compat) */
 export interface AccessTradeDeal {
   id: number;
   campaign_id: number;
@@ -91,6 +130,7 @@ export interface AccessTradePaginationMeta {
   total_pages: number;
 }
 
+/** Unified paginated response — used by /v1/offers_informations and /v1/campaigns */
 export interface AccessTradePaginatedResponse<T> {
   data: T[];
   pagination: AccessTradePaginationMeta;
@@ -110,7 +150,7 @@ export interface AccessTradeSingleResponse<T> {
   success: boolean;
 }
 
-/** AccessTrade voucher record (from /v1/vouchers) */
+/** AccessTrade voucher record (deprecated — /v1/vouchers returns 404, use /v1/offers_informations) */
 export interface AccessTradeVoucher {
   id: number;
   campaign_id: number;
@@ -132,7 +172,7 @@ export interface AccessTradeVoucher {
   updated_at?: string;
 }
 
-/** AccessTrade coupon record (from /v1/coupons) */
+/** AccessTrade coupon record (deprecated — /v1/coupons returns 404, use /v1/offers_informations) */
 export interface AccessTradeCoupon {
   id: number;
   campaign_id: number;
@@ -288,9 +328,18 @@ export interface FetchCampaignsOptions {
 export interface FetchDealsOptions {
   page?: number;
   pageSize?: number;
-  campaignId?: number;
-  type?: AccessTradeDealType;
-  status?: AccessTradeDealStatus;
+  /** Scope filter: 'expiring' returns deals expiring within 3 days */
+  scope?: 'expiring';
+  /** Merchant/campaign name (partial match) */
+  merchant?: string;
+  /** Comma-separated category labels */
+  categories?: string;
+  /** Merchant domain e.g. "shopee.vn" */
+  domain?: string;
+  /** 1 = only offers with coupon codes, 0 = all offers */
+  coupon?: 0 | 1;
+  /** 1 = active offers, 0 = expired offers */
+  status?: 0 | 1;
 }
 
 export interface FetchVouchersOptions {

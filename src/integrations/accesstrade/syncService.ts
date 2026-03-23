@@ -13,7 +13,7 @@
  *  - Observable: full run metrics + per-error records
  */
 
-import type { AccessTradeDeal, AccessTradeCampaign } from './types.js';
+import type { AccessTradeCampaign, AccessTradeOffer } from './types.js';
 import { getAccessTradeApiClient } from './client.js';
 import {
   upsertOfferBatch,
@@ -23,7 +23,7 @@ import {
   failSyncRun,
   ensureOfferSource,
 } from './supabase.js';
-import { mapDealToOffer, mapCampaignToOffer } from './mapper.js';
+import { mapAccessTradeOfferToOffer, mapCampaignToOffer } from './mapper.js';
 
 // =============================================================================
 // Types
@@ -40,8 +40,12 @@ export interface SyncStats {
 
 export interface SyncDealsOptions {
   dryRun?: boolean;
-  status?: 'active' | 'inactive' | 'expired';
-  type?: AccessTradeDeal['type'];
+  /** 1 = active, 0 = expired. Default: 1 */
+  status?: 0 | 1;
+  /** 1 = only coupon-code offers, 0 = no-code offers, undefined = all */
+  coupon?: 0 | 1;
+  /** 'expiring' = deals expiring within 3 days */
+  scope?: 'expiring';
   maxPages?: number;
 }
 
@@ -78,7 +82,7 @@ export async function syncAccessTradeDeals(
   await ensureOfferSource('accesstrade', 'AccessTrade Publisher Network');
 
   const run = await createSyncRun('accesstrade', 'sync_deals');
-  const { dryRun = false, status = 'active', type, maxPages = 20 } = options;
+  const { dryRun = false, status = 1, coupon, scope, maxPages = 20 } = options;
 
   let recordsFetched = 0;
   let recordsInserted = 0;
@@ -87,52 +91,28 @@ export async function syncAccessTradeDeals(
   let errors = 0;
 
   try {
-    const dealBatches: AccessTradeDeal[][] = [];
+    // ── Phase 1: Stream all offers from /v1/offers_informations ───────────────
+    const allOffers: AccessTradeOffer[] = [];
 
-    // ── Phase 1: Fetch all pages ────────────────────────────────
-    let page = 1;
-    let hasMore = true;
+    console.info(
+      `[AccessTrade][SyncDeals] Starting fetch ` +
+        `(status=${status}, coupon=${coupon ?? 'all'}, scope=${scope ?? 'none'}, maxPages=${maxPages})`
+    );
 
-    console.info(`[AccessTrade][SyncDeals] Starting fetch (status=${status}, type=${type ?? 'all'}, maxPages=${maxPages})`);
+    let pageCount = 0;
 
-    while (hasMore && page <= maxPages) {
-      try {
-        const result = await client.fetchDeals({
-          page,
-          pageSize: 100,
-          status,
-          type,
-        });
-
-        const batch = result.data;
-        dealBatches.push(batch);
-        recordsFetched += batch.length;
-
-        console.info(
-          `[AccessTrade][SyncDeals] Page ${page}: fetched ${batch.length} deals ` +
-            `(total so far: ${recordsFetched}, total in API: ${result.pagination?.total ?? '?'})`
-        );
-
-        const totalPages = result.pagination?.total_pages ?? 1;
-        hasMore = page < totalPages;
-        page++;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[AccessTrade][SyncDeals] Fetch error on page ${page}: ${msg}`);
-        await insertSyncError({
-          sync_run_id: run.id,
-          source: 'accesstrade',
-          external_id: null,
-          stage: 'fetch',
-          error_message: `Page ${page} fetch failed: ${msg}`,
-          raw_context: { page, status, type },
-        });
-        errors++;
-        hasMore = false; // Stop on fetch error
-      }
+    for await (const batch of client.streamOffers({ status, coupon, scope, pageSize: 100 })) {
+      allOffers.push(...batch);
+      recordsFetched += batch.length;
+      pageCount++;
+      console.info(
+        `[AccessTrade][SyncDeals] Page ${pageCount}: +${batch.length} offers ` +
+          `(running total: ${recordsFetched})`
+      );
+      if (pageCount >= maxPages) break;
     }
 
-    console.info(`[AccessTrade][SyncDeals] Fetch complete: ${recordsFetched} deals in ${dealBatches.length} batches`);
+    console.info(`[AccessTrade][SyncDeals] Fetch complete: ${recordsFetched} offers fetched`);
 
     if (dryRun) {
       console.info('[AccessTrade][SyncDeals] Dry run — skipping DB writes');
@@ -156,30 +136,29 @@ export async function syncAccessTradeDeals(
     // ── Phase 2: Normalise + Upsert in batches ──────────────────
     const BATCH_SIZE = 50;
 
-    for (const batch of dealBatches) {
+    for (let i = 0; i < allOffers.length; i += BATCH_SIZE) {
+      const batch = allOffers.slice(i, i + BATCH_SIZE);
       const normalised: Parameters<typeof upsertOfferBatch>[0] = [];
 
-      for (const deal of batch) {
+      for (const offer of batch) {
         try {
-          const rawPayload = deal as unknown as Record<string, unknown>;
-          const offer = mapDealToOffer(deal, rawPayload);
-          normalised.push(offer);
+          const rawPayload = offer as unknown as Record<string, unknown>;
+          normalised.push(mapAccessTradeOfferToOffer(offer, rawPayload));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          console.error(`[AccessTrade][SyncDeals] Normalise error for deal ${deal.id}: ${msg}`);
+          console.error(`[AccessTrade][SyncDeals] Normalise error for offer ${offer.id}: ${msg}`);
           await insertSyncError({
             sync_run_id: run.id,
             source: 'accesstrade',
-            external_id: `at_deal_${deal.id}`,
+            external_id: `at_offer_${offer.id}`,
             stage: 'normalize',
             error_message: msg,
-            raw_context: { dealId: deal.id, title: deal.title },
+            raw_context: { offerId: offer.id, title: offer.name },
           });
           errors++;
         }
       }
 
-      // Upsert this batch
       if (normalised.length > 0) {
         try {
           const result = await upsertOfferBatch(normalised);
@@ -187,8 +166,8 @@ export async function syncAccessTradeDeals(
           recordsUpdated += result.updated;
           recordsSkipped += result.skipped;
           console.info(
-            `[AccessTrade][SyncDeals] Batch upsert: +${result.inserted} inserted, ` +
-              `~${result.updated} updated, ${result.skipped} skipped`
+            `[AccessTrade][SyncDeals] Batch ${Math.floor(i / BATCH_SIZE)}: ` +
+              `+${result.inserted} inserted, ~${result.updated} updated, ${result.skipped} skipped`
           );
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -199,7 +178,7 @@ export async function syncAccessTradeDeals(
             external_id: null,
             stage: 'upsert',
             error_message: `Batch upsert failed: ${msg}`,
-            raw_context: { batchSize: normalised.length },
+            raw_context: { batchIndex: Math.floor(i / BATCH_SIZE), batchSize: normalised.length },
           });
           errors++;
         }

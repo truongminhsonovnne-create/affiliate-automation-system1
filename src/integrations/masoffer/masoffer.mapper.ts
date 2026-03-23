@@ -10,6 +10,7 @@ import { createHash } from 'crypto';
 import type {
   MasOfferOfferItem,
   MasOfferCampaign,
+  MasOfferPromotionsItem,
 } from './masoffer.types.js';
 import type {
   NormalisedOffer,
@@ -390,13 +391,26 @@ export function computeMasOfferOfferHash(item: MasOfferOfferItem): string {
 /**
  * Deduplicates MasOfferOfferItems that appear across multiple endpoint types
  * (deals, vouchers, coupons — the same item ID can appear in all three).
- * Returns a deduped array and a Set of seen IDs.
+ * MasOfferPromotionsItem is structurally compatible for deduping (has `id`).
  */
 export function dedupeOfferItems(items: MasOfferOfferItem[]): MasOfferOfferItem[] {
   const seen = new Set<string | number>();
   return items.filter((item) => {
     if (seen.has(item.id)) return false;
     seen.add(item.id);
+    return true;
+  });
+}
+
+/**
+ * Deduplicates MasOfferPromotionsItem records.
+ */
+export function dedupePromotionsItems(items: MasOfferPromotionsItem[]): MasOfferPromotionsItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = String(item.id);
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }

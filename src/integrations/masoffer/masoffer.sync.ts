@@ -23,7 +23,7 @@
  * (same schema as AccessTrade).
  */
 
-import type { MasOfferOfferItem, MasOfferCampaign, SyncResult } from './masoffer.types.js';
+import type { MasOfferOfferItem, MasOfferPromotionsItem, MasOfferCampaign, SyncResult } from './masoffer.types.js';
 import { MasOfferApiClient } from './MasOfferApiClient.js';
 import {
   upsertOfferBatch,
@@ -37,6 +37,7 @@ import {
   mapOfferItemToOffer,
   mapCampaignToOffer,
   dedupeOfferItems,
+  dedupePromotionsItems,
 } from './masoffer.mapper.js';
 
 // =============================================================================
@@ -236,9 +237,10 @@ export async function syncMasOfferOffers(
       fetchPromises.push({
         label: 'promotions',
         promise: (async () => {
+          // Return as MasOfferOfferItem[] — cast at the mapper boundary
           const items: MasOfferOfferItem[] = [];
           for await (const batch of client.streamPromotions({ status, pageSize: 100 })) {
-            items.push(...batch);
+            items.push(...(batch as unknown as MasOfferOfferItem[]));
           }
           return items;
         })(),
@@ -437,13 +439,17 @@ export async function syncMasOfferPromotions(
   await ensureOfferSource('masoffer', 'MasOffer Publisher Network');
 
   try {
-    const allItems: MasOfferOfferItem[] = [];
+    const allItems: MasOfferPromotionsItem[] = [];
     for await (const batch of client.streamPromotions({ status, pageSize: 100 })) {
       allItems.push(...batch);
     }
 
-    const deduped = dedupeOfferItems(allItems);
-    const records = deduped.map((item) => mapOfferItemToOffer(item));
+    const deduped = dedupePromotionsItems(allItems);
+    // Cast each promotions item to MasOfferOfferItem for the mapper
+    // (structurally compatible for our mapping purposes)
+    const records = deduped.map((item) =>
+      mapOfferItemToOffer(item as unknown as MasOfferOfferItem)
+    );
 
     let totalInserted = 0;
     let totalUpdated = 0;

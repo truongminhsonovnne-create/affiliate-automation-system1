@@ -22,15 +22,11 @@
 
 import type {
   AccessTradeCampaign,
-  AccessTradeDeal,
-  AccessTradeVoucher,
-  AccessTradeCoupon,
+  AccessTradeOffer,
   AccessTradePaginatedResponse,
   AccessTradeClientConfig,
   FetchCampaignsOptions,
   FetchDealsOptions,
-  FetchVouchersOptions,
-  FetchCouponsOptions,
 } from './types.js';
 
 // =============================================================================
@@ -291,85 +287,94 @@ export class AccessTradeApiClient {
     return result.data;
   }
 
-  // ── Deals / Vouchers ───────────────────────────────────────────────────────
-
-  async fetchDeals(
-    options: FetchDealsOptions = {}
-  ): Promise<AccessTradePaginatedResponse<AccessTradeDeal>> {
-    const { page = 1, pageSize = 100, campaignId, type, status } = options;
-    const params: Record<string, unknown> = { page, page_size: pageSize };
-    if (campaignId !== undefined) params.campaign_id = campaignId;
-    if (type) params.type = type;
-    if (status) params.status = status;
-
-    return withRetry(
-      () =>
-        this.request<AccessTradePaginatedResponse<AccessTradeDeal>>('/v1/deals', {
-          params,
-          timeout: SYNC_TIMEOUT_MS,
-        }),
-      this.maxRetries,
-      'fetchDeals'
-    );
-  }
-
-  async fetchCampaignDeals(campaignId: number): Promise<AccessTradeDeal[]> {
-    const result = await withRetry(
-      () => this.request<{ data: AccessTradeDeal[]; success: boolean }>(`/v1/campaigns/${campaignId}/deals`),
-      this.maxRetries,
-      'fetchCampaignDeals'
-    );
-    return result.data ?? [];
-  }
-
-  // ── Vouchers ───────────────────────────────────────────────────────────────
+  // ── Offers (unified) ───────────────────────────────────────────────────────
 
   /**
-   * Fetch voucher-type offers from /v1/vouchers.
-   * These typically include free-shipping and non-code-based offers.
+   * Fetch offers from /v1/offers_informations — the single canonical endpoint
+   * for AccessTrade deals, vouchers, and coupons.
+   *
+   * Docs: https://developers.accesstrade.vn/api-publisher-vietnamese
+   *
+   * @param coupon  1 = only offers with coupon codes
+   *                0 = all offers (deals + vouchers, no code filter)
+   *                undefined = no filter (both)
+   * @param status  1 = active, 0 = expired. Default: 1 (active only)
    */
-  async fetchVouchers(
-    options: FetchVouchersOptions = {}
-  ): Promise<AccessTradePaginatedResponse<AccessTradeVoucher>> {
-    const { page = 1, pageSize = 100, campaignId, status } = options;
-    const params: Record<string, unknown> = { page, page_size: pageSize };
-    if (campaignId !== undefined) params.campaign_id = campaignId;
-    if (status) params.status = status;
+  async fetchOffers(
+    options: FetchDealsOptions = {}
+  ): Promise<AccessTradePaginatedResponse<AccessTradeOffer>> {
+    const {
+      page = 1,
+      pageSize = 100,
+      scope,
+      merchant,
+      categories,
+      domain,
+      coupon,
+      status = 1,
+    } = options;
+
+    const params: Record<string, unknown> = {
+      page,
+      limit: pageSize,           // NOTE: real API uses 'limit', not 'page_size'
+      status,
+    };
+    if (scope)    params.scope      = scope;
+    if (merchant) params.merchant   = merchant;
+    if (categories) params.categories = categories;
+    if (domain)   params.domain     = domain;
+    if (coupon !== undefined) params.coupon = coupon;
 
     return withRetry(
       () =>
-        this.request<AccessTradePaginatedResponse<AccessTradeVoucher>>('/v1/vouchers', {
-          params,
-          timeout: SYNC_TIMEOUT_MS,
-        }),
+        this.request<AccessTradePaginatedResponse<AccessTradeOffer>>(
+          '/v1/offers_informations',
+          { params, timeout: SYNC_TIMEOUT_MS }
+        ),
       this.maxRetries,
-      'fetchVouchers'
+      'fetchOffers'
     );
   }
 
-  // ── Coupons ───────────────────────────────────────────────────────────────
-
   /**
-   * Fetch coupon-type offers from /v1/coupons.
-   * These are code-based offers.
+   * @deprecated Use fetchOffers({ coupon: 1 }) instead.
+   * /v1/coupons is not a real endpoint.
    */
   async fetchCoupons(
-    options: FetchCouponsOptions = {}
-  ): Promise<AccessTradePaginatedResponse<AccessTradeCoupon>> {
-    const { page = 1, pageSize = 100, campaignId, status } = options;
-    const params: Record<string, unknown> = { page, page_size: pageSize };
-    if (campaignId !== undefined) params.campaign_id = campaignId;
-    if (status) params.status = status;
+    options: Omit<FetchDealsOptions, 'coupon'> = {}
+  ): Promise<AccessTradePaginatedResponse<AccessTradeOffer>> {
+    return this.fetchOffers({ ...options, coupon: 1 });
+  }
 
-    return withRetry(
-      () =>
-        this.request<AccessTradePaginatedResponse<AccessTradeCoupon>>('/v1/coupons', {
-          params,
-          timeout: SYNC_TIMEOUT_MS,
-        }),
-      this.maxRetries,
-      'fetchCoupons'
-    );
+  /**
+   * @deprecated Use fetchOffers({ coupon: 0 }) instead.
+   * /v1/vouchers is not a real endpoint.
+   */
+  async fetchVouchers(
+    options: Omit<FetchDealsOptions, 'coupon'> = {}
+  ): Promise<AccessTradePaginatedResponse<AccessTradeOffer>> {
+    return this.fetchOffers({ ...options, coupon: 0 });
+  }
+
+  /**
+   * @deprecated Use fetchOffers() instead. /v1/deals is not a real endpoint.
+   */
+  async fetchDeals(
+    options: FetchDealsOptions = {}
+  ): Promise<AccessTradePaginatedResponse<AccessTradeOffer>> {
+    return this.fetchOffers(options);
+  }
+
+  /**
+   * @deprecated No /v1/campaigns/{id}/deals endpoint exists.
+   * Use fetchOffers() and filter by merchant/domain as needed.
+   */
+  async fetchCampaignDeals(
+    _campaignId: number
+  ): Promise<AccessTradeOffer[]> {
+    // No per-campaign deals endpoint — fall back to a general query
+    const result = await this.fetchOffers({ status: 1 });
+    return result.data ?? [];
   }
 
   // ── Connectivity Test ─────────────────────────────────────────────────────
@@ -405,21 +410,52 @@ export class AccessTradeApiClient {
 
   // ── Stream Helpers ─────────────────────────────────────────────────────────
 
-  async *streamDeals(
+  /**
+   * Stream all active offers (deals + vouchers + coupons) from /v1/offers_informations.
+   * Automatically paginates until all pages are exhausted.
+   */
+  async *streamOffers(
     options: Omit<FetchDealsOptions, 'page'> = {}
-  ): AsyncGenerator<AccessTradeDeal[]> {
+  ): AsyncGenerator<AccessTradeOffer[]> {
     let page = 1;
+    const pageSize = 100;
 
     while (true) {
-      const result = await this.fetchDeals({ ...options, page, pageSize: 100 });
+      const result = await this.fetchOffers({ ...options, page, pageSize });
       if (result.data.length === 0) break;
-
       yield result.data;
 
       const totalPages = result.pagination?.total_pages ?? 1;
       if (page >= totalPages) break;
       page++;
     }
+  }
+
+  /**
+   * @deprecated Use streamOffers({ coupon: 1 }) instead.
+   */
+  async *streamCoupons(
+    options: Omit<FetchDealsOptions, 'page' | 'coupon'> = {}
+  ): AsyncGenerator<AccessTradeOffer[]> {
+    yield* this.streamOffers({ ...options, coupon: 1 });
+  }
+
+  /**
+   * @deprecated Use streamOffers({ coupon: 0 }) instead.
+   */
+  async *streamVouchers(
+    options: Omit<FetchDealsOptions, 'page' | 'coupon'> = {}
+  ): AsyncGenerator<AccessTradeOffer[]> {
+    yield* this.streamOffers({ ...options, coupon: 0 });
+  }
+
+  /**
+   * @deprecated Use streamOffers() instead.
+   */
+  async *streamDeals(
+    options: Omit<FetchDealsOptions, 'page'> = {}
+  ): AsyncGenerator<AccessTradeOffer[]> {
+    yield* this.streamOffers(options);
   }
 
   async *streamCampaigns(
@@ -429,40 +465,6 @@ export class AccessTradeApiClient {
 
     while (true) {
       const result = await this.fetchCampaigns({ ...options, page, pageSize: 100 });
-      if (result.data.length === 0) break;
-
-      yield result.data;
-
-      const totalPages = result.pagination?.total_pages ?? 1;
-      if (page >= totalPages) break;
-      page++;
-    }
-  }
-
-  async *streamVouchers(
-    options: Omit<FetchVouchersOptions, 'page'> = {}
-  ): AsyncGenerator<AccessTradeVoucher[]> {
-    let page = 1;
-
-    while (true) {
-      const result = await this.fetchVouchers({ ...options, page, pageSize: 100 });
-      if (result.data.length === 0) break;
-
-      yield result.data;
-
-      const totalPages = result.pagination?.total_pages ?? 1;
-      if (page >= totalPages) break;
-      page++;
-    }
-  }
-
-  async *streamCoupons(
-    options: Omit<FetchCouponsOptions, 'page'> = {}
-  ): AsyncGenerator<AccessTradeCoupon[]> {
-    let page = 1;
-
-    while (true) {
-      const result = await this.fetchCoupons({ ...options, page, pageSize: 100 });
       if (result.data.length === 0) break;
 
       yield result.data;

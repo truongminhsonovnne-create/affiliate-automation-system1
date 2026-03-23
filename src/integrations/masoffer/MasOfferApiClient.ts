@@ -29,6 +29,8 @@ import type {
   MasOfferBrandResponse,
   MasOfferCampaign,
   MasOfferOfferItem,
+  MasOfferPromotionsItem,
+  MasOfferMerchantItem,
   MasOfferListResponse,
   FetchOffersOptions,
 } from './masoffer.types.js';
@@ -108,7 +110,7 @@ function assertServerSide(): void {
 // Using https.request forces HTTP/1.1 which works correctly.
 // =============================================================================
 
-import https from 'node:https';
+import * as https from 'node:https';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -170,7 +172,7 @@ async function httpsRequest(
           const responseBody = Buffer.concat(chunks).toString('utf-8');
           const responseHeaders: Record<string, string> = {};
           for (const [k, v] of Object.entries(res.headers)) {
-            responseHeaders[k] = Array.isArray(v) ? v.join(', ') : (v ?? '');
+            responseHeaders[k] = Array.isArray(v) ? v.join(', ') : String(v ?? '');
           }
           resolve({
             status: res.statusCode ?? 0,
@@ -342,7 +344,7 @@ export class MasOfferApiClient {
     const { page = 1, pageSize = 100 } = options;
     return withRetry(
       () =>
-        this.request<MasOfferListResponse<MasOfferCampaign>>('/v1/promotions', {
+        this.request<MasOfferListResponse<MasOfferCampaign>>('/v1/campaigns', {
           params: { page, limit: pageSize },
         }),
       this.maxRetries,
@@ -363,7 +365,7 @@ export class MasOfferApiClient {
 
     return withRetry(
       () =>
-        this.request<MasOfferDealsResponse>('/v1/promotions', {
+        this.request<MasOfferDealsResponse>('/v1/deals', {
           params,
           timeout: SYNC_TIMEOUT_MS,
         }),
@@ -385,7 +387,7 @@ export class MasOfferApiClient {
 
     return withRetry(
       () =>
-        this.request<MasOfferVouchersResponse>('/v1/promotions', {
+        this.request<MasOfferVouchersResponse>('/v1/vouchers', {
           params,
           timeout: SYNC_TIMEOUT_MS,
         }),
@@ -407,7 +409,7 @@ export class MasOfferApiClient {
 
     return withRetry(
       () =>
-        this.request<MasOfferCouponsResponse>('/v1/promotions', {
+        this.request<MasOfferCouponsResponse>('/v1/coupons', {
           params,
           timeout: SYNC_TIMEOUT_MS,
         }),
@@ -667,7 +669,7 @@ export class MasOfferApiClient {
 
   async *streamPromotions(
     options: Omit<FetchOffersOptions, 'page'> = {}
-  ): AsyncGenerator<MasOfferOfferItem[]> {
+  ): AsyncGenerator<MasOfferPromotionsItem[]> {
     let page = 1;
     while (true) {
       const result = await this.fetchPromotions({ ...options, page, pageSize: 100 });
@@ -685,7 +687,7 @@ export class MasOfferApiClient {
 
   async *streamOfferAll(
     options: Omit<FetchOffersOptions, 'page'> = {}
-  ): AsyncGenerator<MasOfferOfferItem[]> {
+  ): AsyncGenerator<MasOfferMerchantItem[]> {
     let page = 1;
     while (true) {
       const result = await this.fetchOfferAll({ ...options, page, pageSize: 100 });

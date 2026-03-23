@@ -16,6 +16,7 @@ import type {
   AccessTradeDeal,
   AccessTradeVoucher,
   AccessTradeCoupon,
+  AccessTradeOffer,
   NormalisedOffer,
   NormalisedDiscountType,
   NormalisedOfferStatus,
@@ -596,4 +597,171 @@ function computeCouponConfidenceScore(c: AccessTradeCoupon): number {
   if (c.status === 'expired') score = Math.min(score, 0.50);
   else if (c.status === 'inactive') score = Math.min(score, 0.40);
   return Math.min(Math.round(score * 100) / 100, 1.0);
+}
+
+// =============================================================================
+// /v1/offers_informations → NormalisedOffer
+// =============================================================================
+
+/**
+ * Parse the first available code from the `coupons` array or flat `code` field.
+ * AccessTrade API returns either:
+ *  - coupons: [{ code: "ABC123", exp_date: "..." }, ...]  (preferred)
+ *  - code: "ABC123"  (flat fallback)
+ */
+function extractCouponCode(offer: AccessTradeOffer): string | null {
+  if (Array.isArray(offer.coupons) && offer.coupons.length > 0) {
+    const first = offer.coupons[0];
+    if (typeof first === 'object' && first !== null && 'code' in first) {
+      const code = (first as { code: unknown }).code;
+      if (typeof code === 'string' && code.trim().length > 0) return code.trim();
+    }
+  }
+  if (typeof offer.code === 'string' && offer.code.trim().length > 0) {
+    return offer.code.trim();
+  }
+  return null;
+}
+
+/**
+ * Extract all coupon codes from the `coupons` array for logging/debugging.
+ */
+function extractAllCodes(offer: AccessTradeOffer): string[] {
+  const codes: string[] = [];
+  if (Array.isArray(offer.coupons)) {
+    for (const c of offer.coupons) {
+      if (typeof c === 'object' && c !== null && 'code' in c) {
+        const code = (c as { code: unknown }).code;
+        if (typeof code === 'string' && code.trim().length > 0) codes.push(code.trim());
+      }
+    }
+  }
+  if (typeof offer.code === 'string' && offer.code.trim().length > 0) {
+    codes.push(offer.code.trim());
+  }
+  return codes;
+}
+
+/**
+ * Compute confidence score for an AccessTrade /v1/offers_informations record.
+ */
+function computeOfferConfidenceScore(offer: AccessTradeOffer): number {
+  let score = 0.15;
+  if (offer.name && typeof offer.name === 'string' && offer.name.trim().length > 0) score += 0.20;
+  const code = extractCouponCode(offer);
+  if (code && code.trim().length >= 3) score += 0.12;
+  if (offer.end_time) {
+    const expiry = new Date(offer.end_time).getTime();
+    if (!isNaN(expiry) && expiry > Date.now()) score += 0.12;
+  }
+  if (Array.isArray(offer.coupons) && offer.coupons.length > 0) score += 0.10;
+  if (offer.content && typeof offer.content === 'string' && offer.content.trim().length > 10) score += 0.10;
+  if (offer.merchant && typeof offer.merchant === 'string' && offer.merchant.trim().length > 0) score += 0.08;
+  if (offer.aff_link && typeof offer.aff_link === 'string' && offer.aff_link.trim().length > 0) score += 0.08;
+  if (Array.isArray(offer.coupons) && offer.coupons.length > 1) score += 0.05;
+  if (offer.categories && Array.isArray(offer.categories) && offer.categories.length > 0) score += 0.05;
+  // Status cap
+  const isExpired = !offer.end_time || (() => { const t = new Date(offer.end_time!).getTime(); return isNaN(t) ? false : t < Date.now(); })();
+  if (isExpired) score = Math.min(score, 0.50);
+  return Math.min(Math.round(score * 100) / 100, 1.0);
+}
+
+/**
+ * Infer source_type from offer metadata.
+ * If there's a coupon code → 'coupon', otherwise → 'voucher' (deal/no-code).
+ */
+function inferSourceType(offer: AccessTradeOffer): OfferSourceType {
+  const code = extractCouponCode(offer);
+  if (code) return 'coupon';
+  // Try to infer from content/merchant name
+  const t = `${offer.name ?? ''} ${offer.content ?? ''}`.toLowerCase();
+  if (t.includes('free ship') || t.includes('freeshipping') || t.includes('miễn phí vận chuyển')) return 'voucher';
+  if (t.includes('flash sale') || t.includes('flash_sale')) return 'deal';
+  if (t.includes('cashback') || t.includes('hoàn tiền')) return 'deal';
+  return 'voucher';
+}
+
+/**
+ * Map an AccessTrade /v1/offers_informations record to a NormalisedOffer.
+ *
+ * This is the primary mapping function for AccessTrade since the API was
+ * migrated to the unified /v1/offers_informations endpoint.
+ */
+export function mapAccessTradeOfferToOffer(
+  offer: AccessTradeOffer,
+  rawPayload: Record<string, unknown>
+): Omit<NormalisedOffer, 'id' | 'created_at' | 'updated_at'> {
+  const now = new Date().toISOString();
+  const title = normaliseText(offer.name) ?? 'Unknown Offer';
+  const merchantName = normaliseText(offer.merchant ?? offer.domain ?? null) ?? 'Unknown Merchant';
+  const code = extractCouponCode(offer);
+  const allCodes = extractAllCodes(offer);
+  const sourceType = inferSourceType(offer);
+
+  const enrichedPayload: Record<string, unknown> = {
+    ...(rawPayload as Record<string, unknown>),
+    _voucherfinder: {
+      domain: offer.domain ?? null,
+      coupon_codes: allCodes,
+      coupon_count: Array.isArray(offer.coupons) ? offer.coupons.length : (code ? 1 : 0),
+      categories: offer.categories ?? [],
+      enriched_at: now,
+    },
+  };
+
+  // Determine discount_type from content if available
+  let discountType: NormalisedDiscountType = 'percent';
+  const content = offer.content ?? '';
+  const contentLower = typeof content === 'string' ? content.toLowerCase() : '';
+  if (
+    contentLower.includes('free ship') ||
+    contentLower.includes('miễn phí vận chuyển') ||
+    contentLower.includes('freeshipping')
+  ) {
+    discountType = 'free_shipping';
+  } else if (contentLower.includes('hoàn tiền') || contentLower.includes('cashback')) {
+    discountType = 'cashback';
+  }
+
+  return {
+    source: 'accesstrade',
+    source_type: sourceType,
+    external_id: `at_offer_${offer.id}`,
+    title,
+    slug: null,
+    description: normaliseText(offer.content ?? null),
+    merchant_name: merchantName,
+    merchant_id: offer.domain ? String(offer.domain) : null,
+    category: Array.isArray(offer.categories) && offer.categories.length > 0
+      ? offer.categories.join(', ')
+      : null,
+    destination_url: normaliseUrl(offer.link ?? null),
+    tracking_url: normaliseUrl(offer.aff_link ?? null),
+    coupon_code: code,
+    discount_type: discountType,
+    discount_value: null,           // real API doesn't expose numeric discount value
+    max_discount: null,
+    min_order_value: null,
+    currency: 'VND',
+    start_at: offer.start_time ?? null,
+    end_at: offer.end_time ?? null,
+    status: 'active',               // real API only returns active offers (status=1)
+    terms: normaliseText(offer.content ?? null),
+    image_url: typeof offer.image === 'string' && offer.image.length > 0 ? offer.image : null,
+    confidence_score: computeOfferConfidenceScore(offer),
+    url_quality_score: computeUrlQualityScore(offer.aff_link ?? null),
+    deal_subtype: discountType === 'free_shipping' ? 'free_shipping'
+      : code ? 'coupon' : 'voucher',
+    last_seen_at: now,
+    first_seen_at: now,
+    synced_at: now,
+    raw_payload_jsonb: enrichedPayload,
+    normalized_hash: computeOfferHash({
+      source: 'accesstrade',
+      sourceType,
+      title: offer.name ?? null,
+      merchantName: merchantName,
+      couponCode: code,
+    }),
+  };
 }
