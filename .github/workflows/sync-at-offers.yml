@@ -7,21 +7,24 @@ name: Sync — Offers
 #   Every 30 min: minute pairs {7,37} on hours 23→16 (wrapping midnight)
 #   Total: 34 runs/day
 #
-# Full sync:   02:17 Vietnam            =  19:17 UTC
-#   Once daily
+# Full sync:   00:07 Vietnam            =  17:07 UTC  (previous day)
+# Backfill:    00:37 Vietnam            =  17:37 UTC  (previous day)
+#   Once daily each
 #
 # Example — convert Vietnam → UTC:
+#   Vietnam 00:07 = UTC 17:07  (day before)
+#   Vietnam 00:37 = UTC 17:37  (day before)
 #   Vietnam 06:07 = UTC 23:07  (day before)
-#   Vietnam 02:17 = UTC 19:17  (same day)
 # ──────────────────────────────────────────────────────────────────────────────
 
 on:
   schedule:
     # Incremental: every 30 min from 06:07 → 23:37 Vietnam
-    #   UTC: 23:07, 23:37, 22:07, 22:37, ..., 17:07, 16:37
+    #   UTC: 23:07, 23:37, 22:07, 22:37, ..., 16:07, 16:37
     - cron: '7,37 23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,0 * * *'
-    # Full sync: 02:17 Vietnam = 19:17 UTC
-    - cron: '17 19 * * *'
+    # Full sync:  00:07 Vietnam = 17:07 UTC
+    # Backfill:   00:37 Vietnam = 17:37 UTC
+    - cron: '7,37 17 * * *'
 
   workflow_dispatch:
     inputs:
