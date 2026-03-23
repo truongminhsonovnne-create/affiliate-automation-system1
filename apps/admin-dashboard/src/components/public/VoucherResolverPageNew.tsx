@@ -34,6 +34,7 @@ import {
   type ResolutionState,
   type PhaseMappingResult,
   type AnalysisResult,
+  type ResolutionStatus,
 } from '@/lib/public/api-client';
 import { useHistory } from '@/lib/public/useHistory';
 import type { LookupHistoryEntry } from '@/lib/public/history-types';
@@ -304,7 +305,17 @@ export function VoucherResolverPageNew() {
         onPhaseChange: (phase) => {
           if (phase.isDone) return;
           setLivePhase(phase);
-          setState((prev) => ({ ...prev, status: phase.phase }));
+          setState((prev) => {
+            // Map PublicResolutionPhase → ResolutionStatus.
+            // 'not_found' → 'expired' (matches mapEngineStatusToPhase contract).
+            const statusMap: Record<string, ResolutionStatus> = {
+              idle: 'idle', queued: 'queued', processing: 'processing',
+              retrying: 'retrying', success: 'success', no_match: 'no_match',
+              invalid_link: 'invalid_link', rate_limited: 'rate_limited',
+              expired: 'expired', not_found: 'expired', failed: 'failed',
+            };
+            return { ...prev, status: statusMap[phase.phase] ?? prev.status };
+          });
         },
       });
 
