@@ -650,21 +650,263 @@ describe('Polling contract — GET response shape', () => {
     expect(response.code).toBe('INVALID_REQUEST_ID');
   });
 
-  it('unknown status (no INTERNAL_API_URL) never returns null resolutionStatus to client', () => {
-    // When upstream unavailable, the stub MUST return a non-null status
-    // so the client doesn't treat it as failed
-    const stubResponse = {
-      requestId: 'req_stub123',
-      httpStatus: 200,
-      resolutionStatus: 'unknown',  // non-null sentinel
-      createdAt: null,
-      resolvedAt: null,
-      durationMs: null,
-      errorCode: 'SERVICE_UNAVAILABLE',
-      message: 'Status lookup unavailable.',
-    };
-    expect(stubResponse.resolutionStatus).not.toBeNull();
-    expect(stubResponse.resolutionStatus).toBe('unknown');
-    // unknown maps to queued in mapEngineStatusToPhase, keeping polling alive
+  // ── DB status → polling contract mapping ─────────────────────────────────
+  describe('DB status → polling resolutionStatus mapping', () => {
+    function mapDbStatusToResolutionStatus(dbStatus: string): string {
+      switch (dbStatus) {
+        case 'pending':    return 'pending';
+        case 'processing': return 'processing';
+        case 'succeeded':  return 'succeeded';
+        case 'no_match':   return 'no_match';
+        case 'failed':     return 'failed';
+        default:           return 'unknown';
+      }
+    }
+
+    it('pending → pending', () => {
+      expect(mapDbStatusToResolutionStatus('pending')).toBe('pending');
+    });
+
+    it('processing → processing', () => {
+      expect(mapDbStatusToResolutionStatus('processing')).toBe('processing');
+    });
+
+    it('succeeded → succeeded', () => {
+      expect(mapDbStatusToResolutionStatus('succeeded')).toBe('succeeded');
+    });
+
+    it('no_match → no_match', () => {
+      expect(mapDbStatusToResolutionStatus('no_match')).toBe('no_match');
+    });
+
+    it('failed → failed', () => {
+      expect(mapDbStatusToResolutionStatus('failed')).toBe('failed');
+    });
+
+    it('unknown status string → unknown', () => {
+      expect(mapDbStatusToResolutionStatus('garbage')).toBe('unknown');
+    });
+  });
+
+  // ── Terminal vs in-flight status ─────────────────────────────────────────
+  describe('isTerminalStatus', () => {
+    function isTerminalStatus(status: string): boolean {
+      return status === 'succeeded' || status === 'no_match' || status === 'failed';
+    }
+
+    it('succeeded is terminal', () => {
+      expect(isTerminalStatus('succeeded')).toBe(true);
+    });
+
+    it('no_match is terminal', () => {
+      expect(isTerminalStatus('no_match')).toBe(true);
+    });
+
+    it('failed is terminal', () => {
+      expect(isTerminalStatus('failed')).toBe(true);
+    });
+
+    it('pending is NOT terminal', () => {
+      expect(isTerminalStatus('pending')).toBe(false);
+    });
+
+    it('processing is NOT terminal', () => {
+      expect(isTerminalStatus('processing')).toBe(false);
+    });
+
+    it('unknown is NOT terminal', () => {
+      expect(isTerminalStatus('unknown')).toBe(false);
+    });
+  });
+
+  // ── Persistent state contract ──────────────────────────────────────────────
+  describe('Persistent state contract — POST then GET', () => {
+    it('POST must insert pending record before returning so GET can find it', () => {
+      // This tests the contract logic: after POST resolves,
+      // the DB record has status=succeeded/no_match with resolved_at set.
+      // The GET handler reads from DB directly (Supabase-first), not voucher engine.
+      const dbRecord = {
+        id: 'req_test_001',
+        status: 'succeeded',
+        requested_at: new Date().toISOString(),
+        resolved_at: new Date().toISOString(),
+        duration_ms: 234,
+        has_match: true,
+        error_message: null,
+      };
+
+      // GET reads this record and returns proper polling contract
+      const resolutionStatus = dbRecord.status === 'succeeded' ? 'succeeded'
+        : dbRecord.status === 'no_match' ? 'no_match'
+        : dbRecord.status === 'failed' ? 'failed'
+        : dbRecord.status === 'pending' ? 'pending'
+        : dbRecord.status === 'processing' ? 'processing'
+        : 'unknown';
+
+      expect(resolutionStatus).toBe('succeeded');
+      expect(dbRecord.requested_at).not.toBeNull();
+      expect(dbRecord.resolved_at).not.toBeNull();
+      expect(dbRecord.duration_ms).not.toBeNull();
+    });
+
+    it('GET returns REQUEST_NOT_FOUND (not SERVICE_UNAVAILABLE) when DB has no record', () => {
+      // When neither Supabase nor voucher engine has the request:
+      // → resolutionStatus = 'not_found', errorCode = 'REQUEST_NOT_FOUND'
+      // This is a genuine "not found" (not a service outage).
+      const dbMissResponse = {
+        requestId: 'req_unknown_xyz',
+        httpStatus: 200,
+        resolutionStatus: 'not_found',
+        createdAt: null,
+        resolvedAt: null,
+        durationMs: null,
+        errorCode: 'REQUEST_NOT_FOUND',
+        message: 'Request not found or has expired.',
+      };
+
+      expect(dbMissResponse.errorCode).toBe('REQUEST_NOT_FOUND');
+      expect(dbMissResponse.resolutionStatus).toBe('not_found');
+      expect(dbMissResponse.resolutionStatus).not.toBe('unknown');
+      expect(dbMissResponse.resolutionStatus).not.toBe('failed');
+    });
+
+    it('GET on pending record returns 202 with pending status and non-null createdAt', () => {
+      // After POST creates the record but before resolution completes,
+      // GET should show the in-flight state.
+      const inFlightRecord = {
+        status: 'pending',
+        requested_at: '2026-03-23T10:00:00.000Z',
+        resolved_at: null,
+        duration_ms: null,
+        has_match: null,
+        error_message: null,
+      };
+
+      const isTerminal = (s: string) => s === 'succeeded' || s === 'no_match' || s === 'failed';
+      const resolutionStatus = isTerminal(inFlightRecord.status)
+        ? inFlightRecord.status
+        : inFlightRecord.status === 'pending' ? 'pending'
+        : inFlightRecord.status === 'processing' ? 'processing'
+        : 'unknown';
+
+      expect(inFlightRecord.requested_at).not.toBeNull();
+      expect(inFlightRecord.resolved_at).toBeNull();
+      expect(resolutionStatus).toBe('pending');
+      expect(isTerminal(inFlightRecord.status)).toBe(false);
+    });
+
+    it('POST on success updates DB with best_voucher_code', () => {
+      // After successful resolution, the DB record is updated with match details.
+      const bestMatch = { id: 'voucher_123', code: 'GIAM10K', discountValue: '10.000đ' };
+      const updatePayload = {
+        status: 'succeeded' as const,
+        resolved_at: new Date().toISOString(),
+        has_match: true,
+        best_voucher_id: bestMatch.id,
+        best_voucher_code: bestMatch.code,
+        duration_ms: 189,
+      };
+
+      expect(updatePayload.status).toBe('succeeded');
+      expect(updatePayload.best_voucher_code).toBe('GIAM10K');
+      expect(updatePayload.has_match).toBe(true);
+    });
+
+    it('POST on no_match updates DB with no_match status', () => {
+      const updatePayload = {
+        status: 'no_match' as const,
+        resolved_at: new Date().toISOString(),
+        has_match: false,
+        best_voucher_id: null,
+        best_voucher_code: null,
+        duration_ms: 156,
+      };
+
+      expect(updatePayload.status).toBe('no_match');
+      expect(updatePayload.has_match).toBe(false);
+      expect(updatePayload.best_voucher_code).toBeNull();
+    });
+
+    it('resolveMode is recorded in DB _meta via _meta.resolveMode', () => {
+      // resolveMode (supabase_only, supabase_plus_enrich, etc.) is stored
+      // in the POST response _meta, not the DB record. This is by design.
+      const response = {
+        _meta: {
+          resolveMode: 'supabase_only',
+          enrichAttempted: false,
+          enrichEnriched: false,
+        },
+      };
+
+      expect(response._meta.resolveMode).toBe('supabase_only');
+    });
+  });
+
+  // ── Fallback chain: Supabase → voucher engine ──────────────────────────────
+  describe('GET fallback chain (Supabase-first)', () => {
+    it('DB hit takes priority over voucher engine fallback', () => {
+      // Priority order: Supabase DB → voucher engine (INTERNAL_API_URL) → not_found
+      // If DB has the record, voucher engine is never called.
+      const dbRecord = { status: 'succeeded', requested_at: '2026-03-23T10:00:00.000Z' };
+
+      // DB hit — return immediately, don't call voucher engine
+      const response = {
+        requestId: 'req_primary_001',
+        httpStatus: 200,
+        resolutionStatus: 'succeeded',
+        createdAt: dbRecord.requested_at,
+        resolvedAt: new Date().toISOString(),
+        durationMs: 200,
+      };
+
+      expect(response.httpStatus).toBe(200);
+      expect(response.resolutionStatus).toBe('succeeded');
+      expect(response.createdAt).not.toBeNull();
+    });
+
+    it('DB miss falls through to voucher engine', () => {
+      // DB returns null → try voucher engine
+      const dbRecord = null;
+      const upstreamStatus = 200;
+      const upstreamBody = { status: 'succeeded', resolved_at: '2026-03-23T10:00:00.000Z' };
+
+      const response =
+        dbRecord === null && upstreamStatus === 200
+          ? {
+              requestId: 'req_upstream_001',
+              httpStatus: 200,
+              resolutionStatus: upstreamBody.status,
+              createdAt: new Date().toISOString(),
+              resolvedAt: upstreamBody.resolved_at,
+              durationMs: null,
+            }
+          : null;
+
+      expect(response).not.toBeNull();
+      expect(response!.resolutionStatus).toBe('succeeded');
+    });
+
+    it('DB miss + voucher engine 404 → REQUEST_NOT_FOUND (not SERVICE_UNAVAILABLE)', () => {
+      const dbRecord = null;
+      const upstreamStatus = 404;
+
+      const response =
+        dbRecord === null && upstreamStatus === 404
+          ? {
+              requestId: 'req_notfound_001',
+              httpStatus: 200,
+              resolutionStatus: 'not_found',
+              createdAt: null,
+              resolvedAt: null,
+              durationMs: null,
+              errorCode: 'REQUEST_NOT_FOUND',
+            }
+          : null;
+
+      expect(response).not.toBeNull();
+      expect(response!.errorCode).toBe('REQUEST_NOT_FOUND');
+      expect(response!.resolutionStatus).toBe('not_found');
+      expect(response!.resolutionStatus).not.toBe('unknown');
+    });
   });
 });

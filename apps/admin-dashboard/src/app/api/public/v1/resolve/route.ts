@@ -52,6 +52,138 @@ function getSupabase() {
   });
 }
 
+// ── Persistent request state (Supabase) ──────────────────────────────────────
+
+/**
+ * Insert a pending request record so GET polls can look it up.
+ * Returns the inserted row id.
+ */
+async function persistResolveRequest(
+  requestId: string,
+  platform: string,
+  rawUrl: string,
+  normalizedUrl: string
+): Promise<string | null> {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    log('warn', 'PERSIST_REQUEST_SKIPPED', { requestId, reason: 'NO_SUPABASE_CONFIG' });
+    return null;
+  }
+  try {
+    const sb = getSupabase();
+    const { data, error } = await sb
+      .from('voucher_resolution_requests')
+      .insert({
+        id: requestId,
+        platform,
+        raw_url: rawUrl,
+        normalized_url: normalizedUrl,
+        status: 'pending',
+        requested_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      log('error', 'PERSIST_REQUEST_FAILED', { requestId, error: error.message });
+      return null;
+    }
+    log('info', 'REQUEST_PERSISTED', { requestId, platform });
+    return (data as { id: string }).id;
+  } catch (err) {
+    log('error', 'PERSIST_REQUEST_ERROR', {
+      requestId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * Update the request record with final status after resolution.
+ */
+async function updateResolveRequest(
+  requestId: string,
+  status: string,
+  options: {
+    hasMatch?: boolean;
+    bestVoucherId?: string;
+    bestVoucherCode?: string;
+    errorMessage?: string;
+    durationMs?: number;
+  } = {}
+): Promise<void> {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return;
+  try {
+    const sb = getSupabase();
+    const { error } = await sb
+      .from('voucher_resolution_requests')
+      .update({
+        status,
+        resolved_at: new Date().toISOString(),
+        has_match: options.hasMatch ?? false,
+        best_voucher_id: options.bestVoucherId ?? null,
+        best_voucher_code: options.bestVoucherCode ?? null,
+        error_message: options.errorMessage ?? null,
+        duration_ms: options.durationMs ?? null,
+      })
+      .eq('id', requestId);
+
+    if (error) {
+      log('error', 'UPDATE_REQUEST_FAILED', { requestId, status, error: error.message });
+    } else {
+      log('info', 'REQUEST_UPDATED', { requestId, status, hasMatch: options.hasMatch });
+    }
+  } catch (err) {
+    log('error', 'UPDATE_REQUEST_ERROR', {
+      requestId,
+      status,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Look up a resolve request by id directly from Supabase.
+ * Used by GET to honour the polling contract without depending on voucher engine.
+ */
+async function queryResolveRequestById(
+  requestId: string
+): Promise<{
+  status: string;
+  createdAt: string;
+  resolvedAt: string | null;
+  durationMs: number | null;
+  hasMatch: boolean | null;
+  errorMessage: string | null;
+} | null> {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    return null;
+  }
+  try {
+    const sb = getSupabase();
+    const { data, error } = await sb
+      .from('voucher_resolution_requests')
+      .select('status, requested_at, resolved_at, duration_ms, has_match, error_message')
+      .eq('id', requestId)
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+    return {
+      status: (data as Record<string, unknown>).status as string,
+      createdAt: (data as Record<string, unknown>).requested_at as string,
+      resolvedAt: (data as Record<string, unknown>).resolved_at as string | null,
+      durationMs: (data as Record<string, unknown>).duration_ms as number | null,
+      hasMatch: (data as Record<string, unknown>).has_match as boolean | null,
+      errorMessage: (data as Record<string, unknown>).error_message as string | null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ── Phase timing ──────────────────────────────────────────────────────────────
 
 interface PhaseTimings {
@@ -509,7 +641,17 @@ export async function POST(request: NextRequest) {
 
   const normalized = validation.normalized;
 
-  // ── 3. Cache lookup ────────────────────────────────────────────────────────
+  // ── 3. Persist request state so GET polls can find it ─────────────────────
+  const persistStart = Date.now();
+  await persistResolveRequest(
+    requestId,
+    normalized.platform,
+    normalized.originalUrl,
+    normalized.cleanUrl
+  );
+  log('info', 'PERSIST_DONE', { requestId, ms: Date.now() - persistStart });
+
+  // ── 4. Cache lookup ────────────────────────────────────────────────────────
   const cacheStart = Date.now();
   const cacheKey = buildCacheKey(normalized);
   const cached = getFromCache(cacheKey);
@@ -530,10 +672,19 @@ export async function POST(request: NextRequest) {
         resolvedAt: new Date().toISOString(),
       },
     };
+    // Keep persistent record in sync — cache hit is a "success" resolution
+    const cachedStatus = cachedData.status === 'success' ? 'succeeded' : 'no_match';
+    const topMatch = cachedData.bestMatch as Record<string, unknown> | null;
+    await updateResolveRequest(requestId, cachedStatus, {
+      hasMatch: cachedStatus === 'succeeded',
+      bestVoucherId: topMatch?.id as string | undefined,
+      bestVoucherCode: topMatch?.code as string | undefined,
+      durationMs: phases.total,
+    });
     return NextResponse.json(cachedResponse, { status: 200 });
   }
 
-  // ── 4. Supabase query ──────────────────────────────────────────────────────
+  // ── 5. Supabase query ──────────────────────────────────────────────────────
   const supabaseStart = Date.now();
   const dbResult = await querySupabase(normalized, supabaseStart, requestId);
   phases.supabaseQuery = Date.now() - supabaseStart;
@@ -560,7 +711,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── 5. Rank candidates ─────────────────────────────────────────────────────
+  // ── 6. Rank candidates ─────────────────────────────────────────────────────
   const rankingStart = Date.now();
   const ranked = rankOffers(dbResult.offers, { shopId: normalized.shopId, itemId: normalized.itemId });
   phases.ranking = Date.now() - rankingStart;
@@ -578,7 +729,7 @@ export async function POST(request: NextRequest) {
     resolveMode = assessment === 'no_result' ? 'no_match' : 'supabase_only';
   }
 
-  // ── 6. Optional enrich ─────────────────────────────────────────────────────
+  // ── 7. Optional enrich ─────────────────────────────────────────────────────
   const enrichStart = Date.now();
   let enrichResult: EnrichResult = { enriched: false, latencyMs: 0 };
 
@@ -588,7 +739,7 @@ export async function POST(request: NextRequest) {
   phases.enrich = Date.now() - enrichStart;
   phases.total = Date.now() - totalStart;
 
-  // ── 7. Build response ──────────────────────────────────────────────────────
+  // ── 8. Build response ──────────────────────────────────────────────────────
   let response: Record<string, unknown>;
 
   if (ranked.length === 0 && !enrichResult.enriched) {
@@ -606,10 +757,20 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ── 8. Cache the result ────────────────────────────────────────────────────
+  // ── 9. Cache the result ────────────────────────────────────────────────────
   setCache(cacheKey, response, resolveMode, ranked.length);
 
-  // ── 9. Log final decision ─────────────────────────────────────────────────
+  // ── 10. Update persistent request record ───────────────────────────────────
+  const hasMatch = (response.status === 'success');
+  const topMatch = response.bestMatch as Record<string, unknown> | null;
+  await updateResolveRequest(requestId, hasMatch ? 'succeeded' : 'no_match', {
+    hasMatch,
+    bestVoucherId: topMatch?.id as string | undefined,
+    bestVoucherCode: topMatch?.code as string | undefined,
+    durationMs: phases.total,
+  });
+
+  // ── 11. Log final decision ─────────────────────────────────────────────────
   log('info', 'RESOLVE_COMPLETE', {
     requestId,
     resolveMode,
@@ -646,7 +807,33 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Attempt to call internal backend (voucher engine) for real status
+  // ── Primary: look up directly from Supabase (Vercel-compatible, persistent) ──
+  const dbRecord = await queryResolveRequestById(requestId);
+
+  if (dbRecord) {
+    log('info', 'GET_REQUEST_DB_HIT', { requestId, status: dbRecord.status });
+    // Map DB status → polling contract resolutionStatus
+    const resolutionStatus = mapDbStatusToResolutionStatus(dbRecord.status);
+
+    return NextResponse.json(
+      {
+        requestId,
+        httpStatus: isTerminalStatus(dbRecord.status) ? 200 : 202,
+        resolutionStatus,
+        createdAt: dbRecord.createdAt,
+        resolvedAt: dbRecord.resolvedAt,
+        durationMs: dbRecord.durationMs,
+        hasMatch: dbRecord.hasMatch,
+        errorCode: dbRecord.errorMessage ? 'RESOLUTION_FAILED' : null,
+        message: dbRecord.errorMessage ?? null,
+      },
+      { status: isTerminalStatus(dbRecord.status) ? 200 : 202 }
+    );
+  }
+
+  log('info', 'GET_REQUEST_DB_MISS', { requestId });
+
+  // ── Fallback: try voucher engine via INTERNAL_API_URL ────────────────────────
   if (INTERNAL_API_URL) {
     try {
       const controller = new AbortController();
@@ -666,8 +853,6 @@ export async function GET(request: NextRequest) {
 
       clearTimeout(timer);
 
-      // Map upstream HTTP status → our polling contract
-      // Upstream: 200 = done, 202 = in-flight, 404 = not found, 400 = bad request
       const upstreamBody = await upstreamRes.json().catch(() => null) as Record<string, unknown> | null;
 
       log('info', 'GET_RESOLVE_UPSTREAM', {
@@ -676,41 +861,32 @@ export async function GET(request: NextRequest) {
       });
 
       if (upstreamRes.status === 200) {
-        // Request completed — extract status
-        const upstreamData = upstreamBody as Record<string, unknown> | null;
-        const resolutionStatus = extractUpstreamStatus(upstreamData);
-        const resolvedAt = upstreamData?.resolved_at as string | null
-          ?? upstreamData?.resolvedAt as string | null
-          ?? null;
-        const durationMs = upstreamData?.duration_ms as number | null
-          ?? upstreamData?.durationMs as number | null
-          ?? null;
+        const resolutionStatus = extractUpstreamStatus(upstreamBody);
+        const resolvedAt = (upstreamBody?.resolved_at ?? upstreamBody?.resolvedAt) as string | null ?? null;
+        const durationMs = (upstreamBody?.duration_ms ?? upstreamBody?.durationMs) as number | null ?? null;
 
         return NextResponse.json(
           {
             requestId,
             httpStatus: 200,
             resolutionStatus,
-            createdAt: upstreamData?.requested_at as string | null
-              ?? upstreamData?.created_at as string | null
-              ?? new Date().toISOString(),
+            createdAt: (upstreamBody?.requested_at ?? upstreamBody?.created_at) as string | null ?? new Date().toISOString(),
             resolvedAt,
             durationMs,
-            data: upstreamData ?? null,
+            data: upstreamBody ?? null,
           },
           { status: 200 }
         );
       }
 
       if (upstreamRes.status === 202) {
-        // Request still in flight — return polling status
         const upstreamData = upstreamBody as Record<string, unknown> | null;
         return NextResponse.json(
           {
             requestId,
             httpStatus: 202,
             resolutionStatus: (upstreamData?.status as string) ?? 'processing',
-            createdAt: upstreamData?.created_at as string | null ?? new Date().toISOString(),
+            createdAt: (upstreamData?.created_at as string | null) ?? new Date().toISOString(),
             resolvedAt: null,
             durationMs: null,
           },
@@ -718,13 +894,11 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      if (upstreamRes.status === 404) {
-        // Request not found
-        log('warn', 'GET_REQUEST_NOT_FOUND', { requestId });
+      if (upstreamRes.status === 404 || upstreamRes.status === 400) {
         return NextResponse.json(
           {
             requestId,
-            httpStatus: 200,  // Treat as terminal — don't keep polling forever
+            httpStatus: 200,
             resolutionStatus: 'not_found',
             createdAt: null,
             resolvedAt: null,
@@ -736,24 +910,12 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      if (upstreamRes.status === 400) {
-        // Validation error from upstream
-        return NextResponse.json(
-          {
-            error: 'INVALID_REQUEST_ID',
-            code: 'INVALID_REQUEST_ID',
-            message: 'Invalid requestId format.',
-          },
-          { status: 400 }
-        );
-      }
-
-      // Upstream 5xx — treat as retryable failure
+      // Upstream 5xx
       log('warn', 'GET_UPSTREAM_ERROR', { requestId, status: upstreamRes.status });
       return NextResponse.json(
         {
           requestId,
-          httpStatus: 200,  // Don't surface 5xx to polling client
+          httpStatus: 200,
           resolutionStatus: 'failed',
           createdAt: null,
           resolvedAt: null,
@@ -770,29 +932,42 @@ export async function GET(request: NextRequest) {
         error: err instanceof Error ? err.message : String(err),
         isTimeout,
       });
-      // Fall through to stub on error — don't fail the polling
     }
   }
 
-  // No INTERNAL_API_URL configured or upstream call failed.
-  // Return stub so polling client doesn't hang — but never return null status.
-  log('warn', 'GET_RESOLVE_STUB', {
-    requestId,
-    reason: INTERNAL_API_URL ? 'UPSTREAM_UNAVAILABLE' : 'NO_INTERNAL_API_URL',
-  });
+  // Neither Supabase nor voucher engine has this request.
+  // Treat as genuinely not_found — NOT SERVICE_UNAVAILABLE.
+  log('warn', 'GET_REQUEST_NOT_FOUND', { requestId });
   return NextResponse.json(
     {
       requestId,
       httpStatus: 200,
-      resolutionStatus: 'unknown',
+      resolutionStatus: 'not_found',
       createdAt: null,
       resolvedAt: null,
       durationMs: null,
-      errorCode: 'SERVICE_UNAVAILABLE',
-      message: 'Status lookup unavailable. Submit a new resolve request.',
+      errorCode: 'REQUEST_NOT_FOUND',
+      message: 'Request not found or has expired.',
     },
     { status: 200 }
   );
+}
+
+/** Map DB status column values → polling contract resolutionStatus strings */
+function mapDbStatusToResolutionStatus(dbStatus: string): string {
+  switch (dbStatus) {
+    case 'pending':   return 'pending';
+    case 'processing': return 'processing';
+    case 'succeeded': return 'succeeded';
+    case 'no_match': return 'no_match';
+    case 'failed':    return 'failed';
+    default:          return 'unknown';
+  }
+}
+
+/** Terminal statuses mean the request is done (no more polling needed) */
+function isTerminalStatus(status: string): boolean {
+  return status === 'succeeded' || status === 'no_match' || status === 'failed';
 }
 
 /**
@@ -801,23 +976,14 @@ export async function GET(request: NextRequest) {
  */
 function extractUpstreamStatus(data: Record<string, unknown> | null): string {
   if (!data) return 'unknown';
-
-  // Primary: `status` field (from voucher engine serializer)
   if (typeof data.status === 'string') return data.status;
-
-  // Secondary: `resolutionStatus` field
   if (typeof data.resolutionStatus === 'string') return data.resolutionStatus;
-
-  // Tertiary: from `success` boolean
   if (typeof data.success === 'boolean') {
     if (!data.success && data.error) return 'failed';
     if (data.success && data.data) return 'succeeded';
   }
-
-  // Quaternary: `has_match` boolean
   if (typeof data.has_match === 'boolean') {
     return data.has_match ? 'succeeded' : 'no_match';
   }
-
   return 'unknown';
 }
