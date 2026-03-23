@@ -1,52 +1,68 @@
 /**
- * AccessTrade API Client — SERVER-SIDE ONLY
- * ─────────────────────────────────────────────
- * Wraps the AccessTrade affiliate API with:
- *  - Token authentication via Authorization header
- *  - Safe error handling (never log the API key)
- *  - Correlation IDs for request tracing
- *  - Structured logging for observability
- *  - Type-safe response normalization
+ * AccessTrade API Client — SERVER-SIDE ONLY (admin-dashboard copy)
+ *
+ * Updated to match real API docs:
+ *  - GET /v1/offers_informations — unified endpoint for vouchers/coupons/deals
+ *  - GET /v1/campaigns — merchant campaigns
+ *
+ * Docs: https://developers.accesstrade.vn/api-publisher-vietnamese
  *
  * SECURITY:
  *  - This module MUST NOT be imported in 'use client' components.
  *  - The ACCESSTRADE_API_KEY is a server-side secret.
  *  - Never return raw API keys or auth headers to the browser.
- *
- * Usage (server-side only):
- *  import { getAccessTradeClient } from '@/lib/api/accesstrade-client';
- *  const client = getAccessTradeClient();
- *  const campaigns = await client.getCampaigns({ page: 1, page_size: 20 });
  */
 
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
+import axios, { type AxiosInstance, type AxiosError } from 'axios';
 import type {
+  AccessTradeOffer,
+  AccessTradeOffersResponse,
   AccessTradeCampaign,
-  AccessTradeDeal,
-  AccessTradePaginatedResponse,
+  AccessTradeCampaignsResponse,
   AccessTradeConnectionTest,
-  NormalizedAccessTradeVoucher,
-  AccessTradeSingleResponse,
-  AccessTradeListResponse,
 } from './accesstrade-types';
 
 // =============================================================================
 // Config
 // =============================================================================
 
-/** AccessTrade API base URL */
 const ACCESSTRADE_BASE_URL =
   (process.env.ACCESSTRADE_API_URL as string | undefined) ??
   'https://api.accesstrade.vn';
 
-/** Request timeout — 15 seconds for list endpoints, 30 for sync */
 const DEFAULT_TIMEOUT = 15_000;
 const SYNC_TIMEOUT = 30_000;
 
-/** Mask a string for safe logging (shows first/last 3 chars) */
+// =============================================================================
+// Safe logging
+// =============================================================================
+
 function maskKey(key: string): string {
   if (!key || key.length <= 6) return '***';
   return `${key.slice(0, 3)}...${key.slice(-3)}`;
+}
+
+function logInfo(message: string, meta?: Record<string, unknown>): void {
+  console.info(`[AccessTrade] ${message}`, meta ?? '');
+}
+
+function logError(message: string, meta?: Record<string, unknown>): void {
+  const safe: Record<string, unknown> = {};
+  if (meta) {
+    for (const [k, v] of Object.entries(meta)) {
+      if (
+        k.toLowerCase().includes('key') ||
+        k.toLowerCase().includes('token') ||
+        k.toLowerCase().includes('auth') ||
+        k.toLowerCase().includes('secret')
+      ) {
+        safe[k] = '[REDACTED]';
+      } else {
+        safe[k] = v;
+      }
+    }
+  }
+  console.error(`[AccessTrade] ${message}`, safe);
 }
 
 // =============================================================================
@@ -63,125 +79,55 @@ function assertServerSide(): void {
 }
 
 // =============================================================================
-// Logging helpers — safe, no sensitive data
+// Axios factory
 // =============================================================================
 
-function logInfo(message: string, meta?: Record<string, unknown>): void {
-  console.info(`[AccessTrade] ${message}`, meta ?? '');
-}
-
-function logWarn(message: string, meta?: Record<string, unknown>): void {
-  console.warn(`[AccessTrade] ${message}`, meta ?? '');
-}
-
-function logError(message: string, meta?: Record<string, unknown>): void {
-  // Never log 'meta' if it contains sensitive fields
-  const safe: Record<string, unknown> = {};
-  if (meta) {
-    for (const [k, v] of Object.entries(meta)) {
-      if (
-        k.toLowerCase().includes('key') ||
-        k.toLowerCase().includes('token') ||
-        k.toLowerCase().includes('auth') ||
-        k.toLowerCase().includes('secret') ||
-        k.toLowerCase().includes('password')
-      ) {
-        safe[k] = '[REDACTED]';
-      } else {
-        safe[k] = v;
-      }
-    }
-  }
-  console.error(`[AccessTrade] ${message}`, safe);
-}
-
-// =============================================================================
-// Client factory
-// =============================================================================
-
-function createClient(timeout = DEFAULT_TIMEOUT): AxiosInstance {
+function createAxiosInstance(timeout = DEFAULT_TIMEOUT): AxiosInstance {
   assertServerSide();
-
   const apiKey = process.env.ACCESSTRADE_API_KEY;
 
   if (!apiKey) {
-    logWarn('ACCESSTRADE_API_KEY is not set in environment variables');
+    logError('ACCESSTRADE_API_KEY is not set in environment variables');
   }
 
-  const client = axios.create({
+  const instance = axios.create({
     baseURL: ACCESSTRADE_BASE_URL,
     timeout,
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      // AccessTrade uses Token auth — key is masked in logs
+      // Real API: Authorization: Token <access_key>
       Authorization: apiKey ? `Token ${apiKey}` : undefined,
     },
   });
 
-  // ── Request interceptor ──────────────────────────────────────────
-  client.interceptors.request.use(
-    (config) => {
-      const corrId = `at_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      config.headers['X-Correlation-ID'] = corrId;
+  instance.interceptors.request.use((config) => {
+    const corrId = `at_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    config.headers['X-Correlation-ID'] = corrId;
+    logInfo('API request', {
+      method: config.method?.toUpperCase(),
+      url: config.url,
+      corrId,
+      hasAuth: Boolean(apiKey),
+    });
+    return config;
+  });
 
-      logInfo('API request sent', {
-        method: config.method?.toUpperCase(),
-        url: config.url,
-        corrId,
-        // Mask the key — NEVER log raw API key
-        hasAuth: Boolean(apiKey),
-        authPrefix: apiKey ? `Token ${maskKey(apiKey)}` : 'NONE',
-      });
-
-      return config;
-    },
-    (error) => {
-      logError('Request setup error', { message: error.message });
-      return Promise.reject(error);
-    }
-  );
-
-  // ── Response interceptor ──────────────────────────────────────────
-  client.interceptors.response.use(
-    (response) => {
-      logInfo('API response received', {
-        status: response.status,
-        url: response.config.url,
-        corrId: response.config.headers['X-Correlation-ID'],
-        dataKeys: response.data ? Object.keys(response.data) : [],
-      });
-      return response;
-    },
+  instance.interceptors.response.use(
+    (response) => response,
     (error: AxiosError) => {
       const corrId = (error.config?.headers?.['X-Correlation-ID'] as string | undefined) ?? 'unknown';
-
-      // Extract safe error info — NEVER log key
-      const safeError: Record<string, unknown> = {
+      logError('API error', {
         url: error.config?.url,
-        method: error.config?.method?.toUpperCase(),
         status: error.response?.status,
         corrId,
-      };
-
-      if (error.response) {
-        // Server responded with error status
-        safeError.responseData = error.response.data;
-        logError('API error response', safeError);
-      } else if (error.request) {
-        // No response — network issue or timeout
-        safeError.code = error.code;
-        safeError.message = error.message;
-        logError('API network error (no response)', safeError);
-      } else {
-        logError('API request error', safeError);
-      }
-
+        message: extractErrorMessage(error),
+      });
       return Promise.reject(error);
     }
   );
 
-  return client;
+  return instance;
 }
 
 // =============================================================================
@@ -190,17 +136,14 @@ function createClient(timeout = DEFAULT_TIMEOUT): AxiosInstance {
 
 export class AccessTradeClient {
   private client: AxiosInstance;
-  private syncClient: AxiosInstance;
   private apiKey: string | undefined;
 
   constructor() {
     assertServerSide();
     this.apiKey = process.env.ACCESSTRADE_API_KEY;
-    this.client = createClient(DEFAULT_TIMEOUT);
-    this.syncClient = createClient(SYNC_TIMEOUT);
+    this.client = createAxiosInstance(DEFAULT_TIMEOUT);
   }
 
-  /** Returns true if the API key is configured */
   isConfigured(): boolean {
     return Boolean(this.apiKey && this.apiKey.length > 0);
   }
@@ -208,178 +151,171 @@ export class AccessTradeClient {
   // ── Connection Test ─────────────────────────────────────────────────────────
 
   /**
-   * Test connectivity to AccessTrade API.
-   * Verifies key is valid and API is reachable.
+   * Test connectivity. Calls /v1/offers_informations with limit=1.
+   * Returns offer_count from the response.
    */
   async testConnection(): Promise<AccessTradeConnectionTest> {
     const start = Date.now();
-
     try {
-      // Call account / campaign list endpoint to verify auth
-      // AccessTrade typically uses GET /v1/campaigns for auth verification
-      const response = await this.client.get('/v1/campaigns', {
-        params: { page: 1, page_size: 1 },
+      const response = await this.client.get<AccessTradeOffersResponse>('/v1/offers_informations', {
+        params: { limit: 1, status: 1 },
       });
-
-      const data = response.data as AccessTradePaginatedResponse<AccessTradeCampaign>;
-
       return {
         success: true,
-        campaign_count: data.pagination?.total ?? 0,
+        offer_count: response.data.data?.length ?? 0,
         response_time_ms: Date.now() - start,
         tested_at: new Date().toISOString(),
       };
     } catch (err) {
-      const axiosError = err as AxiosError;
-      const status = axiosError.response?.status;
-      const message = this.extractErrorMessage(err);
-
-      logError('Connection test failed', {
-        status,
-        message,
-        response_time_ms: Date.now() - start,
-      });
-
       return {
         success: false,
         response_time_ms: Date.now() - start,
         tested_at: new Date().toISOString(),
+        error: extractErrorMessage(err),
       };
     }
+  }
+
+  // ── Offers (unified) ───────────────────────────────────────────────────────
+
+  /**
+   * Fetch offers from /v1/offers_informations — the single canonical endpoint.
+   * Docs: https://developers.accesstrade.vn — "Lấy thông tin vouchers / coupons / deals"
+   *
+   * @param coupon  1 = only offers with coupon codes, 0 = no-code offers, undefined = all
+   * @param status  1 = active, 0 = expired, undefined = all
+   * @param scope   'expiring' = deals expiring within 3 days
+   */
+  async getOffers(params?: {
+    page?: number;
+    limit?: number;
+    coupon?: 0 | 1;
+    status?: 0 | 1;
+    scope?: 'expiring';
+    merchant?: string;
+    categories?: string;
+    domain?: string;
+  }): Promise<AccessTradeOffersResponse> {
+    const { page = 1, limit = 50, coupon, status, scope, merchant, categories, domain } = params ?? {};
+
+    const queryParams: Record<string, unknown> = { page, limit };
+    if (coupon !== undefined)  queryParams.coupon    = coupon;
+    if (status !== undefined) queryParams.status    = status;
+    if (scope)                queryParams.scope      = scope;
+    if (merchant)             queryParams.merchant   = merchant;
+    if (categories)            queryParams.categories = categories;
+    if (domain)               queryParams.domain     = domain;
+
+    const response = await this.client.get<AccessTradeOffersResponse>(
+      '/v1/offers_informations',
+      { params: queryParams }
+    );
+    return response.data;
   }
 
   // ── Campaigns ─────────────────────────────────────────────────────────────
 
   /**
-   * Get list of available campaigns.
-   * https://docs.accesstrade.vn/campaigns
+   * Fetch campaigns from /v1/campaigns.
+   * Docs: https://developers.accesstrade.vn — "Lấy danh sách campaigns"
+   *
+   * @param approval Filter by registration status: 'Successful' | 'Pending' | 'Unregistered'
    */
   async getCampaigns(params?: {
     page?: number;
-    page_size?: number;
-    status?: 'active' | 'inactive';
-    category?: string;
-  }): Promise<AccessTradePaginatedResponse<AccessTradeCampaign>> {
-    const response = await this.client.get<AccessTradePaginatedResponse<AccessTradeCampaign>>(
+    limit?: number;
+    approval?: 'Successful' | 'Pending' | 'Unregistered';
+  }): Promise<AccessTradeCampaignsResponse> {
+    const { page = 1, limit = 50, approval } = params ?? {};
+
+    const queryParams: Record<string, unknown> = { page, limit };
+    if (approval) queryParams.approval = approval;
+
+    const response = await this.client.get<AccessTradeCampaignsResponse>(
       '/v1/campaigns',
-      { params }
+      { params: queryParams }
     );
     return response.data;
   }
 
-  /**
-   * Get a single campaign by ID.
-   */
-  async getCampaign(campaignId: number): Promise<AccessTradeCampaign> {
-    const response = await this.client.get<AccessTradeSingleResponse<AccessTradeCampaign>>(
-      `/v1/campaigns/${campaignId}`
-    );
-    return response.data.data;
-  }
-
-  // ── Deals / Vouchers ───────────────────────────────────────────────────────
+  // ── Normalization ─────────────────────────────────────────────────────────
 
   /**
-   * Get deals / vouchers from AccessTrade.
-   * https://docs.accesstrade.vn/deals
+   * Normalize an AccessTrade offer to a flat display-friendly object.
+   * Used by API routes to return structured data to the UI.
    */
-  async getDeals(params?: {
-    page?: number;
-    page_size?: number;
-    campaign_id?: number;
-    type?: 'voucher' | 'promotion' | 'cashback' | 'flash_sale';
-    status?: 'active' | 'inactive';
-    platform?: string;
-  }): Promise<AccessTradePaginatedResponse<AccessTradeDeal>> {
-    const response = await this.client.get<AccessTradePaginatedResponse<AccessTradeDeal>>(
-      '/v1/deals',
-      { params }
-    );
-    return response.data;
-  }
+  normalizeOffer(offer: AccessTradeOffer): {
+    id: string;
+    title: string;
+    merchant: string;
+    domain: string;
+    description: string;
+    couponCode: string | null;
+    affLink: string | null;
+    link: string | null;
+    image: string | null;
+    startTime: string | null;
+    endTime: string | null;
+    categories: string[];
+    source: 'accesstrade';
+  } {
+    const firstCode = Array.isArray(offer.coupons) && offer.coupons.length > 0
+      ? offer.coupons[0]
+      : (offer.code ?? null);
 
-  /**
-   * Get deals for a specific campaign.
-   */
-  async getCampaignDeals(campaignId: number): Promise<AccessTradeDeal[]> {
-    const response = await this.client.get<AccessTradeListResponse<AccessTradeDeal>>(
-      `/v1/campaigns/${campaignId}/deals`
-    );
-    return response.data.data ?? [];
-  }
-
-  // ── Normalization (for DB sync) ────────────────────────────────────────────
-
-  /**
-   * Normalize AccessTrade deal into a DB-ready record.
-   */
-  normalizeDeal(deal: AccessTradeDeal): NormalizedAccessTradeVoucher {
     return {
-      external_id: `at_deal_${deal.id}`,
-      campaign_id: deal.campaign_id,
-      campaign_name: deal.campaign_name,
-      title: deal.title,
-      description: deal.description ?? null,
-      deal_type: deal.type,
-      discount_type: deal.discount_type,
-      discount_value: deal.discount_value,
-      max_discount: deal.max_discount ?? null,
-      min_order_value: deal.min_order_value ?? null,
-      code: deal.code ?? null,
-      start_date: deal.start_date,
-      end_date: deal.end_date,
-      tracking_url: deal.tracking_url ?? null,
-      is_exclusive: deal.is_exclusive ?? false,
-      status: deal.status,
-      platform: inferPlatform(deal),
-      raw_data: deal,
-      synced_at: new Date().toISOString(),
+      id: String(offer.id),
+      title: typeof offer.name === 'string' ? offer.name.trim() : 'Unknown Offer',
+      merchant: typeof offer.merchant === 'string' ? offer.merchant.trim() : 'Unknown Merchant',
+      domain: typeof offer.domain === 'string' ? offer.domain : '',
+      description: typeof offer.content === 'string' ? offer.content : '',
+      couponCode: typeof firstCode === 'string' && firstCode.length > 0 ? firstCode : null,
+      affLink: typeof offer.aff_link === 'string' ? offer.aff_link : null,
+      link: typeof offer.link === 'string' ? offer.link : null,
+      image: typeof offer.image === 'string' ? offer.image : null,
+      startTime: typeof offer.start_time === 'string' ? offer.start_time : null,
+      endTime: typeof offer.end_time === 'string' ? offer.end_time : null,
+      categories: Array.isArray(offer.categories) ? offer.categories : [],
+      source: 'accesstrade' as const,
     };
   }
 
+  // ── Sync all active offers ────────────────────────────────────────────────
+
   /**
-   * Sync all active deals from AccessTrade.
-   * Returns normalized records ready for DB upsert.
+   * Sync all active offers. Fetches page by page until exhaustion.
+   * Returns flat normalized offer objects ready for DB upsert.
    */
-  async syncAllDeals(options?: {
-    page_size?: number;
-    max_pages?: number;
-    campaign_id?: number;
-  }): Promise<NormalizedAccessTradeVoucher[]> {
-    const { page_size = 100, max_pages = 10, campaign_id } = options ?? {};
-    const normalized: NormalizedAccessTradeVoucher[] = [];
+  async syncAllOffers(options?: {
+    limit?: number;
+    maxPages?: number;
+    coupon?: 0 | 1;
+  }): Promise<ReturnType<AccessTradeClient['normalizeOffer']>[]> {
+    const { limit = 100, maxPages = 20, coupon } = options ?? {};
+    const results: ReturnType<AccessTradeClient['normalizeOffer']>[] = [];
 
     let page = 1;
+    while (page <= maxPages) {
+      logInfo(`Fetching offers page ${page}`, { coupon, limit });
 
-    while (page <= max_pages) {
-      logInfo(`Syncing deals page ${page}`, { campaign_id });
+      const response = await this.getOffers({ page, limit, coupon, status: 1 });
+      const offers = response.data ?? [];
 
-      const result = await this.getDeals({
-        page,
-        page_size,
-        campaign_id,
-        status: 'active',
-      });
+      if (offers.length === 0) break;
 
-      for (const deal of result.data) {
-        if (deal.status === 'active') {
-          normalized.push(this.normalizeDeal(deal));
-        }
+      for (const offer of offers) {
+        results.push(this.normalizeOffer(offer));
       }
 
-      if (page >= result.pagination.total_pages) break;
+      if (offers.length < limit) break;
       page++;
     }
 
-    logInfo(`Sync complete`, {
-      total_deals: normalized.length,
-      pages_fetched: page,
-    });
-
-    return normalized;
+    logInfo('Sync complete', { total: results.length, pagesFetched: page });
+    return results;
   }
 
-  // ── Error extraction ────────────────────────────────────────────────────────
+  // ── Error extraction ───────────────────────────────────────────────────────
 
   private extractErrorMessage(err: unknown): string {
     if (err instanceof AxiosError) {
@@ -405,22 +341,6 @@ export function getAccessTradeClient(): AccessTradeClient {
     _client = new AccessTradeClient();
   }
   return _client;
-}
-
-// =============================================================================
-// Utilities
-// =============================================================================
-
-/** Infer platform from campaign/deal name or URL */
-function inferPlatform(deal: AccessTradeDeal): string {
-  const name = `${deal.campaign_name} ${deal.title}`.toLowerCase();
-  if (name.includes('shopee')) return 'shopee';
-  if (name.includes('lazada')) return 'lazada';
-  if (name.includes('tiki')) return 'tiki';
-  if (name.includes('tiktok')) return 'tiktok';
-  if (name.includes('sendo')) return 'sendo';
-  if (name.includes('bidv')) return 'bidv';
-  return 'unknown';
 }
 
 export default AccessTradeClient;

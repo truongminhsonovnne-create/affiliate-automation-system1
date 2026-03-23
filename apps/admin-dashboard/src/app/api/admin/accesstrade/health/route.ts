@@ -16,7 +16,7 @@ interface AccessTradeHealthResponse {
     success: boolean;
     responseTimeMs: number;
     testedAt: string;
-    campaignCount?: number;
+    offerCount?: number;
     error?: string;
   };
   database: {
@@ -65,7 +65,7 @@ export async function GET(_request: NextRequest) {
         success: result.success,
         responseTimeMs: (r.response_time_ms as number) ?? 0,
         testedAt: (r.tested_at as string) ?? new Date().toISOString(),
-        campaignCount: r.campaign_count as number | undefined,
+        offerCount: r.offer_count as number | undefined,
         error: result.success ? undefined : (r.error as string | undefined),
       };
     }
