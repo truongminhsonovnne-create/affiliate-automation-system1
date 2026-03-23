@@ -748,7 +748,7 @@ function mapDbStatus(status: string): string {
 
 /** Terminal statuses — no more polling needed */
 function isTerminalStatus(status: string): boolean {
-  return status === 'succeeded' || status === 'no_match' || status === 'failed' || status === 'expired';
+  return status === 'succeeded' || status === 'no_match' || status === 'failed' || status === 'expired' || status === 'completed';
 }
 
 /**

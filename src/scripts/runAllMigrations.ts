@@ -32,15 +32,24 @@ const config = {
 const client = new pg.Client(config);
 
 async function runSQL(sql: string) {
-  // Use pg-query to run the entire script at once
-  // This handles dollar quoting correctly
   try {
     await client.query(sql);
   } catch (err) {
     const error = err as Error;
-    if (!error.message.includes('already exists') &&
-        !error.message.includes('duplicate') &&
-        !error.message.includes('does not exist')) {
+    // pg error code 25P02 = current transaction is aborted from a prior statement.
+    // Recover by issuing ROLLBACK so the connection is clean for the next migration.
+    if (error.code === '25P02') {
+      try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+    }
+    // Only re-throw errors for non-idempotent operations.
+    // Ignore: already exists / duplicate / does not exist
+    const ignorable = [
+      'already exists',
+      'duplicate',
+      'does not exist',
+    ];
+    const isIgnorable = ignorable.some(e => error.message.includes(e));
+    if (!isIgnorable) {
       throw error;
     }
   }
@@ -52,13 +61,12 @@ async function runAllMigrations() {
     console.log('✅ Connected to Supabase\n');
 
     // Migration files to run (in order)
+    // Only new migrations not yet applied to production
     const migrations = [
-      '001_create_affiliate_tables.sql',
-      '002_add_updated_at_trigger.sql',
-      '003_create_publish_jobs.sql',
       // resolve_requests table — required by /api/public/v1/resolve endpoint
-      // (fixes 503 on POST and REQUEST_NOT_FOUND on GET polling)
       '005_create_resolve_requests.sql',
+      // Add 'completed' to CHECK constraint (fixes PERSISTENCE_REQUIRED_FAILED / 503)
+      '006_add_completed_status.sql',
     ];
 
     for (const migrationFile of migrations) {

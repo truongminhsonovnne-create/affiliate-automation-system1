@@ -1,21 +1,15 @@
--- Migration: 027_create_resolve_requests_rls
--- Purpose: Add RLS policies for resolve_requests table.
---          Required for Supabase auth to work correctly with service_role.
+-- Migration: 005_create_resolve_requests
+-- Purpose: Create resolve_requests table for /api/public/v1/resolve endpoint.
 --
--- Background:
---   Migration 026 created the resolve_requests table but was never applied
---   to production (runAllMigrations.ts only runs files 001-003).
---   This migration completes the schema including RLS policies.
+-- Architecture: persistent request state for POST+GET polling contract.
 --
--- IMPORTANT: This table is also missing in production.
---   Either:
---   (A) Run migration 026 first (full DDL), then 027 for RLS, OR
---   (B) Run this file alone — it includes the full DDL + RLS in one script
---       so it is self-contained and safe to re-run.
+-- NOTE: Do NOT wrap with BEGIN/COMMIT.
+-- pgBouncer (transaction mode) auto-manages transactions per query.
+-- Adding explicit transaction control causes "current transaction is aborted".
+--
+-- This migration is idempotent — safe to re-run.
 
-BEGIN;
-
--- ── Full DDL (idempotent — matches migration 026) ─────────────────────────────
+-- ── Table ────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS resolve_requests (
     request_id          TEXT        NOT NULL,
@@ -26,7 +20,8 @@ CREATE TABLE IF NOT EXISTS resolve_requests (
     status              TEXT        NOT NULL DEFAULT 'pending'
                               CHECK (status IN (
                                 'pending', 'processing',
-                                'succeeded', 'no_match', 'failed', 'expired'
+                                'succeeded', 'no_match', 'failed', 'expired',
+                                'completed'
                               )),
 
     has_match           BOOLEAN,
@@ -42,14 +37,23 @@ CREATE TABLE IF NOT EXISTS resolve_requests (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Primary key
-ALTER TABLE resolve_requests
-    DROP CONSTRAINT IF EXISTS pk_resolve_requests;
+-- ── Primary key ───────────────────────────────────────────────────────────────
+
+-- Use DO block to safely drop/recreate PK (handles IF NOT EXISTS edge case)
+DO $$
+BEGIN
+    ALTER TABLE resolve_requests DROP CONSTRAINT IF EXISTS pk_resolve_requests;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'PK drop skipped: %', SQLERRM;
+END
+$$;
+
 ALTER TABLE resolve_requests
     ADD CONSTRAINT pk_resolve_requests
     PRIMARY KEY (request_id);
 
--- Indexes
+-- ── Indexes ────────────────────────────────────────────────────────────────────
+
 CREATE INDEX IF NOT EXISTS idx_rr_status_pending
     ON resolve_requests (status, requested_at)
     WHERE status IN ('pending', 'processing');
@@ -62,7 +66,8 @@ CREATE INDEX IF NOT EXISTS idx_rr_platform_requested
     ON resolve_requests (platform, requested_at DESC)
     WHERE status NOT IN ('pending', 'processing');
 
--- Updated-at trigger
+-- ── Updated-at trigger ─────────────────────────────────────────────────────────
+
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
@@ -83,23 +88,12 @@ ALTER TABLE resolve_requests ENABLE ROW LEVEL SECURITY;
 -- Service role: full CRUD (used by all Next.js API routes)
 CREATE POLICY "service_role_full_access_resolve_requests"
     ON resolve_requests
-    FOR ALL
-    TO service_role
-    USING (true)
-    WITH CHECK (true);
+    FOR ALL TO service_role
+    USING (true) WITH CHECK (true);
 
--- ── Retention helper view ───────────────────────────────────────────────────
+-- ── Helper view ───────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE VIEW resolve_requests_ttl AS
 SELECT request_id, status, expires_at
 FROM resolve_requests
 WHERE expires_at < NOW();
-
--- ── TTL cleanup (optional — run via Supabase pg_cron or external scheduler) ───
---
---  DELETE FROM resolve_requests
---  WHERE expires_at < NOW() - INTERVAL '1 hour';
---
---  VACUUM ANALYZE resolve_requests;
-
-COMMIT;

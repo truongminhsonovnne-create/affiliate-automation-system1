@@ -166,9 +166,10 @@ export type EngineResolutionStatus =
   | 'pending'
   | 'processing'
   | 'succeeded'
-  | 'failed'
   | 'no_match'
+  | 'failed'
   | 'expired'
+  | 'completed'
   | 'cached'
   | 'not_found'
   | null;
