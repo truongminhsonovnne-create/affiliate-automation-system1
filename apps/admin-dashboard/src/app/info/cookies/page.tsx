@@ -225,7 +225,7 @@ export default function CookiesPage() {
         <h2>Câu hỏi?</h2>
         <p>
           Nếu bạn có câu hỏi về cách VoucherFinder sử dụng cookie hoặc lưu trữ
-          dữ liệu, vui lòng liên hệ qua <a href="/contact">trang Liên hệ</a> hoặc
+          dữ liệu, vui lòng liên hệ qua <a href="/info/contact">trang Liên hệ</a> hoặc
           email: <a href={`mailto:${SITE_CONFIG.email}`}>{SITE_CONFIG.email}</a>.
         </p>
       </section>

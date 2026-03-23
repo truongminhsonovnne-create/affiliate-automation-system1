@@ -151,7 +151,7 @@ export default function AboutPage() {
           <li>
             <strong>Không phải công cụ affiliate</strong> — VoucherFinder không theo dõi
             hay ghi nhận hoa hồng từ các giao dịch mua hàng của bạn. Xem{' '}
-            <a href="/affiliate-disclosure">trang Công khai liên kết</a> để biết chi tiết.
+            <a href="/info/affiliate-disclosure">trang Công khai liên kết</a> để biết chi tiết.
           </li>
         </ul>
         <div className="note">
@@ -177,7 +177,7 @@ export default function AboutPage() {
           thị mã tốt nhất cho sản phẩm của bạn — không phải mã nào có hoa hồng cao nhất.
         </p>
         <p>
-          Xem <a href="/affiliate-disclosure">Công khai liên kết</a> để biết chính
+          Xem <a href="/info/affiliate-disclosure">Công khai liên kết</a> để biết chính
           sách đầy đủ về mối quan hệ với các nền tảng thương mại điện tử.
         </p>
       </section>
@@ -201,8 +201,8 @@ export default function AboutPage() {
           </li>
           <li>
             <strong>Minh bạch</strong> — Mọi thông tin về cách dữ liệu được xử lý
-            đều có trong <a href="/privacy">Chính sách bảo mật</a> và{' '}
-            <a href="/cookies">Chính sách Cookie</a>.
+            đều có trong <a href="/info/privacy">Chính sách bảo mật</a> và{' '}
+            <a href="/info/cookies">Chính sách Cookie</a>.
           </li>
         </ul>
       </section>
@@ -212,7 +212,7 @@ export default function AboutPage() {
         <h2>Câu hỏi?</h2>
         <p>
           Nếu bạn có phản hồi, báo lỗi, câu hỏi về dịch vụ, hoặc muốn hợp tác,
-          vui lòng xem trang <a href="/contact">Liên hệ</a> để biết thông tin
+          vui lòng xem trang <a href="/info/contact">Liên hệ</a> để biết thông tin
           liên lạc. Chúng tôi đọc mọi tin nhắn và phản hồi trong vòng 2–5 ngày
           làm việc.
         </p>

@@ -505,7 +505,7 @@ function SocialProofStrip() {
         </svg>
         Không liên kết chính thức với Shopee. Không nhận hoa hồng từ giao dịch của bạn.{' '}
         <a
-          href="/affiliate-disclosure"
+          href="/info/affiliate-disclosure"
           className="transition-colors hover:underline"
           style={{ color: 'var(--text-muted)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
         >
@@ -644,7 +644,7 @@ function ResourcesStrip() {
           Không tìm thấy mã bạn cần?
         </span>
         <Link
-          href="/contact"
+          href="/info/contact"
           onClick={() => trackEvent('contact_click', {})}
           className="text-xs font-medium transition-colors"
           style={{ color: 'var(--brand-600)' }}

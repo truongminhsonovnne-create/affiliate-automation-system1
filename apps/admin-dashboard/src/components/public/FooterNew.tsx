@@ -20,7 +20,7 @@ const NAV_LINKS = [
   { href: '/deals', label: 'Khám phá deal' },
   { href: '/resources', label: 'Tài nguyên' },
   { href: '/info/about', label: 'Giới thiệu' },
-  { href: '/contact', label: 'Liên hệ' },
+  { href: '/info/contact', label: 'Liên hệ' },
 ];
 
 const LEGAL_LINKS = [

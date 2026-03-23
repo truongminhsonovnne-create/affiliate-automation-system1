@@ -125,7 +125,7 @@ export default function PrivacyPage() {
         <h2>Cookie và lưu trữ cục bộ</h2>
         <p>
           VoucherFinder chỉ sử dụng một số ít công nghệ lưu trữ. Chi tiết đầy đủ
-          có trong trang <a href="/cookies">Chính sách Cookie</a>. Bảng dưới đây
+          có trong trang <a href="/info/cookies">Chính sách Cookie</a>. Bảng dưới đây
           là tóm tắt nhanh:
         </p>
         <table>
@@ -216,7 +216,7 @@ export default function PrivacyPage() {
         </ul>
         <p>
           Để thực hiện quyền của bạn, vui lòng gửi yêu cầu qua{' '}
-          <a href="/contact">trang Liên hệ</a> với tiêu đề "Yêu cầu xóa dữ liệu" hoặc
+          <a href="/info/contact">trang Liên hệ</a> với tiêu đề "Yêu cầu xóa dữ liệu" hoặc
           "Yêu cầu truy cập dữ liệu".
         </p>
       </section>

@@ -217,7 +217,7 @@ export default function TermsPage() {
         <h2>12. Liên hệ</h2>
         <p>
           Nếu bạn có câu hỏi về các điều khoản này, vui lòng liên hệ qua{' '}
-          <a href="/contact">trang Liên hệ</a> hoặc email:{' '}
+          <a href="/info/contact">trang Liên hệ</a> 或 email:{' '}
           <a href={`mailto:${SITE_CONFIG.email}`}>{SITE_CONFIG.email}</a>.
         </p>
       </section>

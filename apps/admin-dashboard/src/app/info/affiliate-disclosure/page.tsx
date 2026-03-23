@@ -197,7 +197,7 @@ export default function AffiliateDisclosurePage() {
         <p>
           Nếu bạn có câu hỏi về chính sách này hoặc muốn xác minh tình trạng affiliate
           hiện tại của VoucherFinder, vui lòng liên hệ qua{' '}
-          <a href="/contact">trang Liên hệ</a>.
+          <a href="/info/contact">trang Liên hệ</a>.
         </p>
       </section>
     </InfoPageLayout>

@@ -177,7 +177,7 @@ export function FaqSectionNew() {
             Không tìm thấy câu trả lời bạn cần?
           </p>
           <a
-            href="/contact"
+            href="/info/contact"
             className="flex items-center gap-2 rounded-xl text-sm font-semibold text-white transition-all duration-150 whitespace-nowrap"
             style={{
               padding: '0.625rem 1.25rem',

@@ -191,7 +191,7 @@ function ContactColumn() {
     <div className="flex flex-col gap-3">
       <p className="text-label">Liên hệ</p>
       <Link
-        href="/contact"
+        href="/info/contact"
         onClick={() => trackEvent('contact_click', {})}
         className="group inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all"
         style={{
