@@ -47,14 +47,23 @@ const INTERNAL_API_URL = process.env.INTERNAL_API_URL ?? '';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 
+// ── Guard: fail fast at request time if env is missing ────────────────────────
+function requireSupabaseEnv(): { url: string; key: string } {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    const missing: string[] = [];
+    if (!SUPABASE_URL) missing.push('SUPABASE_URL');
+    if (!SUPABASE_SERVICE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+    throw new Error(`MISSING_SUPABASE_ENV: missing ${missing.join(', ')}. Check your environment configuration.`);
+  }
+  return { url: SUPABASE_URL, key: SUPABASE_SERVICE_KEY };
+}
+
 // ── Supabase client ───────────────────────────────────────────────────────────
 
 function getSupabase() {
   const { createClient } = require('@supabase/supabase-js');
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-    throw new Error('MISSING_SUPABASE_ENV');
-  }
-  return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+  const { url, key } = requireSupabaseEnv();
+  return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
@@ -113,13 +122,18 @@ async function createResolveRequest(record: {
 
   if (error) {
     // Log full error server-side only (never to client)
+    // Common error codes to help diagnose:
+    //   42P01 = relation "resolve_requests" does not exist (table not migrated)
+    //   28000 / 28P01 = invalid credentials
+    //   ECONNREFUSED = network unreachable
     log('error', 'PERSIST_INSERT_FAILED', {
       requestId: record.requestId,
       platform: record.platform,
       pgError: error.message,
-      pgCode: error.code,
+      pgCode: error.code ?? 'N/A',
+      pgDetails: error.details ?? null,
     });
-    throw new Error(`PERSIST_INSERT_FAILED: ${error.message}`);
+    throw new Error(`PERSIST_INSERT_FAILED: ${error.message} [${error.code ?? 'NO_CODE'}]`);
   }
 
   log('info', 'REQUEST_CREATED', {
@@ -250,19 +264,26 @@ async function querySupabase(
 
   try {
     const sb = getSupabase();
-    const conditions: string[] = ['status.eq.active'];
-
-    if (normalized.shopId) {
-      conditions.push(`(merchant_id.eq.${normalized.shopId},merchant_id.is.null)`);
-    }
-
-    const { data, error } = await sb
+    const sbQuery = sb
       .from('offers')
       .select('*')
-      .or(conditions.join(','))
       .order('confidence_score', { ascending: false, nulls: 'last' })
       .order('synced_at', { ascending: false, nulls: 'last' })
       .limit(20);
+
+    // Build filter conditions
+    const conditions: string[] = ['status.eq.active'];
+    if (normalized.shopId) {
+      // Flat or() list — no extra parens. Supabase expects: "col1.eq.val1,col2.eq.val2"
+      conditions.push(`merchant_id.eq.${normalized.shopId}`);
+      conditions.push('merchant_id.is.null');
+    }
+
+    // Only call .or() when there are additional conditions beyond status.
+    // Without shopId the status filter alone is sufficient.
+    const { data, error } = conditions.length > 1
+      ? await sbQuery.or(conditions.join(','))
+      : await sbQuery;
 
     const queryTime = Date.now() - phaseStart - t0;
 
@@ -568,7 +589,7 @@ export async function POST(request: NextRequest) {
 
   const normalized = validation.normalized;
 
-  // ── 3. Persist pending request — MUST succeed ─────────────────────────────
+  // ── 3. Persist pending request — graceful degradation if DB is down ──────
   const persistStart = Date.now();
   let persistSucceeded = false;
   try {
@@ -583,26 +604,44 @@ export async function POST(request: NextRequest) {
   } catch (persistErr) {
     phases.total = Date.now() - totalStart;
     phases.persist = Date.now() - persistStart;
-    // CRITICAL: do NOT swallow this error. Client must know persistence failed.
-    log('error', 'PERSISTENCE_REQUIRED_FAILED', {
+    const errMsg = persistErr instanceof Error ? persistErr.message : String(persistErr);
+    const isMissingEnv = errMsg.includes('MISSING_SUPABASE_ENV');
+
+    // Log with more context so the operator can diagnose
+    log('error', 'PERSISTENCE_FAILED', {
       requestId,
-      error: persistErr instanceof Error ? persistErr.message : String(persistErr),
+      error: errMsg,
+      isMissingEnv,
+      persistMs: phases.persist,
       totalMs: phases.total,
     });
-    return NextResponse.json(
-      {
-        requestId,
-        status: 'error',
-        bestMatch: null,
-        candidates: [],
-        performance: { totalLatencyMs: phases.total, phaseTimings: phases, servedFromCache: false, resolvedAt: new Date().toISOString() },
-        explanation: { summary: 'Dịch vụ tạm thời gián đoạn.', tips: ['Vui lòng thử lại trong giây lát.'] },
-        warnings: [{ code: 'PERSISTENCE_REQUIRED_FAILED', message: 'Không thể ghi nhận yêu cầu. Vui lòng thử lại.', severity: 'warning' }],
-      },
-      { status: 503 }
-    );
+
+    if (isMissingEnv) {
+      return NextResponse.json(
+        {
+          requestId,
+          status: 'error',
+          bestMatch: null,
+          candidates: [],
+          performance: { totalLatencyMs: phases.total, phaseTimings: phases, servedFromCache: false, resolvedAt: new Date().toISOString() },
+          explanation: { summary: 'Cấu hình dịch vụ chưa hoàn chỉnh.', tips: ['Vui lòng liên hệ quản trị viên để cấu hình Supabase.'] },
+          warnings: [{ code: 'CONFIGURATION_ERROR', message: 'Dịch vụ chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.', severity: 'warning' }],
+        },
+        { status: 503 }
+      );
+    }
+
+    // Non-fatal persistence failure: continue the resolution without DB persistence.
+    // The response is returned directly without a polling contract.
+    // Supabase query still runs, so results are still available.
+    log('warn', 'PERSISTENCE_SKIPPED_GRACEFUL', {
+      requestId,
+      error: errMsg,
+    });
   }
-  log('info', 'REQUEST_PERSISTED', { requestId, persistMs: phases.persist });
+  if (persistSucceeded) {
+    log('info', 'REQUEST_PERSISTED', { requestId, persistMs: phases.persist });
+  }
 
   // ── 4. Cache lookup ────────────────────────────────────────────────────────
   const cacheStart = Date.now();

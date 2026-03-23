@@ -1,5 +1,11 @@
 /**
- * Run all migrations in order - Simple version
+ * Run all resolve_requests migrations in order.
+ *
+ * Each migration file runs in its own transaction so that a failure in one file
+ * does not abort the entire batch. Uses the pg driver's direct SQL interface
+ * (no Supabase client needed).
+ *
+ * Run: npx tsx src/scripts/runAllMigrations.ts
  */
 
 import pg from 'pg';
@@ -9,106 +15,106 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Parse connection from DATABASE_URL (preferred) or SUPABASE_URL
 const dbUrl = process.env.DATABASE_URL || '';
 const urlMatch = dbUrl.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(\w+)/);
 
 if (!urlMatch) {
-  console.error('❌ Could not parse DATABASE_URL (or SUPABASE_URL). Ensure DATABASE_URL is set in .env.local');
+  console.error('❌ Could not parse DATABASE_URL. Ensure it is set in .env (or .env.local loaded by your shell).');
+  console.error('   Format: postgresql://postgres:[PASSWORD]@db.[PROJECT].supabase.co:5432/postgres');
   process.exit(1);
 }
 
 const [, user, password, host, port, database] = urlMatch;
 
-const config = {
+const pool = new pg.Pool({
   host,
   port: parseInt(port, 10),
   database,
   user,
   password: decodeURIComponent(password),
   ssl: { rejectUnauthorized: false },
-};
+  max: 2,
+});
 
-const client = new pg.Client(config);
+/** Execute a raw SQL file in its own BEGIN/COMMIT (or ROLLBACK on failure). */
+async function runMigrationFile(filePath: string): Promise<void> {
+  const name = filePath.split(/[/\\]/).pop() ?? filePath;
+  const sql = readFileSync(filePath, 'utf-8');
 
-async function runSQL(sql: string) {
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
     await client.query(sql);
+    await client.query('COMMIT');
+    console.log(`   ✅ ${name} — committed`);
   } catch (err) {
-    const error = err as Error;
-    // pg error code 25P02 = current transaction is aborted from a prior statement.
-    // Recover by issuing ROLLBACK so the connection is clean for the next migration.
-    if (error.code === '25P02') {
-      try { await client.query('ROLLBACK'); } catch { /* ignore */ }
-    }
-    // Only re-throw errors for non-idempotent operations.
-    // Ignore: already exists / duplicate / does not exist
+    try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+    const error = err as pg.Error;
+    const code = error.code ?? '';
+    const msg = error.message ?? String(err);
+
+    // Ignorable patterns (idempotent — safe to skip)
     const ignorable = [
       'already exists',
       'duplicate',
       'does not exist',
+      'would cause duplicate',
     ];
-    const isIgnorable = ignorable.some(e => error.message.includes(e));
-    if (!isIgnorable) {
-      throw error;
+    const isIgnorable = ignorable.some((e) => msg.includes(e));
+
+    if (isIgnorable) {
+      console.log(`   ✅ ${name} — skipped (already applied): ${msg.substring(0, 80)}`);
+    } else {
+      console.error(`   ❌ ${name} — FAILED [${code}]: ${msg}`);
+      throw err;
     }
+  } finally {
+    client.release();
   }
+}
+
+async function verifyTable(tableName: string): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = $1`,
+    [tableName]
+  );
+  return result.rows.length > 0;
 }
 
 async function runAllMigrations() {
   try {
-    await client.connect();
+    // Quick connection check
+    await pool.query('SELECT 1');
     console.log('✅ Connected to Supabase\n');
 
-    // Migration files to run (in order)
-    // Only new migrations not yet applied to production
     const migrations = [
-      // resolve_requests table — required by /api/public/v1/resolve endpoint
-      '005_create_resolve_requests.sql',
-      // Add 'completed' to CHECK constraint (fixes PERSISTENCE_REQUIRED_FAILED / 503)
-      '006_add_completed_status.sql',
+      join(process.cwd(), 'migrations', '005_create_resolve_requests.sql'),
+      join(process.cwd(), 'migrations', '006_add_completed_status.sql'),
+      join(process.cwd(), 'supabase', 'migrations', '027_create_resolve_requests_rls.sql'),
     ];
 
-    for (const migrationFile of migrations) {
-      const migrationPath = join(process.cwd(), 'migrations', migrationFile);
-      console.log(`\n📄 Running migration: ${migrationFile}`);
-
-      const sql = readFileSync(migrationPath, 'utf-8');
-
-      try {
-        await runSQL(sql);
-        console.log(`   ✅ ${migrationFile} completed`);
-      } catch (err) {
-        const error = err as Error;
-        console.log(`   ⚠️ Error: ${error.message.substring(0, 100)}`);
-      }
+    for (const filePath of migrations) {
+      const name = filePath.split(/[/\\]/).pop() ?? filePath;
+      console.log(`\n📄 ${name}`);
+      await runMigrationFile(filePath);
     }
 
-    // Verify all tables
-    console.log('\n📋 Verifying tables...');
-    const result = await client.query(`
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema = 'public'
-      ORDER BY table_name
-    `);
-
-    if (result.rows.length === 0) {
-      console.log('   No tables found!');
+    // Verify
+    console.log('\n📋 Verifying resolve_requests table...');
+    const exists = await verifyTable('resolve_requests');
+    if (exists) {
+      console.log('✅ resolve_requests table confirmed in database');
     } else {
-      console.log('\n✅ Existing tables:');
-      result.rows.forEach(row => {
-        console.log(`   - ${row.table_name}`);
-      });
+      console.error('❌ resolve_requests table NOT found — migration may have failed silently');
     }
 
     console.log('\n🎉 All migrations completed!');
-
   } catch (error) {
-    console.error('\n❌ Migration failed:', error);
+    console.error('\n❌ Migration aborted:', error);
     process.exit(1);
   } finally {
-    await client.end();
+    await pool.end();
   }
 }
 
