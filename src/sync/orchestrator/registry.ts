@@ -123,7 +123,7 @@ function createMasOfferSource(): SyncSource {
           // Fresh run — start from page 1 for deals
           const result = await client.fetchDeals({ page: 1, pageSize: 100 });
           if (result.data && result.data.length > 0) {
-            const records = result.data.map(mapOfferItemToOffer);
+            const records = result.data.map((item: Parameters<typeof mapOfferItemToOffer>[0]) => mapOfferItemToOffer(item));
             if (!dryRun) {
               const r = await upsertOfferBatch(records);
               totalInserted += r.inserted;
@@ -147,7 +147,7 @@ function createMasOfferSource(): SyncSource {
           const result = await client.fetchDeals({ page, pageSize: 100 });
           if (!result.data || result.data.length === 0) break;
 
-          const records = result.data.map(mapOfferItemToOffer);
+          const records = result.data.map((item: Parameters<typeof mapOfferItemToOffer>[0]) => mapOfferItemToOffer(item));
           if (!dryRun) {
             const r = await upsertOfferBatch(records);
             totalInserted += r.inserted;

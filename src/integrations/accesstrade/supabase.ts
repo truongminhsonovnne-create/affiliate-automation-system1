@@ -191,15 +191,21 @@ export async function upsertOfferBatch(
 
   // Fetch existing records for all external_ids in one query
   const externalIds = offers.map((o) => o.external_id);
+  const sources = [...new Set(offers.map((o) => o.source))];
   const { data: existingRows } = await sb
     .from('offers')
-    .select('id, external_id, normalized_hash')
-    .eq('source', 'accesstrade')
+    .select('id, external_id, source, normalized_hash, first_seen_at')
+    .in('source', sources)
     .in('external_id', externalIds);
 
-  const existingMap = new Map<string, { id: string; hash: string }>();
+  // Key by composite (source, external_id) to correctly dedupe across sources
+  const existingMap = new Map<string, { id: string; hash: string; first_seen_at: string }>();
   for (const row of existingRows ?? []) {
-    existingMap.set(row.external_id, { id: row.id, hash: row.normalized_hash });
+    existingMap.set(`${row.source}::${row.external_id}`, {
+      id: row.id,
+      hash: row.normalized_hash,
+      first_seen_at: row.first_seen_at,
+    });
   }
 
   const toInsert: Array<Omit<NormalisedOffer, 'id' | 'created_at' | 'updated_at'>> = [];
@@ -207,7 +213,7 @@ export async function upsertOfferBatch(
   let skipped = 0;
 
   for (const offer of offers) {
-    const existing = existingMap.get(offer.external_id);
+    const existing = existingMap.get(`${offer.source}::${offer.external_id}`);
     if (!existing) {
       toInsert.push(offer);
     } else if (existing.hash === offer.normalized_hash) {
@@ -232,6 +238,7 @@ export async function upsertOfferBatch(
   // Batch update changed records
   if (toUpdate.length > 0) {
     for (const { id, offer } of toUpdate) {
+      const original = existingMap.get(`${offer.source}::${offer.external_id}`);
       await sb
         .from('offers')
         .update({
@@ -260,6 +267,18 @@ export async function upsertOfferBatch(
           raw_payload_jsonb: offer.raw_payload_jsonb,
           normalized_hash: offer.normalized_hash,
           updated_at: new Date().toISOString(),
+          // Preserve original first_seen_at so we always know ingestion age
+          first_seen_at: original?.first_seen_at ?? offer.first_seen_at,
+          // Enrichment fields (only update if present in the new payload)
+          ...(offer.used_count !== undefined       && { used_count: offer.used_count }),
+          ...(offer.click_count !== undefined      && { click_count: offer.click_count }),
+          ...(offer.conversion_count !== undefined && { conversion_count: offer.conversion_count }),
+          ...(offer.hotness_score !== undefined    && { hotness_score: offer.hotness_score }),
+          ...(offer.is_pushsale !== undefined       && { is_pushsale: offer.is_pushsale }),
+          ...(offer.is_exclusive !== undefined     && { is_exclusive: offer.is_exclusive }),
+          ...(offer.freshness_score !== undefined  && { freshness_score: offer.freshness_score }),
+          ...(offer.url_quality_score !== undefined && { url_quality_score: offer.url_quality_score }),
+          ...(offer.deal_subtype !== undefined     && { deal_subtype: offer.deal_subtype }),
         } satisfies Partial<NormalisedOffer>)
         .eq('id', id);
 

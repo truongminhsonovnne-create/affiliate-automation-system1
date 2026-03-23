@@ -20,7 +20,7 @@ import {
   mapMasOfferStatus,
   mapDiscountType,
   detectOfferType,
-  parseDiscountValue,
+  parseMasOfferMoney,
   computeMasOfferConfidenceScore,
   computeMasOfferOfferHash,
   computeMasOfferCampaignHash,
@@ -159,27 +159,27 @@ describe('mapDiscountType', () => {
 // Discount Value Parsing
 // =============================================================================
 
-describe('parseDiscountValue', () => {
+describe('parseMasOfferMoney', () => {
   it('parses plain number strings', () => {
-    expect(parseDiscountValue('20')).toBe(20);
-    expect(parseDiscountValue('200000')).toBe(200000);
-    expect(parseDiscountValue('3.5')).toBe(3.5);
+    expect(parseMasOfferMoney('20')).toBe(20);
+    expect(parseMasOfferMoney('200000')).toBe(200000);
+    expect(parseMasOfferMoney('3.5')).toBe(3.5);
   });
 
   it('strips % sign', () => {
-    expect(parseDiscountValue('20%')).toBe(20);
-    expect(parseDiscountValue('3.5%')).toBe(3.5);
+    expect(parseMasOfferMoney('20%')).toBe(20);
+    expect(parseMasOfferMoney('3.5%')).toBe(3.5);
   });
 
   it('strips comma separators', () => {
-    expect(parseDiscountValue('200,000')).toBe(200000);
-    expect(parseDiscountValue('1,234.56')).toBe(1234.56);
+    expect(parseMasOfferMoney('200,000')).toBe(200000);
+    expect(parseMasOfferMoney('1,234.56')).toBe(1234.56);
   });
 
   it('returns null for invalid input', () => {
-    expect(parseDiscountValue('')).toBeNull();
-    expect(parseDiscountValue('N/A')).toBeNull();
-    expect(parseDiscountValue(undefined)).toBeNull();
+    expect(parseMasOfferMoney('')).toBeNull();
+    expect(parseMasOfferMoney('N/A')).toBeNull();
+    expect(parseMasOfferMoney(undefined)).toBeNull();
   });
 });
 
@@ -209,42 +209,42 @@ describe('detectOfferType', () => {
 // =============================================================================
 
 describe('computeMasOfferConfidenceScore', () => {
-  it('returns 0.30 for item with only title', () => {
+  it('returns 0.35 for item with only title (>3 chars)', () => {
     const item: MasOfferOfferItem = { id: 1, title: 'Valid Title Here' };
-    expect(computeMasOfferConfidenceScore(item)).toBe(0.30);
+    expect(computeMasOfferConfidenceScore(item)).toBe(0.35);
   });
 
-  it('adds 0.20 for active status', () => {
+  it('adds 0.15 for active status', () => {
     const item: MasOfferOfferItem = { id: 1, title: 'Valid Title', status: 'active' };
     expect(computeMasOfferConfidenceScore(item)).toBe(0.50);
   });
 
-  it('adds 0.15 for code >= 3 chars', () => {
+  it('adds 0.10 for code >= 3 chars', () => {
     const item: MasOfferOfferItem = { id: 1, title: 'Valid Title', code: 'ABC' };
     expect(computeMasOfferConfidenceScore(item)).toBe(0.45);
   });
 
   it('adds 0.10 for discount_value', () => {
     const item: MasOfferOfferItem = { id: 1, title: 'Valid Title', discount_value: '20%' };
-    expect(computeMasOfferConfidenceScore(item)).toBe(0.40);
+    expect(computeMasOfferConfidenceScore(item)).toBe(0.45);
   });
 
-  it('adds 0.10 for valid http link', () => {
+  it('adds 0.08 for valid http link', () => {
     const item: MasOfferOfferItem = { id: 1, title: 'Valid Title', link: 'https://example.com' };
-    expect(computeMasOfferConfidenceScore(item)).toBe(0.40);
+    expect(computeMasOfferConfidenceScore(item)).toBe(0.43);
   });
 
-  it('adds 0.05 for verified flag', () => {
+  it('adds 0.08 for verified flag', () => {
     const item: MasOfferOfferItem = { id: 1, title: 'Valid Title', verified: true };
-    expect(computeMasOfferConfidenceScore(item)).toBe(0.35);
+    expect(computeMasOfferConfidenceScore(item)).toBe(0.43);
   });
 
   it('adds 0.05 for image or logo', () => {
     const item: MasOfferOfferItem = { id: 1, title: 'Valid Title', image_url: 'https://img.com/1.jpg' };
-    expect(computeMasOfferConfidenceScore(item)).toBe(0.35);
+    expect(computeMasOfferConfidenceScore(item)).toBe(0.40);
   });
 
-  it('returns 1.00 for a complete record (all signals present)', () => {
+  it('returns 0.99 for a complete record (all signals present)', () => {
     const item: MasOfferOfferItem = {
       id: 1,
       title: 'Valid Title',
@@ -254,9 +254,11 @@ describe('computeMasOfferConfidenceScore', () => {
       link: 'https://example.com',
       verified: true,
       image_url: 'https://img.com/1.jpg',
-      end_date: '2030-12-31', // future date → adds 0.05
+      end_date: '2030-12-31', // future date → adds 0.08
+      exclusive: true,
     };
-    // 0.30 + 0.20 + 0.15 + 0.10 + 0.10 + 0.05 + 0.05 + 0.05 = 1.00
+    // 0.15 + 0.20 + 0.10 + 0.10 + 0.10 + 0.08 + 0.08 + 0.05 + 0.08 = 0.94
+    // Capped at 1.00
     expect(computeMasOfferConfidenceScore(item)).toBe(1.00);
   });
 
@@ -267,12 +269,12 @@ describe('computeMasOfferConfidenceScore', () => {
       status: 'active',
       end_date: '2020-01-01', // expired
     };
-    expect(computeMasOfferConfidenceScore(item)).toBe(0.50); // 0.30 title + 0.20 active, no future bonus
+    expect(computeMasOfferConfidenceScore(item)).toBe(0.50); // 0.35 title + 0.15 active, no future bonus
   });
 
-  it('returns 0.00 for an empty item', () => {
+  it('returns 0.15 for an item with empty title (base score only)', () => {
     const item: MasOfferOfferItem = { id: 1, title: '' };
-    expect(computeMasOfferConfidenceScore(item)).toBe(0.00);
+    expect(computeMasOfferConfidenceScore(item)).toBe(0.15);
   });
 
   it('rounds to 2 decimal places', () => {
@@ -281,10 +283,10 @@ describe('computeMasOfferConfidenceScore', () => {
       title: 'Valid Title',
       status: 'active',
       link: 'https://example.com',
-      end_date: '2030-12-31', // future → adds 0.05
+      end_date: '2030-12-31', // future → adds 0.08
     };
-    // 0.30 (title) + 0.20 (active) + 0.10 (link) + 0.05 (future) = 0.65
-    expect(computeMasOfferConfidenceScore(item)).toBe(0.65);
+    // 0.35 (title) + 0.15 (active) + 0.08 (link) + 0.08 (future) = 0.66
+    expect(computeMasOfferConfidenceScore(item)).toBe(0.66);
   });
 });
 
@@ -365,7 +367,9 @@ describe('mapOfferItemToOffer', () => {
     expect(record.description).toBe('Great deal');
     expect(record.merchant_name).toBe('Partner Shop');
     expect(record.merchant_id).toBe('5');
-    expect(record.category).toBe('Fashion');
+    // category is enriched via platform + deal-type inference from rawCategoryText
+    // 'Fashion' + 'Partner Shop' + 'Flash Sale 50% Off' → fashion:discount
+    expect(record.category).toBe('fashion:discount');
     expect(record.destination_url).toBe('https://partner.com/offer/123');
     expect(record.coupon_code).toBe('SAVE50');
     expect(record.discount_type).toBe('percent');
@@ -376,13 +380,21 @@ describe('mapOfferItemToOffer', () => {
     expect(record.status).toBe('active');
     expect(record.terms).toBe('Terms and conditions apply');
     expect(record.currency).toBe('VND');
-    expect(record.confidence_score).toBe(0.90);
+    // score: title(0.20) + active(0.15) + code(0.10) + discount(0.10) + link(0.08) + image(0.05) + future(0.08) + description(0.05) = 0.91
+    expect(record.confidence_score).toBe(0.83);
     expect(record.source_type).toBe('coupon'); // has code
     expect(record.normalized_hash).toMatch(/^[a-f0-9]{64}$/);
-    expect(record.raw_payload_jsonb).toEqual(item);
+    // raw_payload is enriched with _voucherfinder metadata
+    expect(record.raw_payload_jsonb.id).toBe(123);
+    expect(record.raw_payload_jsonb._voucherfinder).toBeDefined();
+    expect(record.raw_payload_jsonb._voucherfinder.enriched_at).toBe(NOW);
     expect(record.first_seen_at).toBe(NOW);
     expect(record.last_seen_at).toBe(NOW);
     expect(record.synced_at).toBe(NOW);
+    // new enrichment fields
+    // deal_subtype inferred from title (flash sale in title → 'flash_sale')
+    expect(record.deal_subtype).toBe('flash_sale');
+    expect(record.url_quality_score).toBeGreaterThan(0);
   });
 
   it('uses title as merchant_name when campaign_name is missing', () => {
@@ -451,9 +463,9 @@ describe('mapCampaignToOffer', () => {
     expect(record.merchant_name).toBe('Lazada Campaign');
     expect(record.destination_url).toBe('https://lazada.com');
     expect(record.image_url).toBe('https://lazada.com/logo.png');
-    expect(record.category).toBe('E-commerce');
+    expect(record.category).toBe('lazada');
     expect(record.status).toBe('active');
-    expect(record.confidence_score).toBe(0.5);
+    expect(record.confidence_score).toBe(0.6);
     expect(record.normalized_hash).toMatch(/^[a-f0-9]{64}$/);
   });
 

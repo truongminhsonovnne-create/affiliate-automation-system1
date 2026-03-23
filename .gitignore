@@ -40,6 +40,9 @@ coverage/
 .env.*.secret
 !.env.example
 
+# Local AI tool settings may contain secrets
+.claude/settings.local.json
+
 # Per-app env files (apps/* has its own .env handling)
 apps/*/.env
 apps/*/.env.local

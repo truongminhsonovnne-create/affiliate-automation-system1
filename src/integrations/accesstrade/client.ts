@@ -23,10 +23,14 @@
 import type {
   AccessTradeCampaign,
   AccessTradeDeal,
+  AccessTradeVoucher,
+  AccessTradeCoupon,
   AccessTradePaginatedResponse,
   AccessTradeClientConfig,
   FetchCampaignsOptions,
   FetchDealsOptions,
+  FetchVouchersOptions,
+  FetchCouponsOptions,
 } from './types.js';
 
 // =============================================================================
@@ -318,6 +322,56 @@ export class AccessTradeApiClient {
     return result.data ?? [];
   }
 
+  // ── Vouchers ───────────────────────────────────────────────────────────────
+
+  /**
+   * Fetch voucher-type offers from /v1/vouchers.
+   * These typically include free-shipping and non-code-based offers.
+   */
+  async fetchVouchers(
+    options: FetchVouchersOptions = {}
+  ): Promise<AccessTradePaginatedResponse<AccessTradeVoucher>> {
+    const { page = 1, pageSize = 100, campaignId, status } = options;
+    const params: Record<string, unknown> = { page, page_size: pageSize };
+    if (campaignId !== undefined) params.campaign_id = campaignId;
+    if (status) params.status = status;
+
+    return withRetry(
+      () =>
+        this.request<AccessTradePaginatedResponse<AccessTradeVoucher>>('/v1/vouchers', {
+          params,
+          timeout: SYNC_TIMEOUT_MS,
+        }),
+      this.maxRetries,
+      'fetchVouchers'
+    );
+  }
+
+  // ── Coupons ───────────────────────────────────────────────────────────────
+
+  /**
+   * Fetch coupon-type offers from /v1/coupons.
+   * These are code-based offers.
+   */
+  async fetchCoupons(
+    options: FetchCouponsOptions = {}
+  ): Promise<AccessTradePaginatedResponse<AccessTradeCoupon>> {
+    const { page = 1, pageSize = 100, campaignId, status } = options;
+    const params: Record<string, unknown> = { page, page_size: pageSize };
+    if (campaignId !== undefined) params.campaign_id = campaignId;
+    if (status) params.status = status;
+
+    return withRetry(
+      () =>
+        this.request<AccessTradePaginatedResponse<AccessTradeCoupon>>('/v1/coupons', {
+          params,
+          timeout: SYNC_TIMEOUT_MS,
+        }),
+      this.maxRetries,
+      'fetchCoupons'
+    );
+  }
+
   // ── Connectivity Test ─────────────────────────────────────────────────────
 
   async testConnection(): Promise<{
@@ -375,6 +429,40 @@ export class AccessTradeApiClient {
 
     while (true) {
       const result = await this.fetchCampaigns({ ...options, page, pageSize: 100 });
+      if (result.data.length === 0) break;
+
+      yield result.data;
+
+      const totalPages = result.pagination?.total_pages ?? 1;
+      if (page >= totalPages) break;
+      page++;
+    }
+  }
+
+  async *streamVouchers(
+    options: Omit<FetchVouchersOptions, 'page'> = {}
+  ): AsyncGenerator<AccessTradeVoucher[]> {
+    let page = 1;
+
+    while (true) {
+      const result = await this.fetchVouchers({ ...options, page, pageSize: 100 });
+      if (result.data.length === 0) break;
+
+      yield result.data;
+
+      const totalPages = result.pagination?.total_pages ?? 1;
+      if (page >= totalPages) break;
+      page++;
+    }
+  }
+
+  async *streamCoupons(
+    options: Omit<FetchCouponsOptions, 'page'> = {}
+  ): AsyncGenerator<AccessTradeCoupon[]> {
+    let page = 1;
+
+    while (true) {
+      const result = await this.fetchCoupons({ ...options, page, pageSize: 100 });
       if (result.data.length === 0) break;
 
       yield result.data;

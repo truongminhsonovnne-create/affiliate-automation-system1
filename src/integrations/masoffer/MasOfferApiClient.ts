@@ -23,6 +23,10 @@ import type {
   MasOfferDealsResponse,
   MasOfferVouchersResponse,
   MasOfferCouponsResponse,
+  MasOfferPromotionsResponse,
+  MasOfferOfferAllResponse,
+  MasOfferPushSaleResponse,
+  MasOfferBrandResponse,
   MasOfferCampaign,
   MasOfferOfferItem,
   MasOfferListResponse,
@@ -431,6 +435,109 @@ export class MasOfferApiClient {
     return allItems;
   }
 
+  // ── Promotions ─────────────────────────────────────────────────────────────
+
+  /**
+   * Fetch promotion-style offers.
+   * MasOffer uses /v1/promotions for platform-level promotions (Shopee, Lazada, etc.)
+   */
+  async fetchPromotions(
+    options: FetchOffersOptions = {}
+  ): Promise<MasOfferPromotionsResponse> {
+    const { page = 1, pageSize = 100, campaignId, status, category } = options;
+    const params: Record<string, unknown> = { page, limit: pageSize };
+    if (campaignId !== undefined) params.campaign_id = campaignId;
+    if (status) params.status = status;
+    if (category) params.category = category;
+
+    return withRetry(
+      () =>
+        this.request<MasOfferPromotionsResponse>('/v1/promotions', {
+          params,
+          timeout: SYNC_TIMEOUT_MS,
+        }),
+      this.maxRetries,
+      'fetchPromotions'
+    );
+  }
+
+  // ── Offer/All — Combined endpoint ─────────────────────────────────────────
+
+  /**
+   * Fetch all offer types from a single combined endpoint.
+   * This is more efficient than calling deals/vouchers/coupons separately.
+   */
+  async fetchOfferAll(
+    options: FetchOffersOptions = {}
+  ): Promise<MasOfferOfferAllResponse> {
+    const { page = 1, pageSize = 100, campaignId, status, category } = options;
+    const params: Record<string, unknown> = { page, limit: pageSize };
+    if (campaignId !== undefined) params.campaign_id = campaignId;
+    if (status) params.status = status;
+    if (category) params.category = category;
+
+    return withRetry(
+      () =>
+        this.request<MasOfferOfferAllResponse>('/v1/offer/all', {
+          params,
+          timeout: SYNC_TIMEOUT_MS,
+        }),
+      this.maxRetries,
+      'fetchOfferAll'
+    );
+  }
+
+  // ── Offer/Brand — Brand-filtered offers ───────────────────────────────────
+
+  /**
+   * Fetch offers filtered by brand/merchant.
+   * Useful for bulk-loading all offers for a specific merchant.
+   */
+  async fetchBrandOffers(
+    brandId: number,
+    options: FetchOffersOptions = {}
+  ): Promise<MasOfferBrandResponse> {
+    const { page = 1, pageSize = 100, status, category } = options;
+    const params: Record<string, unknown> = { page, limit: pageSize, brand_id: brandId };
+    if (status) params.status = status;
+    if (category) params.category = category;
+
+    return withRetry(
+      () =>
+        this.request<MasOfferBrandResponse>('/v1/offer/brand', {
+          params,
+          timeout: SYNC_TIMEOUT_MS,
+        }),
+      this.maxRetries,
+      'fetchBrandOffers'
+    );
+  }
+
+  // ── Offer/Pushsale — Hot deals ────────────────────────────────────────────
+
+  /**
+   * Fetch pushsale / hot / exclusive deals.
+   * These are the highest-quality, most-active deals — prioritize these in scoring.
+   */
+  async fetchPushSale(
+    options: Omit<FetchOffersOptions, 'campaignId'> = {}
+  ): Promise<MasOfferPushSaleResponse> {
+    const { page = 1, pageSize = 100, status, category } = options;
+    const params: Record<string, unknown> = { page, limit: pageSize };
+    if (status) params.status = status;
+    if (category) params.category = category;
+
+    return withRetry(
+      () =>
+        this.request<MasOfferPushSaleResponse>('/v1/offer/pushsale', {
+          params,
+          timeout: SYNC_TIMEOUT_MS,
+        }),
+      this.maxRetries,
+      'fetchPushSale'
+    );
+  }
+
   // ── Connectivity Test ─────────────────────────────────────────────────────
 
   async testConnection(): Promise<{
@@ -552,6 +659,60 @@ export class MasOfferApiClient {
     for await (const batch of couponStream) {
       yield batch;
       done.coupons = true;
+    }
+  }
+
+  // ── Stream: Promotions ─────────────────────────────────────────────────────
+
+  async *streamPromotions(
+    options: Omit<FetchOffersOptions, 'page'> = {}
+  ): AsyncGenerator<MasOfferOfferItem[]> {
+    let page = 1;
+    while (true) {
+      const result = await this.fetchPromotions({ ...options, page, pageSize: 100 });
+      if (!result.data || result.data.length === 0) break;
+
+      yield result.data;
+
+      const totalPages = result.pagination?.total_pages ?? 1;
+      if (page >= totalPages) break;
+      page++;
+    }
+  }
+
+  // ── Stream: Offer/All ─────────────────────────────────────────────────────
+
+  async *streamOfferAll(
+    options: Omit<FetchOffersOptions, 'page'> = {}
+  ): AsyncGenerator<MasOfferOfferItem[]> {
+    let page = 1;
+    while (true) {
+      const result = await this.fetchOfferAll({ ...options, page, pageSize: 100 });
+      if (!result.data || result.data.length === 0) break;
+
+      yield result.data;
+
+      const totalPages = result.pagination?.total_pages ?? 1;
+      if (page >= totalPages) break;
+      page++;
+    }
+  }
+
+  // ── Stream: Pushsale / Hot Deals ──────────────────────────────────────────
+
+  async *streamPushSale(
+    options: Omit<FetchOffersOptions, 'page' | 'campaignId'> = {}
+  ): AsyncGenerator<MasOfferOfferItem[]> {
+    let page = 1;
+    while (true) {
+      const result = await this.fetchPushSale({ ...options, page, pageSize: 100 });
+      if (!result.data || result.data.length === 0) break;
+
+      yield result.data;
+
+      const totalPages = result.pagination?.total_pages ?? 1;
+      if (page >= totalPages) break;
+      page++;
     }
   }
 }

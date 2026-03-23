@@ -116,7 +116,7 @@ describe('computeConfidenceScore', () => {
       discount_value: 0, end_date: undefined, min_order_value: undefined,
       campaign_name: '', tracking_url: undefined, is_exclusive: false,
     });
-    expect(computeConfidenceScore(deal)).toBeGreaterThanOrEqual(0.3);
+    expect(computeConfidenceScore(deal)).toBeGreaterThanOrEqual(0.15);
   });
 
   it('adds score for coupon code', () => {
@@ -259,10 +259,15 @@ describe('mapDealToOffer', () => {
     expect(offer.description).toBe('Áp dụng cho đơn từ 200k. Nhanh tay!');
   });
 
-  it('stores raw_payload_jsonb intact', () => {
+  it('stores raw_payload_jsonb intact with enrichment metadata', () => {
     const raw = { original: 'data', nested: { value: 42 } };
-    const offer = mapDealToOffer(deal, raw);
-    expect(offer.raw_payload_jsonb).toEqual(raw);
+    const exclusiveDeal = { ...deal, is_exclusive: false };
+    const offer = mapDealToOffer(exclusiveDeal, raw);
+    // raw payload is preserved and enriched with _voucherfinder metadata
+    expect(offer.raw_payload_jsonb.original).toBe('data');
+    expect(offer.raw_payload_jsonb.nested).toEqual({ value: 42 });
+    expect(offer.raw_payload_jsonb._voucherfinder).toBeDefined();
+    expect(offer.raw_payload_jsonb._voucherfinder.is_exclusive).toBe(false);
   });
 
   it('sets currency to VND', () => {

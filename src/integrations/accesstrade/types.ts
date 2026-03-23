@@ -41,7 +41,18 @@ export interface AccessTradeCampaign {
 }
 
 /** Deal / voucher type */
-export type AccessTradeDealType = 'voucher' | 'promotion' | 'cashback' | 'flash_sale';
+export type AccessTradeDealType =
+  | 'voucher'
+  | 'promotion'
+  | 'cashback'
+  | 'flash_sale'
+  | 'pushsale';
+
+/** Separate voucher type (from /v1/vouchers endpoint) */
+export type AccessTradeVoucherType = 'voucher' | 'free_shipping';
+
+/** Separate coupon type (from /v1/coupons endpoint) */
+export type AccessTradeCouponType = 'coupon' | 'discount_code';
 
 /** Deal status */
 export type AccessTradeDealStatus = 'active' | 'inactive' | 'expired';
@@ -99,6 +110,50 @@ export interface AccessTradeSingleResponse<T> {
   success: boolean;
 }
 
+/** AccessTrade voucher record (from /v1/vouchers) */
+export interface AccessTradeVoucher {
+  id: number;
+  campaign_id: number;
+  campaign_name: string;
+  title: string;
+  description?: string;
+  code?: string;
+  discount_type: 'percent' | 'fixed' | 'free_shipping';
+  discount_value: number;
+  min_order_value?: number;
+  max_discount?: number;
+  start_date: string;
+  end_date: string;
+  status: AccessTradeDealStatus;
+  tracking_url?: string;
+  is_exclusive?: boolean;
+  usage_limit?: number;
+  uses_remaining?: number;
+  updated_at?: string;
+}
+
+/** AccessTrade coupon record (from /v1/coupons) */
+export interface AccessTradeCoupon {
+  id: number;
+  campaign_id: number;
+  campaign_name: string;
+  title: string;
+  description?: string;
+  code?: string;
+  discount_type: 'percent' | 'fixed';
+  discount_value: number;
+  min_order_value?: number;
+  max_discount?: number;
+  start_date: string;
+  end_date: string;
+  status: AccessTradeDealStatus;
+  tracking_url?: string;
+  is_exclusive?: boolean;
+  usage_limit?: number;
+  uses_remaining?: number;
+  updated_at?: string;
+}
+
 // =============================================================================
 // Normalised Domain Types (shared across all offer sources)
 // =============================================================================
@@ -110,7 +165,7 @@ export type OfferSource = 'accesstrade' | 'masoffer' | 'shopee' | 'ecomobi' | 'm
 export type OfferSourceType = 'campaign' | 'voucher' | 'coupon' | 'deal' | 'promotion';
 
 /** Normalised discount type */
-export type NormalisedDiscountType = 'percent' | 'fixed' | 'free_shipping' | 'cashback';
+export type NormalisedDiscountType = 'percent' | 'fixed' | 'free_shipping' | 'cashback' | 'other';
 
 /** Normalised offer status */
 export type NormalisedOfferStatus = 'active' | 'inactive' | 'expired' | 'pending';
@@ -141,6 +196,20 @@ export interface NormalisedOffer {
   terms: string | null;
   image_url: string | null;
   confidence_score: number; // 0.0 – 1.0
+  // ── Engagement / hotness signals ────────────────────────
+  used_count?: number;
+  click_count?: number;
+  conversion_count?: number;
+  hotness_score?: number;        // 0.0 – 1.0
+  is_pushsale?: boolean;
+  is_exclusive?: boolean;
+  verified_at?: string | null;
+  freshness_score?: number;      // 0.0 – 1.0
+  // ── URL quality ─────────────────────────────────────────
+  url_quality_score?: number;    // 0.0 – 1.0
+  // ── Granular deal classification ─────────────────────────
+  deal_subtype?: string | null;  // flash_sale | pushesale | cashback | free_shipping | hot_deal | general
+  // ── Audit ───────────────────────────────────────────────
   last_seen_at: string;
   first_seen_at: string;
   synced_at: string;
@@ -221,6 +290,20 @@ export interface FetchDealsOptions {
   pageSize?: number;
   campaignId?: number;
   type?: AccessTradeDealType;
+  status?: AccessTradeDealStatus;
+}
+
+export interface FetchVouchersOptions {
+  page?: number;
+  pageSize?: number;
+  campaignId?: number;
+  status?: AccessTradeDealStatus;
+}
+
+export interface FetchCouponsOptions {
+  page?: number;
+  pageSize?: number;
+  campaignId?: number;
   status?: AccessTradeDealStatus;
 }
 
