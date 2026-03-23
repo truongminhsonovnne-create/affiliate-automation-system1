@@ -1,0 +1,83 @@
+name: Sync — AccessTrade Offers
+
+on:
+  # Run twice daily at 07:00 and 19:00 UTC (2pm and 2am Vietnam: UTC+7)
+  schedule:
+    - cron: '0 7,19 * * *'
+
+  # Manual trigger from GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no DB writes)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+# ──────────────────────────────────────────────────────────────────────────────
+# REQUIRED GITHUB SECRETS — set in: Settings → Secrets and variables → Actions
+# ──────────────────────────────────────────────────────────────────────────────
+# ACCESSTRADE_API_KEY     — AccessTrade API token from pub.accesstrade.vn
+# SUPABASE_URL            — Your Supabase project URL
+# SUPABASE_SERVICE_KEY    — Supabase service role key (write access)
+# ──────────────────────────────────────────────────────────────────────────────
+
+env:
+  ACCESSTRADE_API_KEY: ${{ secrets.ACCESSTRADE_API_KEY }}
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+jobs:
+  sync:
+    name: Sync AccessTrade Offers
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Validate secrets
+        run: |
+          for var in ACCESSTRADE_API_KEY SUPABASE_URL SUPABASE_SERVICE_KEY; do
+            val=$(printenv $var)
+            if [ -z "$val" ]; then
+              echo "ERROR: $var secret is not set in GitHub Settings → Secrets"
+              exit 1
+            fi
+          done
+          echo "✓ All secrets validated"
+          echo "  SUPABASE_URL: ${SUPABASE_URL:0:40}..."
+          echo "  AT API Key: ${ACCESSTRADE_API_KEY:0:8}..."
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run AccessTrade sync
+        id: sync
+        run: |
+          EXTRA_ARGS=""
+          if [ "${{ inputs.dry_run || 'false' }}" = "true" ]; then
+            EXTRA_ARGS="--dry-run"
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "  Running AccessTrade sync  |  ${EXTRA_ARGS:-LIVE}"
+          echo "=========================================="
+
+          node scripts/sync-at-offers.js $EXTRA_ARGS
+
+      - name: Set step summary
+        if: always()
+        run: |
+          echo "## AccessTrade Sync — $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Dry Run:** ${{ inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
