@@ -11,7 +11,7 @@
     "lint": "eslint src/ --max-warnings 0",
     "lint:fix": "eslint src/ --fix",
     "dev:admin": "next dev admin",
-    "build": "npm run build --prefix apps/admin-dashboard",
+    "build": "cd apps/admin-dashboard && npm install && npm run build",
     "build:web": "npm run build --prefix apps/admin-dashboard",
     "build:worker": "tsc --project tsconfig.worker.json",
     "start": "node dist/orchestrator/runPipeline.js",
