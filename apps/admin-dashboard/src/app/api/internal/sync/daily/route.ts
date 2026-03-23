@@ -76,11 +76,11 @@ async function getMasOfferClient() {
 }
 
 async function getAccessTradeClient() {
-  if (_cache.accesstrade) return _cache.accesstrade as unknown as { getDeals: (p: Record<string, unknown>) => Promise<{ data: Array<Record<string, unknown>>; pagination?: { total: number } }> };
+  if (_cache.accesstrade) return _cache.accesstrade as unknown as { getOffers: (p: Record<string, unknown>) => Promise<{ data: Array<Record<string, unknown>> }> };
   const { AccessTradeClient } = await import('@/lib/api/accesstrade-client');
   const client = new AccessTradeClient();
   _cache.accesstrade = client;
-  return client as unknown as { getDeals: (p: Record<string, unknown>) => Promise<{ data: Array<Record<string, unknown>>; pagination?: { total: number; total_pages: number } }> };
+  return client as unknown as { getOffers: (p: Record<string, unknown>) => Promise<{ data: Array<Record<string, unknown>> }> };
 }
 
 // ── Checkpoint helpers ──────────────────────────────────────────────────────
@@ -264,42 +264,51 @@ async function syncAccessTrade(opts: { dryRun: boolean; maxPages: number }): Pro
 }> {
   const { dryRun, maxPages } = opts;
   const client = await getAccessTradeClient();
+  const { mapOfferToNormalisedOffer } = await import('@/lib/api/accesstrade-mapper');
   const start = Date.now();
   const errors: string[] = [];
   let page = 1;
   let totalFetched = 0, totalInserted = 0, totalUpdated = 0, totalSkipped = 0;
 
   try {
-    const result = await client.getDeals({ page, page_size: 100, status: 'active' });
-    if (result.data?.length) {
-      const { mapDealToOffer } = await import('@/lib/api/accesstrade-mapper');
-      // eslint-disable-next-line
-      const records = (result.data as unknown as Parameters<typeof mapDealToOffer>[0][]).map((d) => mapDealToOffer(d, d as unknown as Record<string, unknown>));
+    // Fetch first page — /v1/offers_informations has no pagination wrapper
+    const firstResult = await client.getOffers({ page, limit: 100, status: 1 });
+    const firstOffers = firstResult.data ?? [];
+    totalFetched += firstOffers.length;
+
+    if (firstOffers.length > 0) {
+      const records = firstOffers.map((o) =>
+        mapOfferToNormalisedOffer(o, o as unknown as Record<string, unknown>)
+      );
       if (!dryRun) {
         const r = await upsertOfferBatch(records);
         totalInserted += r.inserted; totalUpdated += r.updated; totalSkipped += r.skipped;
       } else {
         totalInserted += records.length;
       }
-      totalFetched += result.data.length;
     }
 
-    const tp = result.pagination?.total ?? 1;
-    while (page < tp && page < maxPages) {
+    // Fetch remaining pages
+    while (page < maxPages) {
       try {
         page++;
-        const r = await client.getDeals({ page, page_size: 100, status: 'active' });
-        if (!r.data?.length) break;
-        const { mapDealToOffer } = await import('@/lib/api/accesstrade-mapper');
-        // eslint-disable-next-line
-        const records = (r.data as unknown as Parameters<typeof mapDealToOffer>[0][]).map((d) => mapDealToOffer(d, d as unknown as Record<string, unknown>));
+        const r = await client.getOffers({ page, limit: 100, status: 1 });
+        const offers = r.data ?? [];
+        if (offers.length === 0) break;
+
+        const records = offers.map((o) =>
+          mapOfferToNormalisedOffer(o, o as unknown as Record<string, unknown>)
+        );
         if (!dryRun) {
           const res = await upsertOfferBatch(records);
           totalInserted += res.inserted; totalUpdated += res.updated; totalSkipped += res.skipped;
         } else {
           totalInserted += records.length;
         }
-        totalFetched += r.data.length;
+        totalFetched += offers.length;
+
+        // If we got fewer than a full page, we've reached the end
+        if (offers.length < 100) break;
       } catch (err) {
         errors.push(`Page ${page}: ${err instanceof Error ? err.message : String(err)}`);
         break;
