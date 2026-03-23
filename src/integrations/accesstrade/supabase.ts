@@ -228,11 +228,10 @@ export async function upsertOfferBatch(
     }
   }
 
-  // Batch insert new records
-  if (toInsert.length > 0) {
-    const insertRows = toInsert.map((o) => ({ ...o }));
-    const { error } = await sb.from('offers').insert(insertRows);
-    if (error) throw error;
+  // Insert one by one so we can catch errors per-row
+  for (const offer of toInsert) {
+    const { error } = await sb.from('offers').insert(offer).select('id').single();
+    if (error && !error.message?.includes('duplicate')) throw error;
   }
 
   // Batch update changed records

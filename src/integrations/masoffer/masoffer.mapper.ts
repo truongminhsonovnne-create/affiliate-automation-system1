@@ -111,8 +111,8 @@ export function toSlug(text: string): string {
  * Handles: "2025-01-15", "2025-01-15 00:00:00", "15/01/2025", "01/15/2025"
  * Returns null if the date cannot be parsed.
  */
-export function parseMasOfferDate(raw: string | undefined | null): string | null {
-  if (!raw) return null;
+export function parseMasOfferDate(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'string') return null;
 
   const s = raw.trim();
 
@@ -139,8 +139,8 @@ export function parseMasOfferDate(raw: string | undefined | null): string | null
 /**
  * Parses a MasOffer datetime string into an ISO 8601 full timestamp.
  */
-export function parseMasOfferDateTime(raw: string | undefined | null): string | null {
-  if (!raw) return null;
+export function parseMasOfferDateTime(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'string') return null;
 
   const s = raw.trim();
 
@@ -196,13 +196,14 @@ export function mapDiscountType(raw: string | undefined | null): NormalisedDisco
 
 /** Detects the canonical offer type from a MasOffer offer item. */
 export function detectOfferType(item: MasOfferOfferItem): OfferSourceType {
+  const t = typeof item.type === 'string' ? item.type : '';
   // Explicit type field takes precedence
-  if (item.type === 'coupon') return 'coupon';
-  if (item.type === 'voucher') return 'voucher';
-  if (item.type === 'promotion' || item.type === 'deal') return 'deal';
-  if (item.type === 'pushsale' || item.type === 'hot_deal' || item.type === 'flash_sale') return 'deal';
+  if (t === 'coupon') return 'coupon';
+  if (t === 'voucher') return 'voucher';
+  if (t === 'promotion' || t === 'deal') return 'deal';
+  if (t === 'pushsale' || t === 'hot_deal' || t === 'flash_sale') return 'deal';
   // Fallback to heuristics
-  if (item.code) return 'coupon';
+  if (typeof item.code === 'string' && item.code.length > 0) return 'coupon';
   if (item.discount_type === 'free_shipping') return 'voucher';
   return 'deal';
 }
@@ -216,21 +217,20 @@ export function detectOfferType(item: MasOfferOfferItem): OfferSourceType {
  * Handles: "200000", "200,000", "20%", "15%" (strips non-numeric chars except comma and dot).
  * Returns null if unparseable.
  */
-export function parseMasOfferMoney(raw: string | undefined | null): number | null {
+export function parseMasOfferMoney(raw: unknown): number | null {
   if (!raw) return null;
-  // Strip % sign, commas, spaces
-  const s = raw.trim().replace('%', '').replace(/,/g, '').replace(/\s/g, '');
+  const s = String(raw).trim().replace('%', '').replace(/,/g, '').replace(/\s/g, '');
   const n = parseFloat(s);
   return isNaN(n) ? null : n;
 }
 
 /** Parses min_purchase / min_order_value. */
-export function parseMinPurchase(raw: string | undefined | null): number | null {
+export function parseMinPurchase(raw: unknown): number | null {
   return parseMasOfferMoney(raw);
 }
 
 /** Parses max_discount cap. */
-export function parseMaxDiscount(raw: string | undefined | null): number | null {
+export function parseMaxDiscount(raw: unknown): number | null {
   return parseMasOfferMoney(raw);
 }
 
@@ -303,9 +303,9 @@ export function computeUrlQualityScore(url: string | null | undefined): number {
 // =============================================================================
 
 /** Infers the granular deal subtype from the API type field or title. */
-export function inferDealSubtype(type: string | undefined, title: string): string {
-  const t = (type ?? '').toLowerCase();
-  const tt = title.toLowerCase();
+export function inferDealSubtype(type: unknown, title: string): string {
+  const t = (typeof type === 'string' ? type : '').toLowerCase();
+  const tt = String(title).toLowerCase();
 
   if (t === 'flash_sale' || tt.includes('flash sale')) return 'flash_sale';
   if (t === 'pushsale' || t === 'hot_deal' || tt.includes('push sale') || tt.includes('pushsale') || tt.includes('deal nóng') || tt.includes('hot deal')) return 'pushsale';
@@ -372,12 +372,13 @@ function isExpired(endDate: string | undefined | null): boolean {
  * Key fields: source + external_id + title + code + discount_value
  */
 export function computeMasOfferOfferHash(item: MasOfferOfferItem): string {
+  const discountRaw = (item as unknown as { discount?: unknown }).discount ?? item.discount_value;
   const parts = [
     'masoffer',
     String(item.id),
-    (item.title ?? '').toLowerCase().trim(),
-    (item.code ?? '').toLowerCase().trim(),
-    (item.discount_value ?? '').toLowerCase().trim(),
+    String(item.title ?? '').toLowerCase().trim(),
+    String(item.code ?? '').toLowerCase().trim(),
+    String(discountRaw ?? '').toLowerCase().trim(),
   ];
   return createHash('sha256').update(parts.join('|')).digest('hex');
 }
@@ -392,7 +393,7 @@ export function computeMasOfferOfferHash(item: MasOfferOfferItem): string {
  * Returns a deduped array and a Set of seen IDs.
  */
 export function dedupeOfferItems(items: MasOfferOfferItem[]): MasOfferOfferItem[] {
-  const seen = new Set<number>();
+  const seen = new Set<string | number>();
   return items.filter((item) => {
     if (seen.has(item.id)) return false;
     seen.add(item.id);
@@ -423,55 +424,81 @@ export function mapOfferItemToOffer(
   item: MasOfferOfferItem,
   now = NOW
 ): Omit<NormalisedOffer, 'id' | 'created_at' | 'updated_at'> {
+  const isPromotions = 'started_time' in item || 'content' in item;
+  const title = typeof item.title === 'string' ? item.title.trim() : String(item.title ?? 'Untitled');
+
   const offerType = detectOfferType(item);
-  const discountType = mapDiscountType(item.discount_type);
-  const discountValue = parseMasOfferMoney(item.discount_value);
-  const merchantName = item.campaign_name ?? item.title ?? 'MasOffer';
-  // Merge category text from the item and its campaign name for richer platform inference
-  const rawCategoryText = [item.category, merchantName, item.title].filter(Boolean).join(' ');
+  const rawDiscount = isPromotions
+    ? (item as unknown as { discount?: unknown }).discount
+    : item.discount_value;
+  const discountType = mapDiscountType(typeof item.discount_type === 'string' ? item.discount_type : null);
+  const discountValue = parseMasOfferMoney(typeof rawDiscount === 'string' ? rawDiscount : null);
+
+  const rawMerchantName = isPromotions
+    ? String((item as unknown as { offer_id?: unknown }).offer_id ?? item.title ?? 'MasOffer')
+    : String(item.campaign_name ?? item.title ?? 'MasOffer');
+  const merchantName = rawMerchantName.charAt(0).toUpperCase() + rawMerchantName.slice(1);
+
+  const rawCategoryText = [item.category, merchantName, title].filter(Boolean).join(' ');
   const hotnessScore = computeHotnessScore(item);
   const isPushSale = isPushSaleDeal(item);
 
+  const rawContent = (item as unknown as { content?: unknown }).content;
+  const description = typeof rawContent === 'string'
+    ? rawContent.replace(/<[^>]+>/g, '').trim()
+    : (item.description ?? null);
+  const rawLink = (item as unknown as { aff_link?: unknown }).aff_link ?? item.link;
+  const link = typeof rawLink === 'string' ? rawLink : null;
+
+  let startAt: string | null = null;
+  let endAt: string | null = null;
+  if (isPromotions) {
+    const prom = item as unknown as { started_time?: unknown; expired_time?: unknown; started_date?: unknown; expired_date?: unknown };
+    if (typeof prom.started_time === 'number') startAt = new Date(prom.started_time).toISOString();
+    else if (typeof prom.started_date === 'string') startAt = parseMasOfferDateTime(prom.started_date);
+    if (typeof prom.expired_time === 'number') endAt = new Date(prom.expired_time).toISOString();
+    else if (typeof prom.expired_date === 'string') endAt = parseMasOfferDateTime(prom.expired_date);
+  } else {
+    startAt = parseMasOfferDate(typeof item.start_date === 'string' ? item.start_date : null);
+    endAt = parseMasOfferDate(typeof item.end_date === 'string' ? item.end_date : null);
+  }
+
+  const rawStatus = item.status;
+  const statusStr = typeof rawStatus === 'number' ? (rawStatus === 1 ? 'active' : 'inactive') : rawStatus;
+
   const enrichedPayload: Record<string, unknown> = {
     ...(item as unknown as Record<string, unknown>),
-    _voucherfinder: {
-      hotness_score: hotnessScore,
-      is_pushsale: isPushSale,
-      enriched_at: now,
-    },
+    _voucherfinder: { hotness_score: hotnessScore, is_pushsale: isPushSale, enriched_at: now },
   };
 
-  // URL quality: assess the destination URL quality
-  const urlQualityScore = computeUrlQualityScore(item.link ?? null);
-
-  // Inferred deal subtype from type field or title
-  const dealSubtype = inferDealSubtype(item.type, item.title ?? '');
+  const urlQualityScore = computeUrlQualityScore(link ?? null);
+  const rawType = typeof item.type === 'string' ? item.type : undefined;
+  const dealSubtype = inferDealSubtype(rawType, title);
 
   return {
     source: 'masoffer' as const,
     source_type: offerType,
     external_id: `mo_${item.id}`,
-    title: (item.title ?? 'Untitled').trim(),
-    slug: toSlug(item.title ?? 'untitled'),
-    description: item.description ?? null,
+    title,
+    slug: toSlug(title),
+    description,
     merchant_name: merchantName,
-    merchant_id: item.campaign_id != null ? String(item.campaign_id) : null,
+    merchant_id: null,
     category: normaliseCategory(rawCategoryText),
-    destination_url: item.link ?? null,
-    tracking_url: null, // MasOffer doesn't expose a separate tracking URL
-    coupon_code: item.code ?? null,
+    destination_url: link ?? null,
+    tracking_url: null,
+    coupon_code: typeof item.code === 'string' ? item.code : null,
     discount_type: discountType,
     discount_value: discountValue,
-    max_discount: parseMaxDiscount(item.max_discount),
-    min_order_value: parseMinPurchase(item.min_purchase),
+    max_discount: parseMaxDiscount(typeof item.max_discount === 'string' ? item.max_discount : null),
+    min_order_value: parseMinPurchase(typeof item.min_purchase === 'string' ? item.min_purchase : null),
     currency: 'VND',
-    start_at: parseMasOfferDate(item.start_date),
-    end_at: parseMasOfferDate(item.end_date),
-    status: mapMasOfferStatus(item.status),
-    terms: item.terms ?? null,
-    image_url: item.image_url ?? item.logo_url ?? null,
+    start_at: startAt,
+    end_at: endAt,
+    status: mapMasOfferStatus(typeof statusStr === 'string' ? statusStr : null),
+    terms: typeof item.terms === 'string' ? item.terms : null,
+    image_url: typeof item.image_url === 'string' ? item.image_url : (typeof item.logo_url === 'string' ? item.logo_url : null),
     confidence_score: computeMasOfferConfidenceScore(item),
-    // ── New enrichment fields ────────────────────────────────
     used_count: item.used_count,
     click_count: item.click_count,
     conversion_count: item.conversion_count,
@@ -481,7 +508,6 @@ export function mapOfferItemToOffer(
     verified_at: item.verified === true ? now : null,
     url_quality_score: urlQualityScore,
     deal_subtype: dealSubtype,
-    // ── Audit ───────────────────────────────────────────────
     last_seen_at: now,
     first_seen_at: now,
     synced_at: now,

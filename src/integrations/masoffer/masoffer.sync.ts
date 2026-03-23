@@ -88,8 +88,8 @@ async function upsertBatchSafely(
   try {
     return await upsertOfferBatch(records);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[MasOffer] Batch ${batchIndex} upsert failed: ${msg}`);
+    const msg = err instanceof Error ? err.message : JSON.stringify(err);
+    console.error(`[MasOffer] Batch ${batchIndex} upsert failed:`, err);
     await insertSyncError({
       sync_run_id: runId,
       source: 'masoffer',
@@ -187,11 +187,8 @@ export async function syncMasOfferOffers(
       fetchPromises.push({
         label: 'offer/all',
         promise: (async () => {
-          const items: MasOfferOfferItem[] = [];
-          for await (const batch of client.streamOfferAll({ status, pageSize: 100 })) {
-            items.push(...batch);
-          }
-          return items;
+          // /offer/all returns merchant info, not vouchers/deals — skip
+          return [];
         })(),
       });
     }

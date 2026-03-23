@@ -270,9 +270,12 @@ export class MasOfferApiClient {
   ): Promise<T> {
     const { params, timeout = this.defaultTimeout } = options;
 
-    // Always include publisher_id as a query param (MasOffer requires this)
+    // MasOffer API uses pub_id/token for /offer/* endpoints
+    // and publisher_id/token for /v1/* endpoints
+    const usesPubId = path.startsWith('/offer/');
     const allParams: Record<string, unknown> = {
-      publisher_id: this.publisherId,
+      [usesPubId ? 'pub_id' : 'publisher_id']: this.publisherId,
+      token: this.apiToken,
       ...params,
     };
 
@@ -284,7 +287,6 @@ export class MasOfferApiClient {
       url: url.replace(/token=[^&]+/, 'token=[REDACTED]'),
       corrId,
       hasAuth: Boolean(this.apiToken),
-      authHeader: safeHeaders(Boolean(this.apiToken)),
     });
 
     const start = Date.now();
@@ -295,7 +297,6 @@ export class MasOfferApiClient {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        Authorization: `Bearer ${this.apiToken}`,
         'X-Correlation-ID': corrId,
       },
     });
@@ -341,7 +342,7 @@ export class MasOfferApiClient {
     const { page = 1, pageSize = 100 } = options;
     return withRetry(
       () =>
-        this.request<MasOfferListResponse<MasOfferCampaign>>('/v1/campaigns', {
+        this.request<MasOfferListResponse<MasOfferCampaign>>('/v1/promotions', {
           params: { page, limit: pageSize },
         }),
       this.maxRetries,
@@ -362,7 +363,7 @@ export class MasOfferApiClient {
 
     return withRetry(
       () =>
-        this.request<MasOfferDealsResponse>('/v1/deals', {
+        this.request<MasOfferDealsResponse>('/v1/promotions', {
           params,
           timeout: SYNC_TIMEOUT_MS,
         }),
@@ -384,7 +385,7 @@ export class MasOfferApiClient {
 
     return withRetry(
       () =>
-        this.request<MasOfferVouchersResponse>('/v1/vouchers', {
+        this.request<MasOfferVouchersResponse>('/v1/promotions', {
           params,
           timeout: SYNC_TIMEOUT_MS,
         }),
@@ -406,7 +407,7 @@ export class MasOfferApiClient {
 
     return withRetry(
       () =>
-        this.request<MasOfferCouponsResponse>('/v1/coupons', {
+        this.request<MasOfferCouponsResponse>('/v1/promotions', {
           params,
           timeout: SYNC_TIMEOUT_MS,
         }),
@@ -478,7 +479,7 @@ export class MasOfferApiClient {
 
     return withRetry(
       () =>
-        this.request<MasOfferOfferAllResponse>('/v1/offer/all', {
+        this.request<MasOfferOfferAllResponse>('/offer/all', {
           params,
           timeout: SYNC_TIMEOUT_MS,
         }),
@@ -504,7 +505,7 @@ export class MasOfferApiClient {
 
     return withRetry(
       () =>
-        this.request<MasOfferBrandResponse>('/v1/offer/brand', {
+        this.request<MasOfferBrandResponse>('/offer/brand', {
           params,
           timeout: SYNC_TIMEOUT_MS,
         }),
@@ -529,7 +530,7 @@ export class MasOfferApiClient {
 
     return withRetry(
       () =>
-        this.request<MasOfferPushSaleResponse>('/v1/offer/pushsale', {
+        this.request<MasOfferPushSaleResponse>('/offer/pushsale', {
           params,
           timeout: SYNC_TIMEOUT_MS,
         }),
