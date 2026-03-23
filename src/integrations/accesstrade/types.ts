@@ -22,22 +22,30 @@ export type AccessTradeCommissionType = 'cps' | 'cpl' | 'cpa' | 'cpi';
 
 /** AccessTrade campaign record */
 export interface AccessTradeCampaign {
-  id: number;
+  id: string;
   name: string;
-  description?: string;
-  commission_type: AccessTradeCommissionType;
-  commission_value: number;
-  commission_percent?: number;
-  cookie_duration: number;
-  avg_commission?: number;
-  approval_type?: 'instant' | 'manual';
-  categories?: string[];
+  approval?: 'Unregistered' | 'Pending' | 'Successful';
+  status?: number;               // 1 = Running
+  merchant?: string;
+  conversion_policy?: string;
+  cookie_duration?: number;
+  cookie_policy?: string;
+  description?: {
+    action_point?: string;
+    commission_policy?: string;
+    introduction?: string;
+    other_notice?: string;
+    rejected_reason?: string;
+    traffic_building_policy?: string;
+  };
+  start_time?: string;
+  end_time?: string | null;
+  category?: string;
+  sub_category?: string;
+  type?: number;
   url?: string;
-  status: AccessTradeCampaignStatus;
-  commission_cap?: number;
-  min_order_value?: number;
-  created_at?: string;
-  updated_at?: string;
+  logo?: string;
+  scope?: string;
 }
 
 /** AccessTrade /v1/offers_informations record — the canonical offers endpoint.
@@ -47,31 +55,28 @@ export interface AccessTradeCampaign {
  *  Key fields:
  *  - coupon = 1 → has a code (treat as coupon), 0 → no code (voucher/promotion)
  *  - status = 1 → active, 0 → expired/inactive
- *  - aff_link → the affiliate tracking URL
- *  - link → the destination/merchant URL
- *  - coupons[] → array of code objects {code, exp_date, ...}
+ *  - coupons[] → array of coupon code strings (NOT objects)
  */
 export interface AccessTradeOffer {
-  id: number;
+  id: string;
   name: string;
-  content?: string;          // HTML description / terms
-  domain?: string;            // merchant domain e.g. "shopee.vn"
-  merchant?: string;          // merchant/campaign name
-  link?: string;              // destination URL (merchant page)
-  aff_link?: string;          // affiliate tracking URL
-  image?: string;             // offer image URL
-  banners?: Array<{ url: string; alt?: string }>;
-  start_time?: string;        // ISO date string, e.g. "2024-01-01T00:00:00+07:00"
-  end_time?: string;          // ISO date string
-  categories?: string[];       // category labels
-  /** Number of coupons/codes available for this offer */
-  coupons?: Array<{
-    code: string;
-    exp_date?: string;
-    quantity?: number;
-    description?: string;
+  content?: string;          // Detailed discount description
+  domain?: string;           // Discount domain e.g. "lazada.vn"
+  merchant?: string;        // Offering merchant name
+  link?: string;             // Discount URL
+  aff_link?: string;         // Affiliate tracking URL
+  image?: string;            // Discount image URL
+  banners?: Array<{
+    link: string;
+    width: string;
+    height: string;
   }>;
-  // ── Flat code fallback (some responses include this directly) ──────────────
+  start_time?: string;       // ISO date string, e.g. "2024-01-01"
+  end_time?: string;         // ISO date string
+  categories?: string[];     // Category names
+  /** Array of coupon code strings (e.g. ["ABC123", "XYZ789"]) */
+  coupons?: string[];
+  /** Flat code field (some responses include this directly) */
   code?: string;
   exp_date?: string;
 }

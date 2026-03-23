@@ -27,14 +27,13 @@ import type {
 // Status Mappers
 // =============================================================================
 
-/** Map AccessTrade campaign status → domain status */
-export function mapCampaignStatus(raw: AccessTradeCampaign['status']): NormalisedOfferStatus {
-  switch (raw) {
-    case 'active':   return 'active';
-    case 'inactive': return 'inactive';
-    case 'pending':  return 'pending';
-    default:         return 'pending';
-  }
+/** Map AccessTrade campaign status → domain status
+ *  Real API: status is number (1 = Running/active)
+ */
+export function mapCampaignStatus(raw: number | undefined): NormalisedOfferStatus {
+  if (raw === 1) return 'active';
+  if (raw === 0) return 'inactive';
+  return 'pending';
 }
 
 /** Map AccessTrade deal status → domain status */
@@ -245,8 +244,12 @@ export function mapCampaignToOffer(
 ): Omit<NormalisedOffer, 'id' | 'created_at' | 'updated_at'> {
   const now = new Date().toISOString();
 
-  // Normalise categories: join with comma, then try to infer platform
-  const rawCategory = campaign.categories?.join(', ') ?? null;
+  // description is an object: { introduction, commission_policy, cookie_policy, ... }
+  const desc = campaign.description;
+  const introText = typeof desc === 'object' && desc !== null ? (desc.introduction ?? null) : null;
+
+  // category + sub_category combined
+  const rawCategory = [campaign.category, campaign.sub_category].filter(Boolean).join(', ') || null;
   const platformCat = inferPlatform(rawCategory ?? undefined);
   const category = platformCat !== 'unknown' ? platformCat : rawCategory;
 
@@ -256,24 +259,28 @@ export function mapCampaignToOffer(
     external_id: `at_campaign_${campaign.id}`,
     title: normaliseText(campaign.name) ?? 'Unknown Campaign',
     slug: null,
-    description: normaliseText(campaign.description) ?? null,
-    merchant_name: normaliseText(campaign.name) ?? 'Unknown',
-    merchant_id: String(campaign.id),
+    description: normaliseText(introText),
+    merchant_name: normaliseText(campaign.merchant ?? campaign.name ?? null) ?? 'Unknown',
+    merchant_id: campaign.id,
     category,
     destination_url: normaliseUrl(campaign.url ?? null),
     tracking_url: null,
     coupon_code: null,
-    discount_type: 'percent', // commission-based campaigns
-    discount_value: campaign.commission_percent ?? null,
-    max_discount: campaign.commission_cap ?? null,
-    min_order_value: campaign.min_order_value ?? null,
+    discount_type: 'percent',
+    discount_value: null,
+    max_discount: null,
+    min_order_value: null,
     currency: 'VND',
-    start_at: campaign.created_at ?? now,
-    end_at: null,
+    start_at: campaign.start_time ?? now,
+    end_at: campaign.end_time ?? null,
     status: mapCampaignStatus(campaign.status),
-    terms: `Commission type: ${campaign.commission_type ?? 'unknown'}. Cookie duration: ${campaign.cookie_duration ?? '?'} days.${campaign.description ? ' ' + campaign.description : ''}`,
-    image_url: null,
-    confidence_score: campaign.status === 'active' ? 0.6 : 0.35,
+    terms: typeof desc === 'object' && desc !== null
+      ? `Conversion policy: ${campaign.conversion_policy ?? 'N/A'}. Cookie policy: ${campaign.cookie_policy ?? 'N/A'}. Cookie duration: ${campaign.cookie_duration ?? '?'}s.`
+      : null,
+    image_url: typeof campaign.logo === 'string' && campaign.logo.length > 0 ? campaign.logo : null,
+    confidence_score: campaign.approval === 'Successful' ? 0.65
+      : campaign.approval === 'Pending' ? 0.30
+      : 0.20,
     last_seen_at: now,
     first_seen_at: now,
     synced_at: now,
@@ -282,7 +289,7 @@ export function mapCampaignToOffer(
       source: 'accesstrade',
       sourceType: 'campaign',
       title: campaign.name,
-      merchantName: campaign.name,
+      merchantName: campaign.merchant ?? campaign.name ?? 'Unknown',
       couponCode: null,
     }),
   };
@@ -605,17 +612,14 @@ function computeCouponConfidenceScore(c: AccessTradeCoupon): number {
 
 /**
  * Parse the first available code from the `coupons` array or flat `code` field.
- * AccessTrade API returns either:
- *  - coupons: [{ code: "ABC123", exp_date: "..." }, ...]  (preferred)
- *  - code: "ABC123"  (flat fallback)
+ * Real AccessTrade API: coupons: ["ABC123", "XYZ789"] (string array)
+ * Fallback: flat `code` string field
  */
 function extractCouponCode(offer: AccessTradeOffer): string | null {
   if (Array.isArray(offer.coupons) && offer.coupons.length > 0) {
+    // Real API: coupons is string[] — pick first non-empty string
     const first = offer.coupons[0];
-    if (typeof first === 'object' && first !== null && 'code' in first) {
-      const code = (first as { code: unknown }).code;
-      if (typeof code === 'string' && code.trim().length > 0) return code.trim();
-    }
+    if (typeof first === 'string' && first.trim().length > 0) return first.trim();
   }
   if (typeof offer.code === 'string' && offer.code.trim().length > 0) {
     return offer.code.trim();
@@ -625,15 +629,13 @@ function extractCouponCode(offer: AccessTradeOffer): string | null {
 
 /**
  * Extract all coupon codes from the `coupons` array for logging/debugging.
+ * Real AccessTrade API: coupons: string[]
  */
 function extractAllCodes(offer: AccessTradeOffer): string[] {
   const codes: string[] = [];
   if (Array.isArray(offer.coupons)) {
     for (const c of offer.coupons) {
-      if (typeof c === 'object' && c !== null && 'code' in c) {
-        const code = (c as { code: unknown }).code;
-        if (typeof code === 'string' && code.trim().length > 0) codes.push(code.trim());
-      }
+      if (typeof c === 'string' && c.trim().length > 0) codes.push(c.trim());
     }
   }
   if (typeof offer.code === 'string' && offer.code.trim().length > 0) {
