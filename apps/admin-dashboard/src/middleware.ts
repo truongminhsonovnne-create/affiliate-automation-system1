@@ -173,6 +173,7 @@ const PUBLIC_PREFIXES = [
   '/api/auth/session',
   '/_next',
   '/favicon',
+  '/site.webmanifest',
 ];
 
 // All /admin/* paths require authentication

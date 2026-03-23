@@ -32,7 +32,7 @@ const nextConfig = {
     return [
       {
         // Apply to everything except Next.js internals and static assets
-        source: '/((?!_next/static|_next/image|favicon|apple-touch-icon|robots.txt|sitemap.xml|og-default).*)',
+        source: '/((?!_next/static|_next/image|favicon|apple-touch-icon|site.webmanifest|robots.txt|sitemap.xml|og-default).*)',
         headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
