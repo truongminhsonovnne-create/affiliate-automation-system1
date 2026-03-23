@@ -1,1 +1,3 @@
-{}
+{
+  "projects": [{ "path": "apps/admin-dashboard" }]
+}
