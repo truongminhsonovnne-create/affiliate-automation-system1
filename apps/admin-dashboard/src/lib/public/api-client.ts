@@ -1,10 +1,10 @@
-/**
- * Public API Client — Browser-safe client for the voucher resolution public API.
- *
- * Supports both synchronous resolution (fast path) and asynchronous resolution
- * (queued + polling with exponential backoff). The internal API URL never leaks
- * to the browser; all calls go through the Next.js /api/public/v1/resolve route.
- */
+// =============================================================================
+// Public API Client — Browser-safe client for the voucher resolution public API.
+//
+// Supports both synchronous resolution (fast path) and asynchronous resolution
+// (queued + polling with exponential backoff). The internal API URL never leaks
+// to the browser; all calls go through the Next.js /api/public/v1/resolve route.
+// =============================================================================
 
 import type {
   PublicVoucherResolveResponse,
@@ -199,40 +199,78 @@ export interface AnalysisMeta {
 // =============================================================================
 
 /**
- * Map the engine's raw status to our UI-friendly phase.
+ * Map the engine's raw status + HTTP status to our UI-friendly phase.
+ *
+ * CRITICAL: resolutionStatus === null with httpStatus === 200 means the server
+ * returned an empty/partial response (stub handler). We MUST NOT treat this as
+ * 'failed' — treat it as 'queued' so the client keeps polling.
+ *
+ * Status table:
+ *   null  + 200  → queued (server stub)       ← NEVER map to failed
+ *   null  + 202  → queued/processing
+ *   null  + 4xx  → failed (validation error)
+ *   null  + 5xx  → failed (server error, retryable)
+ *   null  + 404  → expired
+ *   pending     + any → queued
+ *   processing  + any → processing
+ *   succeeded   + 200 → success (DONE)
+ *   no_match   + 200 → no_match (DONE)
+ *   failed     + 200 → failed (DONE)
+ *   expired    + 200 → expired (DONE)
+ *   cached     + 200 → success (DONE)
  */
 export function mapEngineStatusToPhase(
   rawStatus: EngineResolutionStatus | null,
   httpStatus: number
 ): PhaseMappingResult {
+  // ── Final HTTP codes ───────────────────────────────────────────────────────
   if (httpStatus === 200) {
-    // Done — final state
     switch (rawStatus) {
       case 'succeeded':
-        return { phase: 'success', isDone: true, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+        return { phase: 'success',    isDone: true,  isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
       case 'no_match':
-        return { phase: 'no_match', isDone: true, isRetryable: true, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+        return { phase: 'no_match',   isDone: true,  isRetryable: true,  retryCount: 0, elapsedMs: 0, serverDurationMs: null };
       case 'failed':
-        return { phase: 'failed', isDone: true, isRetryable: true, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+        return { phase: 'failed',     isDone: true,  isRetryable: true,  retryCount: 0, elapsedMs: 0, serverDurationMs: null };
       case 'expired':
-        return { phase: 'expired', isDone: true, isRetryable: true, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+        return { phase: 'expired',     isDone: true,  isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
       case 'cached':
-        return { phase: 'success', isDone: true, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+        return { phase: 'success',     isDone: true,  isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
       default:
-        return { phase: 'failed', isDone: true, isRetryable: true, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+        // rawStatus === null with 200 → server stub: keep polling
+        return { phase: 'queued',      isDone: false, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
     }
   }
 
   // 202 = still in flight
-  switch (rawStatus) {
-    case 'pending':
-      return { phase: 'queued', isDone: false, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
-    case 'processing':
-      return { phase: 'processing', isDone: false, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
-    default:
-      // Unexpected intermediate status — keep polling
-      return { phase: 'processing', isDone: false, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+  if (httpStatus === 202) {
+    switch (rawStatus) {
+      case 'pending':
+        return { phase: 'queued',      isDone: false, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+      case 'processing':
+        return { phase: 'processing',  isDone: false, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+      default:
+        return { phase: 'processing',  isDone: false, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+    }
   }
+
+  // ── Error codes ───────────────────────────────────────────────────────────
+  if (httpStatus === 400 || httpStatus === 422) {
+    return { phase: 'failed', isDone: true, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+  }
+  if (httpStatus === 404) {
+    return { phase: 'expired', isDone: true, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+  }
+  if (httpStatus === 429) {
+    return { phase: 'rate_limited', isDone: true, isRetryable: true, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+  }
+  // 5xx — server error, retryable
+  if (httpStatus >= 500) {
+    return { phase: 'failed', isDone: true, isRetryable: true, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+  }
+
+  // Catch-all: unknown → keep polling as queued
+  return { phase: 'queued', isDone: false, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
 }
 
 // =============================================================================
@@ -313,6 +351,12 @@ export async function resolveVoucherAsync(
     onPoll?.(attempt, elapsedMs);
 
     const pollResponse = await pollVoucherResolution(resolvedRequestId, signal);
+
+    // Log poll result for debugging
+    if (pollResponse.httpStatus >= 400) {
+      // HTTP error: let the mapper handle it
+    }
+
     const phaseResult = mapEngineStatusToPhase(
       pollResponse.resolutionStatus,
       pollResponse.httpStatus
@@ -456,6 +500,19 @@ export async function pollVoucherResolution(
     signal: controller.signal,
   });
 
+  // Always read body as QueuedResolutionResponse shape
+  let data: QueuedResolutionResponse;
+  try {
+    data = await response.json() as QueuedResolutionResponse;
+  } catch {
+    // Malformed response: treat as a transient failure
+    throw new ProxyError(
+      'POLL_MALFORMED',
+      `Poll returned invalid JSON (status ${response.status})`,
+      response.status
+    );
+  }
+
   if (!response.ok) {
     throw new ProxyError(
       'POLL_ERROR',
@@ -464,7 +521,7 @@ export async function pollVoucherResolution(
     );
   }
 
-  return response.json() as Promise<QueuedResolutionResponse>;
+  return data;
 }
 
 // =============================================================================
@@ -641,6 +698,17 @@ function buildStateFromPhase(
         explanation: null,
         error: { code: 'EXPIRED', message: 'Yêu cầu hết hạn. Vui lòng thử lại.' },
       };
+    case 'rate_limited':
+      return {
+        status: 'rate_limited',
+        requestId,
+        bestMatch: null,
+        candidates: [],
+        performance: { totalLatencyMs: latencyMs, servedFromCache: false, resolvedAt: new Date().toISOString() },
+        warnings: [],
+        explanation: null,
+        error: { code: 'RATE_LIMITED', message: 'Quá nhiều yêu cầu. Vui lòng thử lại sau.' },
+      };
     case 'failed':
       return {
         status: 'error',
@@ -651,6 +719,19 @@ function buildStateFromPhase(
         warnings: [],
         explanation: null,
         error: { code: 'PROCESSING_FAILED', message: 'Xử lý thất bại. Vui lòng thử lại.' },
+      };
+    case 'queued':
+    case 'processing':
+    case 'retrying':
+      return {
+        status: 'queued',
+        requestId,
+        bestMatch: null,
+        candidates: [],
+        performance: { totalLatencyMs: latencyMs, servedFromCache: false, resolvedAt: new Date().toISOString() },
+        warnings: [],
+        explanation: null,
+        error: null,
       };
     default:
       return {

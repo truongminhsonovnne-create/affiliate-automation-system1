@@ -627,7 +627,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(response, { status: 200 });
 }
 
-// ── GET: stub for polling compatibility (no-op for hybrid) ───────────────────
+// ── GET: poll for async resolution status ───────────────────────────────────────
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -635,6 +635,7 @@ export async function GET(request: NextRequest) {
 
   // Map missing or too-short requestId → 400 (not 503)
   if (!requestId || requestId.trim().length < 8) {
+    log('warn', 'GET_INVALID_REQUEST_ID', { requestId: requestId ?? 'null' });
     return NextResponse.json(
       {
         error: 'INVALID_REQUEST_ID',
@@ -645,18 +646,178 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Hybrid pipeline is synchronous — no async polling needed.
-  // Return 200 with no_match so the polling client can gracefully handle it.
-  log('info', 'GET_RESOLVE_STUB', { requestId });
+  // Attempt to call internal backend (voucher engine) for real status
+  if (INTERNAL_API_URL) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+
+      const upstreamRes = await fetch(
+        `${INTERNAL_API_URL}/api/v1/voucher/resolve/${encodeURIComponent(requestId)}`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'X-Client-Request-Id': requestId,
+          },
+          signal: controller.signal,
+        }
+      );
+
+      clearTimeout(timer);
+
+      // Map upstream HTTP status → our polling contract
+      // Upstream: 200 = done, 202 = in-flight, 404 = not found, 400 = bad request
+      const upstreamBody = await upstreamRes.json().catch(() => null) as Record<string, unknown> | null;
+
+      log('info', 'GET_RESOLVE_UPSTREAM', {
+        requestId,
+        upstreamStatus: upstreamRes.status,
+      });
+
+      if (upstreamRes.status === 200) {
+        // Request completed — extract status
+        const upstreamData = upstreamBody as Record<string, unknown> | null;
+        const resolutionStatus = extractUpstreamStatus(upstreamData);
+        const resolvedAt = upstreamData?.resolved_at as string | null
+          ?? upstreamData?.resolvedAt as string | null
+          ?? null;
+        const durationMs = upstreamData?.duration_ms as number | null
+          ?? upstreamData?.durationMs as number | null
+          ?? null;
+
+        return NextResponse.json(
+          {
+            requestId,
+            httpStatus: 200,
+            resolutionStatus,
+            createdAt: upstreamData?.requested_at as string | null
+              ?? upstreamData?.created_at as string | null
+              ?? new Date().toISOString(),
+            resolvedAt,
+            durationMs,
+            data: upstreamData ?? null,
+          },
+          { status: 200 }
+        );
+      }
+
+      if (upstreamRes.status === 202) {
+        // Request still in flight — return polling status
+        const upstreamData = upstreamBody as Record<string, unknown> | null;
+        return NextResponse.json(
+          {
+            requestId,
+            httpStatus: 202,
+            resolutionStatus: (upstreamData?.status as string) ?? 'processing',
+            createdAt: upstreamData?.created_at as string | null ?? new Date().toISOString(),
+            resolvedAt: null,
+            durationMs: null,
+          },
+          { status: 202 }
+        );
+      }
+
+      if (upstreamRes.status === 404) {
+        // Request not found
+        log('warn', 'GET_REQUEST_NOT_FOUND', { requestId });
+        return NextResponse.json(
+          {
+            requestId,
+            httpStatus: 200,  // Treat as terminal — don't keep polling forever
+            resolutionStatus: 'not_found',
+            createdAt: null,
+            resolvedAt: null,
+            durationMs: null,
+            errorCode: 'REQUEST_NOT_FOUND',
+            message: 'Request not found or has expired.',
+          },
+          { status: 200 }
+        );
+      }
+
+      if (upstreamRes.status === 400) {
+        // Validation error from upstream
+        return NextResponse.json(
+          {
+            error: 'INVALID_REQUEST_ID',
+            code: 'INVALID_REQUEST_ID',
+            message: 'Invalid requestId format.',
+          },
+          { status: 400 }
+        );
+      }
+
+      // Upstream 5xx — treat as retryable failure
+      log('warn', 'GET_UPSTREAM_ERROR', { requestId, status: upstreamRes.status });
+      return NextResponse.json(
+        {
+          requestId,
+          httpStatus: 200,  // Don't surface 5xx to polling client
+          resolutionStatus: 'failed',
+          createdAt: null,
+          resolvedAt: null,
+          durationMs: null,
+          errorCode: 'UPSTREAM_ERROR',
+          message: `Upstream service error (${upstreamRes.status}).`,
+        },
+        { status: 200 }
+      );
+    } catch (err) {
+      const isTimeout = err instanceof DOMException && err.name === 'AbortException';
+      log('warn', isTimeout ? 'GET_UPSTREAM_TIMEOUT' : 'GET_UPSTREAM_ERROR', {
+        requestId,
+        error: err instanceof Error ? err.message : String(err),
+        isTimeout,
+      });
+      // Fall through to stub on error — don't fail the polling
+    }
+  }
+
+  // No INTERNAL_API_URL configured or upstream call failed.
+  // Return stub so polling client doesn't hang — but never return null status.
+  log('warn', 'GET_RESOLVE_STUB', {
+    requestId,
+    reason: INTERNAL_API_URL ? 'UPSTREAM_UNAVAILABLE' : 'NO_INTERNAL_API_URL',
+  });
   return NextResponse.json(
     {
       requestId,
       httpStatus: 200,
-      resolutionStatus: null,
-      createdAt: new Date().toISOString(),
+      resolutionStatus: 'unknown',
+      createdAt: null,
       resolvedAt: null,
       durationMs: null,
+      errorCode: 'SERVICE_UNAVAILABLE',
+      message: 'Status lookup unavailable. Submit a new resolve request.',
     },
     { status: 200 }
   );
+}
+
+/**
+ * Extract resolutionStatus from the upstream voucher engine response.
+ * Handles both the voucher engine format and legacy formats.
+ */
+function extractUpstreamStatus(data: Record<string, unknown> | null): string {
+  if (!data) return 'unknown';
+
+  // Primary: `status` field (from voucher engine serializer)
+  if (typeof data.status === 'string') return data.status;
+
+  // Secondary: `resolutionStatus` field
+  if (typeof data.resolutionStatus === 'string') return data.resolutionStatus;
+
+  // Tertiary: from `success` boolean
+  if (typeof data.success === 'boolean') {
+    if (!data.success && data.error) return 'failed';
+    if (data.success && data.data) return 'succeeded';
+  }
+
+  // Quaternary: `has_match` boolean
+  if (typeof data.has_match === 'boolean') {
+    return data.has_match ? 'succeeded' : 'no_match';
+  }
+
+  return 'unknown';
 }

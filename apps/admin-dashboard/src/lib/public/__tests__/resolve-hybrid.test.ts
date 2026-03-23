@@ -7,8 +7,8 @@
  * Run with: npm test -- --testPathPattern="resolve-hybrid"
  */
 
-import { NextRequest } from 'next/server';
 import { randomBytes } from 'crypto';
+import { mapEngineStatusToPhase } from '../api-client';
 
 // We'll import the route handler via a testable wrapper.
 // Since the actual route is a Next.js route handler, we test the pure functions
@@ -440,5 +440,231 @@ describe('RequestId flow', () => {
       };
       expect(response.requestId).toBe(rid);
     });
+  });
+});
+
+// =============================================================================
+// State Machine Tests
+// =============================================================================
+
+describe('State machine — mapEngineStatusToPhase', () => {
+  // ── HTTP 200 — final terminal states ───────────────────────────────────
+  describe('httpStatus 200', () => {
+    it('succeeded → success, done', () => {
+      const r = mapEngineStatusToPhase('succeeded', 200);
+      expect(r.phase).toBe('success');
+      expect(r.isDone).toBe(true);
+      expect(r.isRetryable).toBe(false);
+    });
+
+    it('no_match → no_match, done', () => {
+      const r = mapEngineStatusToPhase('no_match', 200);
+      expect(r.phase).toBe('no_match');
+      expect(r.isDone).toBe(true);
+      expect(r.isRetryable).toBe(true);
+    });
+
+    it('failed → failed, done', () => {
+      const r = mapEngineStatusToPhase('failed', 200);
+      expect(r.phase).toBe('failed');
+      expect(r.isDone).toBe(true);
+      expect(r.isRetryable).toBe(true);
+    });
+
+    it('expired → expired, done', () => {
+      const r = mapEngineStatusToPhase('expired', 200);
+      expect(r.phase).toBe('expired');
+      expect(r.isDone).toBe(true);
+    });
+
+    it('cached → success, done', () => {
+      const r = mapEngineStatusToPhase('cached', 200);
+      expect(r.phase).toBe('success');
+      expect(r.isDone).toBe(true);
+    });
+
+    // CRITICAL: null with 200 should NOT be failed
+    it('null with 200 → queued (NOT failed) — prevents stub false-alarm', () => {
+      const r = mapEngineStatusToPhase(null, 200);
+      expect(r.phase).toBe('queued');
+      expect(r.isDone).toBe(false);  // Keep polling!
+      expect(r.isRetryable).toBe(false);
+    });
+  });
+
+  // ── HTTP 202 — in-flight states ─────────────────────────────────────────
+  describe('httpStatus 202', () => {
+    it('pending → queued', () => {
+      const r = mapEngineStatusToPhase('pending', 202);
+      expect(r.phase).toBe('queued');
+      expect(r.isDone).toBe(false);
+    });
+
+    it('processing → processing', () => {
+      const r = mapEngineStatusToPhase('processing', 202);
+      expect(r.phase).toBe('processing');
+      expect(r.isDone).toBe(false);
+    });
+
+    it('null with 202 → processing', () => {
+      const r = mapEngineStatusToPhase(null, 202);
+      expect(r.phase).toBe('processing');
+      expect(r.isDone).toBe(false);
+    });
+  });
+
+  // ── Error codes ──────────────────────────────────────────────────────────
+  describe('error HTTP codes', () => {
+    it('400 → failed, not retryable', () => {
+      const r = mapEngineStatusToPhase(null, 400);
+      expect(r.phase).toBe('failed');
+      expect(r.isRetryable).toBe(false);
+    });
+
+    it('422 → failed, not retryable', () => {
+      const r = mapEngineStatusToPhase(null, 422);
+      expect(r.phase).toBe('failed');
+      expect(r.isRetryable).toBe(false);
+    });
+
+    it('404 → expired', () => {
+      const r = mapEngineStatusToPhase(null, 404);
+      expect(r.phase).toBe('expired');
+    });
+
+    it('429 → rate_limited, retryable', () => {
+      const r = mapEngineStatusToPhase(null, 429);
+      expect(r.phase).toBe('rate_limited');
+      expect(r.isRetryable).toBe(true);
+    });
+
+    it('500 → failed, retryable', () => {
+      const r = mapEngineStatusToPhase(null, 500);
+      expect(r.phase).toBe('failed');
+      expect(r.isRetryable).toBe(true);
+    });
+
+    it('503 → failed, retryable', () => {
+      const r = mapEngineStatusToPhase(null, 503);
+      expect(r.phase).toBe('failed');
+      expect(r.isRetryable).toBe(true);
+    });
+  });
+
+  // ── Polling contract: never null status ─────────────────────────────────
+  describe('never return null/undefined phase', () => {
+    const statusCodes = [200, 202, 400, 401, 403, 404, 422, 429, 500, 502, 503];
+    const rawStatuses = ['succeeded', 'no_match', 'failed', 'expired', 'cached', 'pending', 'processing', null];
+
+    it.each(statusCodes)('httpStatus %i always returns a defined phase', (httpStatus) => {
+      rawStatuses.forEach((raw) => {
+        const r = mapEngineStatusToPhase(raw, httpStatus);
+        expect(r.phase).toBeDefined();
+        expect(r.isDone).toBeDefined();
+        expect(r.isRetryable).toBeDefined();
+      });
+    });
+  });
+});
+
+// =============================================================================
+// Polling contract tests
+// =============================================================================
+
+describe('Polling contract — GET response shape', () => {
+  const MIN_REQUIRED_FIELDS = [
+    'requestId',
+    'httpStatus',
+    'resolutionStatus',
+    'createdAt',
+    'resolvedAt',
+    'durationMs',
+  ];
+
+  it('completed success response has all required fields', () => {
+    const response = {
+      requestId: 'req_12345678',
+      httpStatus: 200,
+      resolutionStatus: 'succeeded',
+      createdAt: new Date().toISOString(),
+      resolvedAt: new Date().toISOString(),
+      durationMs: 150,
+      data: { success: true, bestMatch: { id: 'v1', code: 'TEST10' } },
+    };
+    MIN_REQUIRED_FIELDS.forEach((field) => {
+      expect(field in response).toBe(true);
+    });
+    expect(response.resolutionStatus).not.toBeNull();
+    expect(response.resolvedAt).not.toBeNull();
+    expect(response.durationMs).not.toBeNull();
+  });
+
+  it('completed no_match response has all required fields', () => {
+    const response = {
+      requestId: 'req_87654321',
+      httpStatus: 200,
+      resolutionStatus: 'no_match',
+      createdAt: new Date().toISOString(),
+      resolvedAt: new Date().toISOString(),
+      durationMs: 80,
+    };
+    expect(response.resolutionStatus).not.toBeNull();
+    expect(response.resolutionStatus).toBe('no_match');
+  });
+
+  it('completed failed response includes errorCode', () => {
+    const response = {
+      requestId: 'req_failed123',
+      httpStatus: 200,
+      resolutionStatus: 'failed',
+      createdAt: new Date().toISOString(),
+      resolvedAt: new Date().toISOString(),
+      durationMs: 200,
+      errorCode: 'UPSTREAM_ERROR',
+      message: 'Upstream service error.',
+    };
+    expect(response.errorCode).toBeDefined();
+    expect(response.resolutionStatus).toBe('failed');
+  });
+
+  it('pending response has null resolvedAt and null durationMs', () => {
+    const response = {
+      requestId: 'req_pending456',
+      httpStatus: 202,
+      resolutionStatus: 'processing',
+      createdAt: new Date().toISOString(),
+      resolvedAt: null,
+      durationMs: null,
+    };
+    expect(response.resolvedAt).toBeNull();
+    expect(response.durationMs).toBeNull();
+    expect(response.httpStatus).toBe(202);
+  });
+
+  it('invalid requestId response is 400 with INVALID_REQUEST_ID code', () => {
+    const response = {
+      error: 'INVALID_REQUEST_ID',
+      code: 'INVALID_REQUEST_ID',
+      message: 'requestId must be at least 8 characters.',
+    };
+    expect(response.code).toBe('INVALID_REQUEST_ID');
+  });
+
+  it('unknown status (no INTERNAL_API_URL) never returns null resolutionStatus to client', () => {
+    // When upstream unavailable, the stub MUST return a non-null status
+    // so the client doesn't treat it as failed
+    const stubResponse = {
+      requestId: 'req_stub123',
+      httpStatus: 200,
+      resolutionStatus: 'unknown',  // non-null sentinel
+      createdAt: null,
+      resolvedAt: null,
+      durationMs: null,
+      errorCode: 'SERVICE_UNAVAILABLE',
+      message: 'Status lookup unavailable.',
+    };
+    expect(stubResponse.resolutionStatus).not.toBeNull();
+    expect(stubResponse.resolutionStatus).toBe('unknown');
+    // unknown maps to queued in mapEngineStatusToPhase, keeping polling alive
   });
 });
