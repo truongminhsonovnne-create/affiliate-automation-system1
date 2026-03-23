@@ -233,9 +233,13 @@ export function mapEngineStatusToPhase(
       case 'failed':
         return { phase: 'failed',     isDone: true,  isRetryable: true,  retryCount: 0, elapsedMs: 0, serverDurationMs: null };
       case 'expired':
-        return { phase: 'expired',     isDone: true,  isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+        return { phase: 'expired',    isDone: true,  isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
       case 'cached':
-        return { phase: 'success',     isDone: true,  isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+        return { phase: 'success',    isDone: true,  isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+      case 'not_found':
+        // not_found + 200: the request was genuinely not found in the DB.
+        // This is a terminal state — the user should see a friendly message.
+        return { phase: 'expired',     isDone: true,  isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
       default:
         // rawStatus === null with 200 → server stub: keep polling
         return { phase: 'queued',      isDone: false, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
@@ -732,6 +736,17 @@ function buildStateFromPhase(
         warnings: [],
         explanation: null,
         error: null,
+      };
+    case 'not_found':
+      return {
+        status: 'expired',
+        requestId,
+        bestMatch: null,
+        candidates: [],
+        performance: { totalLatencyMs: latencyMs, servedFromCache: false, resolvedAt: new Date().toISOString() },
+        warnings: [],
+        explanation: null,
+        error: { code: 'REQUEST_NOT_FOUND', message: 'Yêu cầu đã hết hạn hoặc không tồn tại. Vui lòng gửi yêu cầu mới.' },
       };
     default:
       return {

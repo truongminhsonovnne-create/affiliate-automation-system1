@@ -1,23 +1,31 @@
 /**
  * Hybrid Voucher Resolution API Route — /api/public/v1/resolve
  *
- * Architecture: Supabase-first, INTERNAL_API_URL as optional enrich layer.
+ * Architecture: resolve_requests (Supabase) → GET polling contract
  *
- * Pipeline:
- *   1. normalizeInput     — validate + extract shop/item IDs
- *   2. querySupabase     — ranked candidates from DB
- *   3. rankCandidates     — rule-based scoring
- *   4. decide             — sufficient? → return | enrich recommended? → call enrich
- *   5. optional enrich     — INTERNAL_API_URL call (5s timeout, failures ignored)
- *   6. build response     — always returns a useful response
+ * POST pipeline:
+ *   1. Parse body + resolve requestId
+ *   2. Validate input
+ *   3. [PERSIST] Insert pending record to resolve_requests table
+ *      - MUST succeed; throws 503 on DB error so the client never
+ *        submits a requestId that will immediately 404 on GET
+ *   4. Normalize + cache lookup
+ *   5. Supabase query + rank + optional enrich
+ *   6. [UPDATE] Write final status back to resolve_requests
+ *   7. Return response
+ *
+ * GET pipeline:
+ *   1. Validate requestId
+ *   2. Look up resolve_requests by request_id (Supabase-first, persistent)
+ *   3. If found → return real status with createdAt/resolvedAt
+ *   4. If not found → REQUEST_NOT_FOUND (not SERVICE_UNAVAILABLE)
+ *   5. No in-memory state used — fully serverless-compatible
  *
  * HTTP status codes:
- *   200 — success (found or no_match)
- *   400 — invalid input
- *   503 — only when Supabase itself is down AND no fallback possible
- *
- * INTERNAL_API_URL is NOT a hard requirement. Missing env or enrich failure
- * never causes a 503 if Supabase path returned usable data.
+ *   200 — success, no_match, or terminal state
+ *   202 — pending/processing (keep polling)
+ *   400 — invalid input or malformed requestId
+ *   503 — only when persistence fails (Supabase down during POST)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -27,7 +35,6 @@ import type { NormalizedInput } from '@/lib/public/resolve-normalize';
 import {
   rankOffers,
   assessCandidates,
-  computeConfidence,
   extractAlternatives,
   buildBestMatch,
 } from '@/lib/public/resolve-ranking';
@@ -45,62 +52,86 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 function getSupabase() {
   const { createClient } = require('@supabase/supabase-js');
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-    throw new Error('MISSING_SUPABASE_ENV: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set');
+    throw new Error('MISSING_SUPABASE_ENV');
   }
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
-// ── Persistent request state (Supabase) ──────────────────────────────────────
+// ── Logging ──────────────────────────────────────────────────────────────────
+
+type LogLevel = 'info' | 'warn' | 'error';
+
+function log(
+  level: LogLevel,
+  code: string,
+  meta: Record<string, unknown>
+): void {
+  // Never log secrets
+  const safe: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    if (!['SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL', 'key', 'token'].some(
+      s => k.toLowerCase().includes(s.toLowerCase())
+    )) {
+      safe[k] = v;
+    }
+  }
+  const entry = { ts: new Date().toISOString(), level, route: '/api/public/v1/resolve', code, ...safe };
+  if (level === 'error') console.error(JSON.stringify(entry));
+  else if (level === 'warn') console.warn(JSON.stringify(entry));
+  else console.info(JSON.stringify(entry));
+}
+
+// ── Persistence helpers ──────────────────────────────────────────────────────
 
 /**
- * Insert a pending request record so GET polls can look it up.
- * Returns the inserted row id.
+ * Insert a pending record to resolve_requests.
+ * MUST succeed — caller MUST throw 503 if this fails.
+ * Returns the request_id on success.
  */
-async function persistResolveRequest(
-  requestId: string,
-  platform: string,
-  rawUrl: string,
-  normalizedUrl: string
-): Promise<string | null> {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-    log('warn', 'PERSIST_REQUEST_SKIPPED', { requestId, reason: 'NO_SUPABASE_CONFIG' });
-    return null;
-  }
-  try {
-    const sb = getSupabase();
-    const { data, error } = await sb
-      .from('voucher_resolution_requests')
-      .insert({
-        id: requestId,
-        platform,
-        raw_url: rawUrl,
-        normalized_url: normalizedUrl,
-        status: 'pending',
-        requested_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-      })
-      .select('id')
-      .single();
+async function createResolveRequest(record: {
+  requestId: string;
+  platform: string;
+  rawUrl: string;
+  normalizedUrl: string;
+}): Promise<string> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('resolve_requests')
+    .insert({
+      request_id: record.requestId,
+      platform: record.platform,
+      raw_url: record.rawUrl,
+      normalized_url: record.normalizedUrl,
+      status: 'pending',
+      requested_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    })
+    .select('request_id')
+    .single();
 
-    if (error) {
-      log('error', 'PERSIST_REQUEST_FAILED', { requestId, error: error.message });
-      return null;
-    }
-    log('info', 'REQUEST_PERSISTED', { requestId, platform });
-    return (data as { id: string }).id;
-  } catch (err) {
-    log('error', 'PERSIST_REQUEST_ERROR', {
-      requestId,
-      error: err instanceof Error ? err.message : String(err),
+  if (error) {
+    // Log full error server-side only (never to client)
+    log('error', 'PERSIST_INSERT_FAILED', {
+      requestId: record.requestId,
+      platform: record.platform,
+      pgError: error.message,
+      pgCode: error.code,
     });
-    return null;
+    throw new Error(`PERSIST_INSERT_FAILED: ${error.message}`);
   }
+
+  log('info', 'REQUEST_CREATED', {
+    requestId: record.requestId,
+    platform: record.platform,
+  });
+  return (data as { request_id: string }).request_id;
 }
 
 /**
- * Update the request record with final status after resolution.
+ * Update a resolve_requests record with final status.
+ * Non-fatal — logs but never throws.
  */
 async function updateResolveRequest(
   requestId: string,
@@ -113,41 +144,37 @@ async function updateResolveRequest(
     durationMs?: number;
   } = {}
 ): Promise<void> {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return;
-  try {
-    const sb = getSupabase();
-    const { error } = await sb
-      .from('voucher_resolution_requests')
-      .update({
-        status,
-        resolved_at: new Date().toISOString(),
-        has_match: options.hasMatch ?? false,
-        best_voucher_id: options.bestVoucherId ?? null,
-        best_voucher_code: options.bestVoucherCode ?? null,
-        error_message: options.errorMessage ?? null,
-        duration_ms: options.durationMs ?? null,
-      })
-      .eq('id', requestId);
+  const sb = getSupabase();
+  const { error } = await sb
+    .from('resolve_requests')
+    .update({
+      status,
+      resolved_at: new Date().toISOString(),
+      has_match: options.hasMatch ?? null,
+      best_voucher_id: options.bestVoucherId ?? null,
+      best_voucher_code: options.bestVoucherCode ?? null,
+      error_message: options.errorMessage ?? null,
+      duration_ms: options.durationMs ?? null,
+    })
+    .eq('request_id', requestId);
 
-    if (error) {
-      log('error', 'UPDATE_REQUEST_FAILED', { requestId, status, error: error.message });
-    } else {
-      log('info', 'REQUEST_UPDATED', { requestId, status, hasMatch: options.hasMatch });
-    }
-  } catch (err) {
-    log('error', 'UPDATE_REQUEST_ERROR', {
+  if (error) {
+    log('error', 'PERSIST_UPDATE_FAILED', {
       requestId,
       status,
-      error: err instanceof Error ? err.message : String(err),
+      pgError: error.message,
     });
+  } else {
+    log('info', 'REQUEST_UPDATED', { requestId, status, hasMatch: options.hasMatch ?? null });
   }
 }
 
 /**
- * Look up a resolve request by id directly from Supabase.
- * Used by GET to honour the polling contract without depending on voucher engine.
+ * Look up a resolve_requests record by request_id.
+ * Returns null only if the row genuinely does not exist.
+ * Throws on actual DB errors (network, auth, etc.).
  */
-async function queryResolveRequestById(
+async function lookupResolveRequest(
   requestId: string
 ): Promise<{
   status: string;
@@ -157,37 +184,43 @@ async function queryResolveRequestById(
   hasMatch: boolean | null;
   errorMessage: string | null;
 } | null> {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-    return null;
-  }
-  try {
-    const sb = getSupabase();
-    const { data, error } = await sb
-      .from('voucher_resolution_requests')
-      .select('status, requested_at, resolved_at, duration_ms, has_match, error_message')
-      .eq('id', requestId)
-      .maybeSingle();
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('resolve_requests')
+    .select(
+      'status, requested_at, resolved_at, duration_ms, has_match, error_message'
+    )
+    .eq('request_id', requestId)
+    .maybeSingle();
 
-    if (error || !data) {
-      return null;
-    }
-    return {
-      status: (data as Record<string, unknown>).status as string,
-      createdAt: (data as Record<string, unknown>).requested_at as string,
-      resolvedAt: (data as Record<string, unknown>).resolved_at as string | null,
-      durationMs: (data as Record<string, unknown>).duration_ms as number | null,
-      hasMatch: (data as Record<string, unknown>).has_match as boolean | null,
-      errorMessage: (data as Record<string, unknown>).error_message as string | null,
-    };
-  } catch {
-    return null;
+  if (error) {
+    log('error', 'PERSIST_LOOKUP_FAILED', {
+      requestId,
+      pgError: error.message,
+      pgCode: error.code,
+    });
+    throw new Error(`PERSIST_LOOKUP_FAILED: ${error.message}`);
   }
+
+  if (!data) return null;
+
+  const d = data as Record<string, unknown>;
+  log('info', 'REQUEST_LOOKUP_HIT', { requestId, status: d.status as string });
+  return {
+    status: d.status as string,
+    createdAt: d.requested_at as string,
+    resolvedAt: (d.resolved_at as string | null) ?? null,
+    durationMs: (d.duration_ms as number | null) ?? null,
+    hasMatch: (d.has_match as boolean | null) ?? null,
+    errorMessage: (d.error_message as string | null) ?? null,
+  };
 }
 
 // ── Phase timing ──────────────────────────────────────────────────────────────
 
 interface PhaseTimings {
   normalize: number;
+  persist: number;
   cacheHit: number;
   supabaseQuery: number;
   ranking: number;
@@ -195,7 +228,7 @@ interface PhaseTimings {
   total: number;
 }
 
-// ── Supabase query ───────────────────────────────────────────────────────────
+// ── Supabase offer query ──────────────────────────────────────────────────────
 
 interface SupabaseResult {
   offers: DbOffer[];
@@ -204,10 +237,6 @@ interface SupabaseResult {
   error?: string;
 }
 
-/**
- * Query offers from Supabase with ranking filters.
- * Orders by confidence_score desc to support the ranking layer above it.
- */
 async function querySupabase(
   normalized: NormalizedInput,
   phaseStart: number,
@@ -224,7 +253,6 @@ async function querySupabase(
     const conditions: string[] = ['status.eq.active'];
 
     if (normalized.shopId) {
-      // Specific shop offers first, then broad promotions
       conditions.push(`(merchant_id.eq.${normalized.shopId},merchant_id.is.null)`);
     }
 
@@ -239,12 +267,7 @@ async function querySupabase(
     const queryTime = Date.now() - phaseStart - t0;
 
     if (error) {
-      log('error', 'SUPABASE_QUERY_FAILED', {
-        requestId,
-        platform: normalized.platform,
-        error: error.message,
-        queryTimeMs: queryTime,
-      });
+      log('error', 'SUPABASE_QUERY_FAILED', { requestId, platform: normalized.platform, error: error.message, queryTimeMs: queryTime });
       return { offers: [], found: false, freshness: 'unknown', error: error.message };
     }
 
@@ -321,19 +344,13 @@ async function tryEnrich(
     const latencyMs = Date.now() - t0;
 
     if (!res.ok) {
-      // Distinguish validation errors (4xx) from infrastructure errors (5xx)
       const isClientError = res.status >= 400 && res.status < 500;
       log('warn', isClientError ? 'ENRICH_BACKEND_REJECTED' : 'ENRICH_BACKEND_UNAVAILABLE', {
         requestId,
         status: res.status,
         latencyMs,
       });
-      // Don't treat 4xx as service unavailability — just skip enrich
-      return {
-        enriched: false,
-        skipReason: `HTTP_${res.status}`,
-        latencyMs,
-      };
+      return { enriched: false, skipReason: `HTTP_${res.status}`, latencyMs };
     }
 
     const data = await res.json() as Record<string, unknown>;
@@ -353,36 +370,24 @@ async function tryEnrich(
     };
   } catch (err) {
     const latencyMs = Date.now() - t0;
-    const isTimeout =
-      err instanceof DOMException && err.name === 'AbortException';
+    const isTimeout = err instanceof DOMException && err.name === 'AbortException';
     log('warn', isTimeout ? 'ENRICH_TIMEOUT' : 'ENRICH_ERROR', {
       requestId,
       error: err instanceof Error ? err.message : String(err),
       isTimeout,
       latencyMs,
     });
-    return {
-      enriched: false,
-      skipReason: isTimeout ? 'TIMEOUT' : 'FETCH_ERROR',
-      latencyMs,
-    };
+    return { enriched: false, skipReason: isTimeout ? 'TIMEOUT' : 'FETCH_ERROR', latencyMs };
   }
 }
 
-// ── Response building ─────────────────────────────────────────────────────────
+// ── Response builders ─────────────────────────────────────────────────────────
 
 const SOURCE_LABELS: Record<string, string> = {
   masoffer: 'MasOffer',
   accesstrade: 'AccessTrade',
   ecomobi: 'Ecomobi',
 };
-
-interface PerformanceMeta {
-  totalLatencyMs: number;
-  phaseTimings: PhaseTimings;
-  servedFromCache: boolean;
-  resolvedAt: string;
-}
 
 function buildSuccessResponse(
   ranked: RankedOffer[],
@@ -406,18 +411,10 @@ function buildSuccessResponse(
 
   const warnings: Array<{ code: string; message: string; severity: 'info' | 'warning' }> = [];
   if (enrich.enriched) {
-    warnings.push({
-      code: 'ENRICHED',
-      message: 'Kết quả được bổ sung từ nguồn nâng cao.',
-      severity: 'info',
-    });
+    warnings.push({ code: 'ENRICHED', message: 'Kết quả được bổ sung từ nguồn nâng cao.', severity: 'info' });
   }
   if (top?.confidenceLevel === 'low') {
-    warnings.push({
-      code: 'LOW_CONFIDENCE_RESULT',
-      message: 'Kết quả có độ tin cậy thấp — nên kiểm tra kỹ trước khi dùng.',
-      severity: 'warning',
-    });
+    warnings.push({ code: 'LOW_CONFIDENCE_RESULT', message: 'Kết quả có độ tin cậy thấp — nên kiểm tra kỹ trước khi dùng.', severity: 'warning' });
   }
   if (enrich.skipReason && enrich.skipReason !== 'MISSING_INTERNAL_API_URL') {
     warnings.push({
@@ -440,19 +437,10 @@ function buildSuccessResponse(
     },
     confidenceScore: Math.round(finalConfidence * 100) / 100,
     matchedSource,
-    dataFreshness: top?.offer.synced_at
-      ? computeFreshness(top.offer.synced_at)
-      : 'unknown',
+    dataFreshness: top?.offer.synced_at ? computeFreshness(top.offer.synced_at) : 'unknown',
     explanation: buildExplanation(bestMatch, top, alternatives.length),
     warnings,
-    _meta: {
-      resolveMode,
-      enrichAttempted: !!INTERNAL_API_URL,
-      enrichEnriched: enrich.enriched,
-      enrichSkipReason: enrich.skipReason,
-      enrichLatencyMs: enrich.latencyMs,
-      totalOffers: ranked.length,
-    },
+    _meta: { resolveMode, enrichAttempted: !!INTERNAL_API_URL, enrichEnriched: enrich.enriched, totalOffers: ranked.length },
   };
 }
 
@@ -485,17 +473,8 @@ function buildNoMatchResponse(
       ? []
       : INTERNAL_API_URL
         ? []
-        : [{
-            code: 'OPTIONAL_ENRICH_SKIPPED',
-            message: 'INTERNAL_API_URL không được cấu hình. Kết quả chỉ từ cơ sở dữ liệu.',
-            severity: 'info',
-          }],
-    _meta: {
-      resolveMode: enrich.enriched ? 'enrich_only_fallback' : 'no_match',
-      enrichAttempted: !!INTERNAL_API_URL,
-      enrichEnriched: enrich.enriched,
-      totalOffers: 0,
-    },
+        : [{ code: 'OPTIONAL_ENRICH_SKIPPED', message: 'INTERNAL_API_URL không được cấu hình. Kết quả chỉ từ cơ sở dữ liệu.', severity: 'info' }],
+    _meta: { resolveMode: enrich.enriched ? 'enrich_only_fallback' : 'no_match', enrichAttempted: !!INTERNAL_API_URL, enrichEnriched: enrich.enriched, totalOffers: 0 },
   };
 }
 
@@ -507,11 +486,8 @@ function buildExplanation(
   const tips: string[] = [];
   if (!bestMatch) return { summary: 'Không tìm thấy voucher phù hợp.', tips };
 
-  if (bestMatch.code) {
-    tips.push(`Nhập mã ${bestMatch.code} khi thanh toán`);
-  } else {
-    tips.push('Voucher tự động áp dụng — không cần nhập mã');
-  }
+  if (bestMatch.code) tips.push(`Nhập mã ${bestMatch.code} khi thanh toán`);
+  else tips.push('Voucher tự động áp dụng — không cần nhập mã');
   if (bestMatch.minSpend) tips.push(`Áp dụng cho đơn từ ${bestMatch.minSpend}`);
   if (bestMatch.maxDiscount) tips.push(`Giảm tối đa ${bestMatch.maxDiscount}`);
   if (top?.offer.is_exclusive) tips.push('Ưu đãi độc quyền từ đối tác');
@@ -521,66 +497,26 @@ function buildExplanation(
   if (bestMatch.minSpend) summaryParts.push(`Đơn từ ${bestMatch.minSpend}`);
   if (bestMatch.discountValue) summaryParts.push(`Giảm ${bestMatch.discountValue}`);
 
-  return {
-    summary: summaryParts.join(' · ') || 'Tìm thấy voucher phù hợp.',
-    tips,
-  };
-}
-
-// ── Server logging ─────────────────────────────────────────────────────────────
-
-type LogLevel = 'info' | 'warn' | 'error';
-
-function log(
-  level: LogLevel,
-  code: string,
-  meta: Record<string, unknown>
-): void {
-  const entry = {
-    ts: new Date().toISOString(),
-    level,
-    route: '/api/public/v1/resolve',
-    code,
-    ...meta,
-  };
-  if (level === 'error') {
-    console.error(JSON.stringify(entry));
-  } else if (level === 'warn') {
-    console.warn(JSON.stringify(entry));
-  } else {
-    console.info(JSON.stringify(entry));
-  }
+  return { summary: summaryParts.join(' · ') || 'Tìm thấy voucher phù hợp.', tips };
 }
 
 // ── Request ID helpers ─────────────────────────────────────────────────────────
 
-/** Minimum length for a valid requestId (matches downstream validation) */
 const MIN_REQUEST_ID_LENGTH = 8;
 
-/**
- * Resolve the canonical requestId for this request:
- * - If client sent a valid requestId (>=8 chars), use it.
- * - Otherwise generate a server-side one.
- */
 function resolveRequestId(clientRequestId: unknown, xClientRequestId: string | null): string {
-  // Client-provided via header (highest priority — came from the UI layer)
-  if (xClientRequestId && xClientRequestId.length >= MIN_REQUEST_ID_LENGTH) {
-    return xClientRequestId;
-  }
-  // Client-provided via body
-  if (typeof clientRequestId === 'string' && clientRequestId.length >= MIN_REQUEST_ID_LENGTH) {
-    return clientRequestId;
-  }
-  // Generate server-side
+  if (xClientRequestId && xClientRequestId.length >= MIN_REQUEST_ID_LENGTH) return xClientRequestId;
+  if (typeof clientRequestId === 'string' && clientRequestId.length >= MIN_REQUEST_ID_LENGTH) return clientRequestId;
   return randomBytes(12).toString('hex');
 }
 
-// ── Main route handler ─────────────────────────────────────────────────────────
+// ── POST ──────────────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
   const totalStart = Date.now();
   const phases: PhaseTimings = {
     normalize: 0,
+    persist: 0,
     cacheHit: 0,
     supabaseQuery: 0,
     ranking: 0,
@@ -588,7 +524,6 @@ export async function POST(request: NextRequest) {
     total: 0,
   };
 
-  // Resolve requestId first so every log entry has it
   const xClientRequestId = request.headers.get('X-Client-Request-Id') ?? null;
 
   // ── 1. Parse body ─────────────────────────────────────────────────────────
@@ -600,24 +535,16 @@ export async function POST(request: NextRequest) {
     const rid = resolveRequestId(undefined, xClientRequestId);
     log('error', 'INVALID_JSON', { requestId: rid, totalMs: phases.total });
     return NextResponse.json(
-      {
-        requestId: rid,
-        status: 'invalid_input',
-        code: 'INVALID_JSON',
-        warnings: [{ code: 'INVALID_JSON', message: 'Yêu cầu không hợp lệ.', severity: 'warning' }],
-      },
+      { requestId: rid, status: 'invalid_input', code: 'INVALID_JSON', warnings: [{ code: 'INVALID_JSON', message: 'Yêu cầu không hợp lệ.', severity: 'warning' }] },
       { status: 400 }
     );
   }
 
   const { input: rawInput, requestId: bodyRequestId } = body as { input?: unknown; requestId?: unknown };
-
-  // Always have a valid requestId — client-provided if valid, server-generated otherwise
   const requestId = resolveRequestId(bodyRequestId, xClientRequestId);
-
   log('info', 'RESOLVE_START', { requestId, totalMs: 0 });
 
-  // ── 2. Normalize input ─────────────────────────────────────────────────────
+  // ── 2. Normalize input ────────────────────────────────────────────────────
   const normalizeStart = Date.now();
   const validation = validateInput(rawInput);
   phases.normalize = Date.now() - normalizeStart;
@@ -641,15 +568,41 @@ export async function POST(request: NextRequest) {
 
   const normalized = validation.normalized;
 
-  // ── 3. Persist request state so GET polls can find it ─────────────────────
+  // ── 3. Persist pending request — MUST succeed ─────────────────────────────
   const persistStart = Date.now();
-  await persistResolveRequest(
-    requestId,
-    normalized.platform,
-    normalized.originalUrl,
-    normalized.cleanUrl
-  );
-  log('info', 'PERSIST_DONE', { requestId, ms: Date.now() - persistStart });
+  let persistSucceeded = false;
+  try {
+    await createResolveRequest({
+      requestId,
+      platform: normalized.platform,
+      rawUrl: normalized.originalUrl,
+      normalizedUrl: normalized.cleanUrl,
+    });
+    persistSucceeded = true;
+    phases.persist = Date.now() - persistStart;
+  } catch (persistErr) {
+    phases.total = Date.now() - totalStart;
+    phases.persist = Date.now() - persistStart;
+    // CRITICAL: do NOT swallow this error. Client must know persistence failed.
+    log('error', 'PERSISTENCE_REQUIRED_FAILED', {
+      requestId,
+      error: persistErr instanceof Error ? persistErr.message : String(persistErr),
+      totalMs: phases.total,
+    });
+    return NextResponse.json(
+      {
+        requestId,
+        status: 'error',
+        bestMatch: null,
+        candidates: [],
+        performance: { totalLatencyMs: phases.total, phaseTimings: phases, servedFromCache: false, resolvedAt: new Date().toISOString() },
+        explanation: { summary: 'Dịch vụ tạm thời gián đoạn.', tips: ['Vui lòng thử lại trong giây lát.'] },
+        warnings: [{ code: 'PERSISTENCE_REQUIRED_FAILED', message: 'Không thể ghi nhận yêu cầu. Vui lòng thử lại.', severity: 'warning' }],
+      },
+      { status: 503 }
+    );
+  }
+  log('info', 'REQUEST_PERSISTED', { requestId, persistMs: phases.persist });
 
   // ── 4. Cache lookup ────────────────────────────────────────────────────────
   const cacheStart = Date.now();
@@ -660,7 +613,6 @@ export async function POST(request: NextRequest) {
   if (cached) {
     phases.total = Date.now() - totalStart;
     log('info', 'CACHE_HIT', { requestId, cacheKey, totalMs: phases.total });
-    // Always ensure requestId is present in cached response
     const cachedData = cached.result as Record<string, unknown>;
     const cachedResponse = {
       ...cachedData,
@@ -672,7 +624,6 @@ export async function POST(request: NextRequest) {
         resolvedAt: new Date().toISOString(),
       },
     };
-    // Keep persistent record in sync — cache hit is a "success" resolution
     const cachedStatus = cachedData.status === 'success' ? 'succeeded' : 'no_match';
     const topMatch = cachedData.bestMatch as Record<string, unknown> | null;
     await updateResolveRequest(requestId, cachedStatus, {
@@ -684,19 +635,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(cachedResponse, { status: 200 });
   }
 
-  // ── 5. Supabase query ──────────────────────────────────────────────────────
+  // ── 5. Supabase query ─────────────────────────────────────────────────────
   const supabaseStart = Date.now();
   const dbResult = await querySupabase(normalized, supabaseStart, requestId);
   phases.supabaseQuery = Date.now() - supabaseStart;
 
-  // CRITICAL: only 503 when Supabase itself fails AND we have no data
   if (dbResult.error && !dbResult.found) {
     phases.total = Date.now() - totalStart;
-    log('error', 'FULL_RESOLVE_UNAVAILABLE', {
-      requestId,
-      supabaseError: dbResult.error,
-      totalMs: phases.total,
-    });
+    log('error', 'FULL_RESOLVE_UNAVAILABLE', { requestId, supabaseError: dbResult.error, totalMs: phases.total });
     return NextResponse.json(
       {
         requestId,
@@ -729,7 +675,7 @@ export async function POST(request: NextRequest) {
     resolveMode = assessment === 'no_result' ? 'no_match' : 'supabase_only';
   }
 
-  // ── 7. Optional enrich ─────────────────────────────────────────────────────
+  // ── 7. Optional enrich ────────────────────────────────────────────────────
   const enrichStart = Date.now();
   let enrichResult: EnrichResult = { enriched: false, latencyMs: 0 };
 
@@ -739,15 +685,13 @@ export async function POST(request: NextRequest) {
   phases.enrich = Date.now() - enrichStart;
   phases.total = Date.now() - totalStart;
 
-  // ── 8. Build response ──────────────────────────────────────────────────────
+  // ── 8. Build response ─────────────────────────────────────────────────────
   let response: Record<string, unknown>;
 
   if (ranked.length === 0 && !enrichResult.enriched) {
     response = buildNoMatchResponse(phases, enrichResult, requestId);
   } else {
-    // Re-rank after potential enrich (enrich could have boosted confidence)
     if (enrichResult.enriched && enrichResult.confidenceBoost) {
-      // Merge enriched score back into top offer for display
       const merged = ranked.map((r, i) =>
         i === 0 ? { ...r, score: r.score + enrichResult.confidenceBoost! * 50 } : r
       );
@@ -757,10 +701,10 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ── 9. Cache the result ────────────────────────────────────────────────────
+  // ── 9. Cache the result ──────────────────────────────────────────────────
   setCache(cacheKey, response, resolveMode, ranked.length);
 
-  // ── 10. Update persistent request record ───────────────────────────────────
+  // ── 10. Update persistent record with final status ───────────────────────
   const hasMatch = (response.status === 'success');
   const topMatch = response.bestMatch as Record<string, unknown> | null;
   await updateResolveRequest(requestId, hasMatch ? 'succeeded' : 'no_match', {
@@ -770,7 +714,7 @@ export async function POST(request: NextRequest) {
     durationMs: phases.total,
   });
 
-  // ── 11. Log final decision ─────────────────────────────────────────────────
+  // ── 11. Log completion ──────────────────────────────────────────────────
   log('info', 'RESOLVE_COMPLETE', {
     requestId,
     resolveMode,
@@ -780,7 +724,6 @@ export async function POST(request: NextRequest) {
     rankedCount: ranked.length,
     confidenceScore: response.confidenceScore,
     enriched: enrichResult.enriched,
-    enrichSkipReason: enrichResult.skipReason,
     platform: normalized.platform,
     shopId: normalized.shopId,
   });
@@ -788,37 +731,81 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(response, { status: 200 });
 }
 
-// ── GET: poll for async resolution status ───────────────────────────────────────
+// ── GET ───────────────────────────────────────────────────────────────────────
+
+/** Map DB status → polling contract resolutionStatus strings */
+function mapDbStatus(status: string): string {
+  switch (status) {
+    case 'pending':    return 'pending';
+    case 'processing': return 'processing';
+    case 'succeeded':  return 'succeeded';
+    case 'no_match':  return 'no_match';
+    case 'failed':    return 'failed';
+    case 'expired':   return 'expired';
+    default:           return 'unknown';
+  }
+}
+
+/** Terminal statuses — no more polling needed */
+function isTerminalStatus(status: string): boolean {
+  return status === 'succeeded' || status === 'no_match' || status === 'failed' || status === 'expired';
+}
+
+/**
+ * Extract resolutionStatus from the upstream voucher engine response.
+ */
+function extractUpstreamStatus(data: Record<string, unknown> | null): string {
+  if (!data) return 'unknown';
+  if (typeof data.status === 'string') return data.status;
+  if (typeof data.resolutionStatus === 'string') return data.resolutionStatus;
+  if (typeof data.success === 'boolean') {
+    if (!data.success && data.error) return 'failed';
+    if (data.success && data.data) return 'succeeded';
+  }
+  if (typeof data.has_match === 'boolean') return data.has_match ? 'succeeded' : 'no_match';
+  return 'unknown';
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const requestId = searchParams.get('requestId');
 
-  // Map missing or too-short requestId → 400 (not 503)
+  // Validate requestId format
   if (!requestId || requestId.trim().length < 8) {
     log('warn', 'GET_INVALID_REQUEST_ID', { requestId: requestId ?? 'null' });
     return NextResponse.json(
-      {
-        error: 'INVALID_REQUEST_ID',
-        code: 'INVALID_REQUEST_ID',
-        message: 'requestId must be at least 8 characters.',
-      },
+      { error: 'INVALID_REQUEST_ID', code: 'INVALID_REQUEST_ID', message: 'requestId must be at least 8 characters.' },
       { status: 400 }
     );
   }
 
-  // ── Primary: look up directly from Supabase (Vercel-compatible, persistent) ──
-  const dbRecord = await queryResolveRequestById(requestId);
+  // ── 1. Primary: look up resolve_requests (Supabase) ──────────────────────
+  let dbRecord: {
+    status: string;
+    createdAt: string;
+    resolvedAt: string | null;
+    durationMs: number | null;
+    hasMatch: boolean | null;
+    errorMessage: string | null;
+  } | null = null;
+  let lookupError: Error | null = null;
+
+  try {
+    dbRecord = await lookupResolveRequest(requestId);
+  } catch (err) {
+    lookupError = err instanceof Error ? err : new Error(String(err));
+  }
 
   if (dbRecord) {
-    log('info', 'GET_REQUEST_DB_HIT', { requestId, status: dbRecord.status });
-    // Map DB status → polling contract resolutionStatus
-    const resolutionStatus = mapDbStatusToResolutionStatus(dbRecord.status);
+    log('info', 'GET_REQUEST_HIT', { requestId, status: dbRecord.status });
+
+    const resolutionStatus = mapDbStatus(dbRecord.status);
+    const terminal = isTerminalStatus(dbRecord.status);
 
     return NextResponse.json(
       {
         requestId,
-        httpStatus: isTerminalStatus(dbRecord.status) ? 200 : 202,
+        httpStatus: terminal ? 200 : 202,
         resolutionStatus,
         createdAt: dbRecord.createdAt,
         resolvedAt: dbRecord.resolvedAt,
@@ -827,13 +814,14 @@ export async function GET(request: NextRequest) {
         errorCode: dbRecord.errorMessage ? 'RESOLUTION_FAILED' : null,
         message: dbRecord.errorMessage ?? null,
       },
-      { status: isTerminalStatus(dbRecord.status) ? 200 : 202 }
+      { status: terminal ? 200 : 202 }
     );
   }
 
-  log('info', 'GET_REQUEST_DB_MISS', { requestId });
+  // DB genuinely has no record for this requestId
+  log('info', 'REQUEST_LOOKUP_MISS', { requestId });
 
-  // ── Fallback: try voucher engine via INTERNAL_API_URL ────────────────────────
+  // ── 2. Fallback: voucher engine via INTERNAL_API_URL ──────────────────────
   if (INTERNAL_API_URL) {
     try {
       const controller = new AbortController();
@@ -841,36 +829,27 @@ export async function GET(request: NextRequest) {
 
       const upstreamRes = await fetch(
         `${INTERNAL_API_URL}/api/v1/voucher/resolve/${encodeURIComponent(requestId)}`,
-        {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'X-Client-Request-Id': requestId,
-          },
-          signal: controller.signal,
-        }
+        { method: 'GET', headers: { 'Accept': 'application/json', 'X-Client-Request-Id': requestId }, signal: controller.signal }
       );
 
       clearTimeout(timer);
 
       const upstreamBody = await upstreamRes.json().catch(() => null) as Record<string, unknown> | null;
 
-      log('info', 'GET_RESOLVE_UPSTREAM', {
-        requestId,
-        upstreamStatus: upstreamRes.status,
-      });
+      log('info', 'GET_UPSTREAM_RESPONSE', { requestId, upstreamStatus: upstreamRes.status });
 
       if (upstreamRes.status === 200) {
         const resolutionStatus = extractUpstreamStatus(upstreamBody);
         const resolvedAt = (upstreamBody?.resolved_at ?? upstreamBody?.resolvedAt) as string | null ?? null;
         const durationMs = (upstreamBody?.duration_ms ?? upstreamBody?.durationMs) as number | null ?? null;
+        const createdAt = (upstreamBody?.requested_at ?? upstreamBody?.created_at) as string | null ?? null;
 
         return NextResponse.json(
           {
             requestId,
             httpStatus: 200,
             resolutionStatus,
-            createdAt: (upstreamBody?.requested_at ?? upstreamBody?.created_at) as string | null ?? new Date().toISOString(),
+            createdAt: createdAt ?? new Date().toISOString(),
             resolvedAt,
             durationMs,
             data: upstreamBody ?? null,
@@ -894,34 +873,18 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      if (upstreamRes.status === 404 || upstreamRes.status === 400) {
-        return NextResponse.json(
-          {
-            requestId,
-            httpStatus: 200,
-            resolutionStatus: 'not_found',
-            createdAt: null,
-            resolvedAt: null,
-            durationMs: null,
-            errorCode: 'REQUEST_NOT_FOUND',
-            message: 'Request not found or has expired.',
-          },
-          { status: 200 }
-        );
-      }
-
-      // Upstream 5xx
-      log('warn', 'GET_UPSTREAM_ERROR', { requestId, status: upstreamRes.status });
+      // 404 or 400 from voucher engine → genuinely not found
+      log('warn', 'GET_UPSTREAM_NOT_FOUND', { requestId, upstreamStatus: upstreamRes.status });
       return NextResponse.json(
         {
           requestId,
           httpStatus: 200,
-          resolutionStatus: 'failed',
+          resolutionStatus: 'not_found',
           createdAt: null,
           resolvedAt: null,
           durationMs: null,
-          errorCode: 'UPSTREAM_ERROR',
-          message: `Upstream service error (${upstreamRes.status}).`,
+          errorCode: 'REQUEST_NOT_FOUND',
+          message: 'Yêu cầu đã hết hạn hoặc không tồn tại. Vui lòng gửi yêu cầu mới.',
         },
         { status: 200 }
       );
@@ -935,9 +898,9 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Neither Supabase nor voucher engine has this request.
-  // Treat as genuinely not_found — NOT SERVICE_UNAVAILABLE.
-  log('warn', 'GET_REQUEST_NOT_FOUND', { requestId });
+  // Neither DB nor voucher engine has this request.
+  // This is a genuine not_found — NOT a service outage.
+  log('warn', 'GET_REQUEST_NOT_FOUND', { requestId, lookupError: lookupError?.message ?? null });
   return NextResponse.json(
     {
       requestId,
@@ -947,43 +910,8 @@ export async function GET(request: NextRequest) {
       resolvedAt: null,
       durationMs: null,
       errorCode: 'REQUEST_NOT_FOUND',
-      message: 'Request not found or has expired.',
+      message: 'Yêu cầu đã hết hạn hoặc không tồn tại. Vui lòng gửi yêu cầu mới.',
     },
     { status: 200 }
   );
-}
-
-/** Map DB status column values → polling contract resolutionStatus strings */
-function mapDbStatusToResolutionStatus(dbStatus: string): string {
-  switch (dbStatus) {
-    case 'pending':   return 'pending';
-    case 'processing': return 'processing';
-    case 'succeeded': return 'succeeded';
-    case 'no_match': return 'no_match';
-    case 'failed':    return 'failed';
-    default:          return 'unknown';
-  }
-}
-
-/** Terminal statuses mean the request is done (no more polling needed) */
-function isTerminalStatus(status: string): boolean {
-  return status === 'succeeded' || status === 'no_match' || status === 'failed';
-}
-
-/**
- * Extract resolutionStatus from the upstream voucher engine response.
- * Handles both the voucher engine format and legacy formats.
- */
-function extractUpstreamStatus(data: Record<string, unknown> | null): string {
-  if (!data) return 'unknown';
-  if (typeof data.status === 'string') return data.status;
-  if (typeof data.resolutionStatus === 'string') return data.resolutionStatus;
-  if (typeof data.success === 'boolean') {
-    if (!data.success && data.error) return 'failed';
-    if (data.success && data.data) return 'succeeded';
-  }
-  if (typeof data.has_match === 'boolean') {
-    return data.has_match ? 'succeeded' : 'no_match';
-  }
-  return 'unknown';
 }

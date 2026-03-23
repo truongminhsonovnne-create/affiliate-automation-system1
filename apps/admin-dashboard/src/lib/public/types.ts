@@ -132,6 +132,7 @@ export type PublicResolutionPhase =
   | 'invalid_link'
   | 'rate_limited'
   | 'expired'
+  | 'not_found'
   | 'failed';
 
 /**
@@ -146,11 +147,15 @@ export interface QueuedResolutionResponse {
   /** Resolution status from the engine */
   resolutionStatus: EngineResolutionStatus | null;
   /** Timestamp when the request was created */
-  createdAt: string;
+  createdAt: string | null;
   /** Timestamp when resolution completed (null if still pending) */
   resolvedAt: string | null;
   /** Observed duration in ms (null if still pending) */
   durationMs: number | null;
+  /** Error code when status is terminal-with-error (not_found, failed) */
+  errorCode?: string | null;
+  /** Human-readable message for terminal-with-error states */
+  message?: string | null;
 }
 
 /**
@@ -165,6 +170,7 @@ export type EngineResolutionStatus =
   | 'no_match'
   | 'expired'
   | 'cached'
+  | 'not_found'
   | null;
 
 /**
