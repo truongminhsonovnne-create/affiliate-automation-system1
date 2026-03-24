@@ -237,9 +237,11 @@ export function mapEngineStatusToPhase(
       case 'cached':
         return { phase: 'success',    isDone: true,  isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
       case 'not_found':
-        // not_found + 200: the request was genuinely not found in the DB.
-        // This is a terminal state — the user should see a friendly message.
-        return { phase: 'expired',     isDone: true,  isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
+        // not_found + 200: the request genuinely does not exist in the DB.
+        // This can happen when a request was never persisted (Supabase down during
+        // POST) or the record has already been cleaned up by TTL.
+        // The user should see "no match found" — this is not an error.
+        return { phase: 'no_match',    isDone: true,  isRetryable: true,  retryCount: 0, elapsedMs: 0, serverDurationMs: null };
       default:
         // rawStatus === null with 200 → server stub: keep polling
         return { phase: 'queued',      isDone: false, isRetryable: false, retryCount: 0, elapsedMs: 0, serverDurationMs: null };
@@ -456,12 +458,35 @@ export async function submitVoucherResolution(
 
   const data = await response.json() as PublicVoucherResolveResponse;
 
-  // If the internal engine returned a queued response with a requestId,
-  // treat it as async and return the requestId for polling
-  if (data.requestId && data.requestId.length > 0) {
+  // ── Determine: sync result vs async polling ──────────────────────────────
+  //
+  // Sync path: server processed immediately and returned the final result.
+  //   Response has a populated `bestMatch` or non-pending status.
+  //   → Return the full response directly — NO polling needed.
+  //
+  // Async path: server created a pending record and expects polling.
+  //   Response has `requestId` but NO terminal result yet.
+  //   → Return { requestId, queued: true } to enter polling.
+  //
+  // BUG FIX: Previously any non-null requestId was treated as async (queued=true).
+  // This caused sync 'no_match' responses (which always have requestId) to enter
+  // the polling loop, where they would 404 in resolve_requests and incorrectly
+  // return 'expired' instead of 'no_match'. Now we only treat it as async when
+  // the response has NO terminal result yet.
+
+  const hasTerminalResult =
+    data.bestMatch !== null ||
+    data.status === 'no_match' ||
+    data.status === 'invalid_input' ||
+    data.status === 'rate_limited' ||
+    data.status === 'error';
+
+  if (data.requestId && data.requestId.length > 0 && !hasTerminalResult) {
+    // Async path: server queued the request, polling expected
     return { requestId: data.requestId, queued: true };
   }
 
+  // Sync path: server already processed → return the full response
   return data;
 }
 
