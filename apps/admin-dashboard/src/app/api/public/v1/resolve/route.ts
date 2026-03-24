@@ -33,7 +33,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
-import { validateInput } from '@/lib/public/resolve-normalize';
+import { validateInput, expandShortUrl } from '@/lib/public/resolve-normalize';
 import type { NormalizedInput } from '@/lib/public/resolve-normalize';
 import {
   rankOffers,
@@ -619,9 +619,12 @@ export async function POST(request: NextRequest) {
   const requestId = resolveRequestId(bodyRequestId, xClientRequestId);
   log('info', 'RESOLVE_START', { requestId, totalMs: 0 });
 
-  // ── 2. Normalize input ────────────────────────────────────────────────────
+  // ── 2. Expand short URLs (shope.ee, etc.) ────────────────────────────────
   const normalizeStart = Date.now();
-  const validation = validateInput(rawInput);
+  const expandedInput = typeof rawInput === 'string' ? await expandShortUrl(rawInput) : rawInput;
+
+  // ── 3. Normalize input ────────────────────────────────────────────────────
+  const validation = validateInput(expandedInput);
   phases.normalize = Date.now() - normalizeStart;
 
   if (!validation.valid) {
@@ -650,7 +653,7 @@ export async function POST(request: NextRequest) {
     await createResolveRequest({
       requestId,
       platform: normalized.platform,
-      rawUrl: normalized.originalUrl,
+      rawUrl: typeof rawInput === 'string' ? rawInput : normalized.originalUrl,
       normalizedUrl: normalized.cleanUrl,
     });
     persistSucceeded = true;

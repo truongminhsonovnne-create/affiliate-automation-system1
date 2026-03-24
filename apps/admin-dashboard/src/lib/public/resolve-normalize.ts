@@ -21,6 +21,41 @@ export interface NormalizedInput {
 
 // ── Public URL cleaners ─────────────────────────────────────────────────────────
 
+// ── Short URL expander ─────────────────────────────────────────────────────────
+
+/**
+ * Resolve shope.ee / bit.ly style redirects to the final destination URL.
+ * Only follows safe, known redirect domains.
+ * Returns the original URL if the request fails or times out.
+ */
+export async function expandShortUrl(raw: string): Promise<string> {
+  const shortDomains = ['shope.ee', 'shope.ll', 'shope.cc', 'bit.ly', 'tinyurl.com', 'goo.gl'];
+  try {
+    const url = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+    if (!shortDomains.includes(url.hostname.toLowerCase())) {
+      return raw;
+    }
+  } catch {
+    return raw;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(raw, {
+      method: 'HEAD',
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    return res.url || raw;
+  } catch {
+    return raw;
+  }
+}
+
+// ── Public URL cleaners ─────────────────────────────────────────────────────────
+
 const TRACKING_PARAMS = new Set([
   'spm', 'scm', 'utm_source', 'utm_medium', 'utm_campaign',
   'utm_term', 'utm_content', 'fbclid', 'gclid', 'msclkid',
@@ -97,7 +132,7 @@ export function normalizeInput(raw: string): NormalizedInput {
   let shopId: string | null = null;
   let itemId: string | null = null;
 
-  if (lower.includes('shopee')) {
+  if (lower.includes('shopee') || lower.includes('shope.ee')) {
     platform = 'shopee';
     ({ shopId, itemId } = parseShopee(raw));
   } else if (lower.includes('lazada')) {
@@ -160,7 +195,7 @@ export function validateInput(raw: unknown): ValidationResult | ValidationFailur
   }
   const normalized = normalizeInput(trimmed);
   if (normalized.platform === 'unknown') {
-    return { valid: false, code: 'UNSUPPORTED_PLATFORM', message: 'Chỉ hỗ trợ Shopee, Lazada, Tiki, TikTok' };
+    return { valid: false, code: 'UNSUPPORTED_PLATFORM', message: 'Chỉ hỗ trợ Shopee, Shopee (shope.ee), Lazada, Tiki, TikTok' };
   }
   return { valid: true, normalized };
 }
