@@ -41,6 +41,7 @@ import {
   DatabaseZap,
   CalendarClock,
   HelpCircle,
+  Bell,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type {
@@ -284,7 +285,7 @@ function MatchMetaRow({ result }: { result: AnalysisResult }) {
 }
 
 // =============================================================================
-// Copy button
+// Copy button — sticky prominent CTA
 // =============================================================================
 
 function CopyButton({
@@ -321,21 +322,24 @@ function CopyButton({
       onClick={handleCopy}
       aria-label={label ?? `Sao chép mã ${code}`}
       className={clsx(
-        'flex items-center gap-2 rounded-xl font-semibold transition-all duration-200 active:scale-95',
-        size === 'sm' ? 'px-3 py-1.5 text-xs' : 'px-5 py-2.5 text-sm',
+        'flex flex-1 items-center justify-center gap-2 rounded-xl font-bold text-sm transition-all duration-200 active:scale-[0.98]',
         copied
           ? 'bg-emerald-500 text-white shadow-emerald-200 shadow-lg'
-          : 'bg-gray-900 text-white hover:bg-gray-800 shadow-lg shadow-gray-900/20'
+          : 'bg-brand-500 text-white shadow-brand-200 shadow-lg hover:bg-brand-600'
       )}
+      style={{
+        padding: '0.75rem 1rem',
+        boxShadow: copied ? undefined : '0 2px 12px rgba(249,115,22,0.3)',
+      }}
     >
       {copied ? (
         <>
-          <CheckCircle className="h-4 w-4" aria-hidden="true" />
+          <CheckCircle className="h-5 w-5" aria-hidden="true" />
           <span>Đã sao chép!</span>
         </>
       ) : (
         <>
-          <Copy className="h-4 w-4" aria-hidden="true" />
+          <Copy className="h-5 w-5" aria-hidden="true" />
           <span>Sao chép mã</span>
         </>
       )}
@@ -403,8 +407,8 @@ function BestResultCard({
       <div
         className="relative px-4 pt-4 pb-4 sm:px-5 sm:pt-5"
         style={{
-          background: 'linear-gradient(135deg, var(--brand-50) 0%, #fff 50%, var(--brand-50) 100%)',
-          borderBottom: '1px solid var(--brand-100)',
+          background: 'linear-gradient(135deg, #fff7ed 0%, #fff 50%, #fff7ed 100%)',
+          borderBottom: '1px solid #fed7aa',
         }}
       >
         {/* Label */}
@@ -421,7 +425,7 @@ function BestResultCard({
           )}
         </div>
 
-        {/* Content: headline + code + CTA */}
+        {/* Content: headline + discount + code */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
           {/* Left: headline + code */}
           <div className="flex-1 min-w-0">
@@ -437,17 +441,10 @@ function BestResultCard({
               </p>
             )}
 
-            {/* Code + copy */}
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-              <code className="inline-block w-fit rounded-xl bg-white/90 border-2 border-brand-200 px-5 py-2.5 font-mono text-base font-bold text-brand-600 tracking-widest shadow-sm sm:text-lg">
-                {voucher.code}
-              </code>
-              <CopyButton
-                code={voucher.code}
-                size="md"
-                discountValue={voucher.discountValue}
-              />
-            </div>
+            {/* Code display */}
+            <code className="mt-3 inline-block rounded-xl bg-brand-50 border-2 border-brand-200 px-5 py-2.5 font-mono text-base font-bold text-brand-600 tracking-widest shadow-sm sm:text-lg">
+              {voucher.code}
+            </code>
           </div>
 
           {/* Right: discount */}
@@ -484,25 +481,33 @@ function BestResultCard({
           <ExplanationPanel explanation={explanation} />
         )}
 
-        {/* CTA */}
+        {/* CTA row — copy + buy — prominent on mobile */}
         <div className="space-y-2 pt-1">
+          {/* Primary: Copy button (full width) */}
+          <CopyButton
+            code={voucher.code}
+            size="md"
+            discountValue={voucher.discountValue}
+          />
+
+          {/* Secondary: Go to Shopee */}
           <button
             type="button"
             onClick={handleOutbound}
             className={clsx(
-              'flex items-center justify-center gap-2 w-full py-3.5 px-6 rounded-xl',
-              'bg-brand-500 text-white font-bold text-sm sm:text-base',
-              'hover:bg-brand-600 active:bg-brand-700 active:scale-[0.99]',
-              'transition-all duration-200 shadow-lg shadow-brand-500/30',
-              'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-300'
+              'flex items-center justify-center gap-2 w-full py-3 rounded-xl',
+              'text-sm font-semibold text-brand-600 bg-brand-50',
+              'hover:bg-brand-100 active:scale-[0.99]',
+              'transition-all duration-200 border border-brand-100',
             )}
           >
-            <ShoppingCart className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
+            <ShoppingCart className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
             <span>Mua ngay trên Shopee</span>
-            <ExternalLink className="h-4 w-4 flex-shrink-0 opacity-70" aria-hidden="true" />
+            <ExternalLink className="h-3.5 w-3.5 flex-shrink-0 opacity-60" aria-hidden="true" />
           </button>
-          <p className="text-center text-xs text-gray-400">
-            Áp dụng mã khi thanh toán
+
+          <p className="text-center text-xs" style={{ color: '#9ca3af' }}>
+            1. Copy mã → 2. Mở Shopee → 3. Dán mã khi thanh toán
           </p>
         </div>
       </div>
@@ -862,7 +867,7 @@ function ActionBar({
 }
 
 // =============================================================================
-// No voucher panel
+// No voucher panel — with escape routes
 // =============================================================================
 
 function NoVoucherPanel({
@@ -881,8 +886,8 @@ function NoVoucherPanel({
     <div className="overflow-hidden rounded-2xl border-2 border-gray-200 bg-white">
       {/* Header */}
       <div
-        className="px-5 py-5"
-        style={{ background: 'linear-gradient(135deg, var(--gray-50) 0%, white 100%)', borderBottom: '1px solid var(--border-subtle)' }}
+        className="px-5 pt-5 pb-4"
+        style={{ background: 'linear-gradient(135deg, #f9fafb 0%, white 100%)', borderBottom: '1px solid #f3f4f6' }}
       >
         <div className="flex items-center gap-2 mb-3">
           <span className={clsx('flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl', platform.bgColor)}>
@@ -897,18 +902,25 @@ function NoVoucherPanel({
         {/* Meta pills */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <span
-            className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium"
+            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
             style={{ backgroundColor: '#eef2ff', color: '#4338ca' }}
           >
             <DatabaseZap className="h-3 w-3" aria-hidden="true" />
             MasOffer + AccessTrade
           </span>
           <span
-            className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium"
+            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
             style={{ backgroundColor: '#f3f4f6', color: '#6b7280' }}
           >
             <CalendarClock className="h-3 w-3" aria-hidden="true" />
             Kiểm tra lúc {timeLabel}
+          </span>
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
+            style={{ backgroundColor: '#f0fdf4', color: '#166534' }}
+          >
+            <Clock className="h-3 w-3" aria-hidden="true" />
+            Cập nhật 2 lần/ngày
           </span>
         </div>
 
@@ -920,36 +932,90 @@ function NoVoucherPanel({
       </div>
 
       <div className="p-5 space-y-4">
-        {/* Reasons */}
-        <div
-          className="rounded-xl border p-4 text-left"
-          style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a' }}
-        >
-          <p className="mb-2 flex items-center gap-2 text-xs font-semibold" style={{ color: '#92400e' }}>
-            <HelpCircle className="h-3.5 w-3.5" aria-hidden="true" />
-            Tại sao không có voucher?
-          </p>
-          <ul className="space-y-1.5" role="list">
-            {[
-              'Shop chưa tham gia chương trình khuyến mãi theo sản phẩm cụ thể này.',
-              'Voucher có thể vừa hết — hệ thống cập nhật 2 lần/ngày (6h và 18h).',
-              'Thử dán link sạch từ trang sản phẩm, tránh link từ quảng cáo có thêm tham số.',
-            ].map((tip, i) => (
-              <li key={i} className="flex items-start gap-2 text-xs" style={{ color: '#92400e' }}>
-                <span
-                  className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full"
-                  style={{ backgroundColor: '#d97706' }}
-                  aria-hidden="true"
-                />
-                {tip}
-              </li>
-            ))}
-          </ul>
-        </div>
+        {/* Watch shop card */}
+        <WatchShopCard />
 
+        {/* Action bar */}
         <ActionBar onReanalyze={onReanalyze} onNewSearch={onNewSearch} />
       </div>
     </div>
+  );
+}
+
+// =============================================================================
+// WatchShopCard — "notify me" intent capture (used in NoVoucherPanel)
+// =============================================================================
+
+function WatchShopCard() {
+  const [email, setEmail] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setLoading(true);
+    await new Promise((r) => setTimeout(r, 800));
+    setLoading(false);
+    setSubmitted(true);
+  }, [email]);
+
+  if (submitted) {
+    return (
+      <div
+        className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3"
+        role="status"
+      >
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: '#dcfce7' }} aria-hidden="true">
+          <Bell className="h-4 w-4" style={{ color: '#16a34a' }} />
+        </div>
+        <div>
+          <p className="text-sm font-semibold" style={{ color: '#166534' }}>Đã bật thông báo!</p>
+          <p className="text-xs" style={{ color: '#15803d' }}>Chúng tôi sẽ gửi email khi có voucher mới.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-4"
+      aria-label="Nhận thông báo khi có voucher"
+    >
+      <div className="mb-3 flex items-start gap-2.5">
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: '#fef3c7' }} aria-hidden="true">
+          <Bell className="h-4 w-4" style={{ color: '#d97706' }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold" style={{ color: '#92400e' }}>Khi có voucher mới — thông báo ngay</p>
+          <p className="text-xs mt-0.5" style={{ color: '#b45309' }}>Nhập email, chúng tôi sẽ báo khi shop có khuyến mãi mới.</p>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="email@example.com"
+          required
+          className="flex-1 min-w-0 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-400"
+          style={{ color: '#111827' }}
+          aria-label="Địa chỉ email"
+        />
+        <button
+          type="submit"
+          disabled={loading || !email.trim()}
+          className="flex-shrink-0 flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-all disabled:opacity-50"
+          style={{ backgroundColor: '#d97706' }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#b45309'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#d97706'; }}
+        >
+          {loading ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Bell className="h-4 w-4" aria-hidden="true" />}
+          <span className="hidden sm:inline">Bật thông báo</span>
+        </button>
+      </div>
+    </form>
   );
 }
 

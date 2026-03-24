@@ -99,19 +99,19 @@ interface StepItemProps {
 
 const ACCENT_MAP: Record<string, { done: React.CSSProperties; active: React.CSSProperties; pending: React.CSSProperties }> = {
   blue: {
-    done: { backgroundColor: 'var(--info-100)' },
-    active: { backgroundColor: 'var(--info-100)', boxShadow: '0 0 0 4px var(--info-100)' },
-    pending: { backgroundColor: 'var(--bg-subtle)' },
+    done: { backgroundColor: '#dbeafe' },
+    active: { backgroundColor: '#dbeafe', boxShadow: '0 0 0 4px #dbeafe' },
+    pending: { backgroundColor: '#f3f4f6' },
   },
   orange: {
-    done: { backgroundColor: 'var(--success-100)' },
-    active: { backgroundColor: 'var(--brand-100)', boxShadow: '0 0 0 4px var(--brand-100)' },
-    pending: { backgroundColor: 'var(--bg-subtle)' },
+    done: { backgroundColor: '#bbf7d0' },
+    active: { backgroundColor: '#ffedd5', boxShadow: '0 0 0 4px #ffedd5' },
+    pending: { backgroundColor: '#f3f4f6' },
   },
   amber: {
-    done: { backgroundColor: 'var(--warning-100)' },
-    active: { backgroundColor: 'var(--warning-100)', boxShadow: '0 0 0 4px var(--warning-100)' },
-    pending: { backgroundColor: 'var(--bg-subtle)' },
+    done: { backgroundColor: '#fef3c7' },
+    active: { backgroundColor: '#fef3c7', boxShadow: '0 0 0 4px #fef3c7' },
+    pending: { backgroundColor: '#f3f4f6' },
   },
 };
 
@@ -133,7 +133,7 @@ function StepItem({ step, status, delay = 0, accentColor }: StepItemProps) {
             viewBox="0 0 24 24"
             fill="none"
             className="h-4 w-4 animate-in zoom-in duration-200"
-            style={{ color: 'var(--success-500)' }}
+            style={{ color: '#22c55e' }}
             aria-hidden="true"
           >
             <path
@@ -149,8 +149,8 @@ function StepItem({ step, status, delay = 0, accentColor }: StepItemProps) {
             className="h-4 w-4 transition-colors duration-300"
             style={
               status === 'active'
-                ? { color: 'var(--brand-500)' }
-                : { color: 'var(--text-muted)' }
+                ? { color: '#f97316' }
+                : { color: '#9ca3af' }
             }
             aria-hidden="true"
           />
@@ -161,10 +161,10 @@ function StepItem({ step, status, delay = 0, accentColor }: StepItemProps) {
             className="absolute inset-0 animate-ping rounded-full opacity-40"
             style={
               accentColor === 'blue'
-                ? { backgroundColor: 'var(--info-200)' }
+                ? { backgroundColor: '#93c5fd' }
                 : accentColor === 'orange'
-                  ? { backgroundColor: 'var(--brand-200)' }
-                  : { backgroundColor: 'var(--warning-200)' }
+                  ? { backgroundColor: '#fed7aa' }
+                  : { backgroundColor: '#fde68a' }
             }
           />
         )}
@@ -174,10 +174,10 @@ function StepItem({ step, status, delay = 0, accentColor }: StepItemProps) {
         className="text-sm font-medium transition-colors duration-300"
         style={
           status === 'done'
-            ? { color: 'var(--success-600)' }
+            ? { color: '#16a34a' }
             : status === 'active'
-              ? { color: 'var(--brand-600)' }
-              : { color: 'var(--text-muted)' }
+              ? { color: '#c2410c' }
+              : { color: '#9ca3af' }
         }
       >
         {step.label}
@@ -187,25 +187,35 @@ function StepItem({ step, status, delay = 0, accentColor }: StepItemProps) {
 }
 
 // =============================================================================
-// Skeleton cards (shown during processing)
+// Skeleton cards — mobile-optimized shimmer
 // =============================================================================
 
 function SkeletonCard() {
   return (
     <div
-      className="animate-pulse space-y-3 rounded-2xl border bg-white p-4"
-      style={{ borderColor: 'var(--border-subtle)' }}
+      className="space-y-3 rounded-2xl border bg-white p-4 overflow-hidden relative"
+      style={{ borderColor: '#f3f4f6' }}
     >
-      <div className="flex items-center gap-3">
-        <div className="h-9 w-9 rounded-xl" style={{ backgroundColor: 'var(--bg-subtle)' }} />
+      {/* Shimmer overlay */}
+      <div
+        className="absolute inset-0"
+        style={{
+          background: 'linear-gradient(90deg, transparent 0%, rgba(249,115,22,0.04) 50%, transparent 100%)',
+          animation: 'shimmer 1.5s ease-in-out infinite',
+          backgroundSize: '200% 100%',
+        }}
+        aria-hidden="true"
+      />
+      <div className="flex items-center gap-3 relative">
+        <div className="h-9 w-9 rounded-xl" style={{ backgroundColor: '#f3f4f6' }} />
         <div className="flex-1 space-y-2">
-          <div className="h-4 w-3/4 rounded-md" style={{ backgroundColor: 'var(--bg-subtle)' }} />
-          <div className="h-3 w-1/2 rounded-md" style={{ backgroundColor: 'var(--bg-subtle)' }} />
+          <div className="h-4 w-3/4 rounded-md" style={{ backgroundColor: '#f3f4f6' }} />
+          <div className="h-3 w-1/2 rounded-md" style={{ backgroundColor: '#f3f4f6' }} />
         </div>
       </div>
-      <div className="flex gap-2">
-        <div className="h-6 w-20 rounded-full" style={{ backgroundColor: 'var(--bg-subtle)' }} />
-        <div className="h-6 w-24 rounded-full" style={{ backgroundColor: 'var(--bg-subtle)' }} />
+      <div className="flex gap-2 relative">
+        <div className="h-6 w-20 rounded-full" style={{ backgroundColor: '#f3f4f6' }} />
+        <div className="h-6 w-24 rounded-full" style={{ backgroundColor: '#f3f4f6' }} />
       </div>
     </div>
   );
@@ -230,21 +240,21 @@ function ElapsedTimer({ onLongWait }: { onLongWait: boolean }) {
 
   return (
     <div className="flex items-center gap-2 text-xs">
-      <span style={{ color: onLongWait ? 'var(--warning-500)' : 'var(--text-muted)' }}>
+      <span style={{ color: onLongWait ? '#d97706' : '#9ca3af' }}>
         Thời gian:
       </span>
       <span
         className="font-mono tabular-nums"
         style={
           onLongWait
-            ? { color: 'var(--warning-500)', fontWeight: 500 }
-            : { color: 'var(--text-muted)' }
+            ? { color: '#d97706', fontWeight: 500 }
+            : { color: '#9ca3af' }
         }
       >
         {seconds}s
       </span>
       {onLongWait && (
-        <span style={{ color: 'var(--warning-500)' }}>
+        <span style={{ color: '#d97706' }}>
           — Hệ thống đang xử lý, vui lòng đợi
         </span>
       )}
@@ -264,9 +274,9 @@ function LongWaitFallback({ elapsedMs }: { elapsedMs: number }) {
       <div
         className="rounded-xl border px-4 py-3 text-sm"
         style={{
-          borderColor: 'var(--warning-200)',
-          backgroundColor: 'var(--warning-50)',
-          color: 'var(--warning-700)',
+          borderColor: '#fde68a',
+          backgroundColor: '#fffbeb',
+          color: '#92400e',
         }}
       >
         <div className="flex items-start gap-2">
@@ -287,7 +297,7 @@ function LongWaitFallback({ elapsedMs }: { elapsedMs: number }) {
           <div>
             <span style={{ fontWeight: 500 }}>Yêu cầu mất nhiều thời gian hơn bình thường.</span>
             {' '}
-            <span style={{ color: 'var(--warning-600)' }}>
+            <span style={{ color: '#b45309' }}>
               Đã chờ {seconds}s — chúng tôi đang tiếp tục tìm kiếm voucher tốt nhất cho bạn.
             </span>
           </div>
@@ -305,13 +315,13 @@ function RetryBadge({ count }: { count: number }) {
   if (count <= 0) return null;
 
   return (
-    <div className="mt-3 animate-in slide-in-from-top-1 fade-in duration-300">
+    <div className="mt-2 animate-in slide-in-from-top-1 fade-in duration-300">
       <div
         className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium"
         style={{
-          borderColor: 'var(--warning-200)',
-          backgroundColor: 'var(--warning-50)',
-          color: 'var(--warning-700)',
+          borderColor: '#fde68a',
+          backgroundColor: '#fffbeb',
+          color: '#b45309',
         }}
       >
         <RotateCw className="h-3 w-3 animate-spin" style={{ animationDuration: '1.2s' }} />
@@ -366,37 +376,30 @@ export function ResolutionProgress({
     setIsLongWait(false);
   }, [phase]);
 
+  const isProcessing = phase === 'processing';
+  const bgColor = isProcessing ? '#fff7ed' : isQueued ? '#eff6ff' : '#fefce8';
+  const borderColor = isProcessing ? '#fed7aa' : isQueued ? '#bfdbfe' : '#fde68a';
+  const iconColor = isProcessing ? '#f97316' : isQueued ? '#2563eb' : '#d97706';
+
   return (
     <div
-      className={clsx('flex flex-col items-center gap-5 rounded-3xl border bg-white p-8 shadow-lg', className)}
-      style={
-        phase === 'queued'
-          ? { borderColor: 'var(--info-100)' }
-          : phase === 'processing'
-            ? { borderColor: 'var(--brand-100)', boxShadow: 'var(--shadow-brand)' }
-            : { borderColor: 'var(--warning-200)' }
-      }
+      className={clsx('flex flex-col items-center gap-4 rounded-3xl border bg-white p-6 sm:p-8 shadow-lg', className)}
+      style={{ borderColor }}
     >
-      {/* Animated icon with orbiting dots */}
+      {/* Animated icon */}
       <div className="relative">
         <div
-          className="flex h-20 w-20 items-center justify-center rounded-full"
-          style={
-            phase === 'queued'
-              ? { backgroundColor: 'var(--info-50)' }
-              : phase === 'processing'
-                ? { backgroundColor: 'var(--brand-50)' }
-                : { backgroundColor: 'var(--warning-50)' }
-          }
+          className="flex h-16 w-16 items-center justify-center rounded-full sm:h-20 sm:w-20"
+          style={{ backgroundColor: bgColor }}
         >
           <ActiveIcon
-            className="h-10 w-10"
+            className="h-8 w-8 sm:h-10 sm:w-10"
             style={
-              phase === 'queued'
-                ? { color: 'var(--info-400)', animation: 'pulse 2s ease-in-out infinite' }
-                : phase === 'processing'
-                  ? { color: 'var(--brand-400)' }
-                  : { color: 'var(--warning-500)', animation: 'spin 1.5s linear infinite' }
+              isQueued
+                ? { color: iconColor, animation: 'pulse 2s ease-in-out infinite' }
+                : isProcessing
+                  ? { color: iconColor }
+                  : { color: iconColor, animation: 'spin 1.5s linear infinite' }
             }
             aria-hidden="true"
           />
@@ -406,49 +409,46 @@ export function ResolutionProgress({
         {[0, 1, 2].map((i) => (
           <span
             key={i}
-            className="absolute h-2 w-2 rounded-full"
-            style={
-              phase === 'queued'
-                ? { backgroundColor: 'var(--info-400)', top: '50%', left: '50%', transform: `rotate(${i * 120}deg) translateX(42px) translateY(-50%)`, animation: `orbit 1.5s linear infinite`, animationDelay: `${i * 0.5}s` }
-                : phase === 'processing'
-                  ? { backgroundColor: 'var(--brand-400)', top: '50%', left: '50%', transform: `rotate(${i * 120}deg) translateX(42px) translateY(-50%)`, animation: `orbit 1.5s linear infinite`, animationDelay: `${i * 0.5}s` }
-                  : { backgroundColor: 'var(--warning-400)', top: '50%', left: '50%', transform: `rotate(${i * 120}deg) translateX(42px) translateY(-50%)`, animation: `orbit 1.5s linear infinite`, animationDelay: `${i * 0.5}s` }
-            }
+            className="absolute h-2 w-2 rounded-full hidden sm:block"
+            style={{
+              backgroundColor: iconColor,
+              top: '50%',
+              left: '50%',
+              transform: `rotate(${i * 120}deg) translateX(36px) translateY(-50%)`,
+              animation: `orbit 1.5s linear infinite`,
+              animationDelay: `${i * 0.5}s`,
+            }}
             aria-hidden="true"
           />
         ))}
       </div>
 
       {/* Headline + subtext */}
-      <div className="text-center">
+      <div className="text-center px-2">
         <h2
-          className="text-xl font-bold"
-          style={
-            phase === 'queued'
-              ? { color: 'var(--info-800)' }
-              : phase === 'processing'
-                ? { color: 'var(--gray-800)' }
-                : { color: 'var(--warning-800)' }
-          }
+          className="text-base font-bold sm:text-xl"
+          style={{ color: isProcessing ? '#111827' : isQueued ? '#1e40af' : '#92400e' }}
         >
           {config.headline}
         </h2>
-        <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{config.subtext}</p>
+        <p className="mt-1 text-xs sm:text-sm" style={{ color: '#6b7280' }}>
+          {config.subtext}
+        </p>
       </div>
 
       {/* Retry attempt badge */}
       {isRetrying && <RetryBadge count={retryCount} />}
 
       {/* Skeleton result cards during processing */}
-      {phase === 'processing' && (
-        <div className="w-full max-w-sm space-y-3">
+      {isProcessing && (
+        <div className="w-full space-y-3">
           <SkeletonCard />
           <SkeletonCard />
         </div>
       )}
 
       {/* Steps list */}
-      <div className="w-full max-w-sm space-y-4">
+      <div className="w-full space-y-3">
         {steps.map((step, i) => (
           <StepItem
             key={step.id}
