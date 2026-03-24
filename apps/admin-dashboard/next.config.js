@@ -17,16 +17,6 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['lucide-react'],
 
-  // Exclude the monorepo root's src/ directory from the Pages Router
-  // error page build traces. In this monorepo, the parent D:/Affiliate/src/
-  // contains App Router hybrid files that conflict during Pages Router
-  // pre-render for /404 and /500.
-  experimental: {
-    outputFileTracingExcludes: {
-      '/**': ['../../src/**'],
-    },
-  },
-
   // Security headers for all public responses
   async headers() {
     return [
