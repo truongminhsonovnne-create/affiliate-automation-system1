@@ -1,5 +1,6 @@
 /**
  * Healthcheck endpoint — GET /api/health
+ * v2 — force fresh deployment
  *
  * Returns 200 if the Next.js server is healthy.
  * Use cases:
