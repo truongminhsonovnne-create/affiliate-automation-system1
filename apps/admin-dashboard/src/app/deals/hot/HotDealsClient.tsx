@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Flame, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { DealsGrid } from '@/components/public/DealsGrid';
@@ -11,12 +11,17 @@ const PAGE_SIZE = 20;
 
 function useHotDeals(initialFilters: DealsFilterState) {
   const [filters, setFilters] = useState<DealsFilterState>(initialFilters);
+  const [offset, setOffset] = useState(0);
   const [response, setResponse] = useState<DealsApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Keep a ref so load() always reads the latest filters without causing effect re-runs
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+
   const load = useCallback(
-    async (f: DealsFilterState, offset = 0) => {
+    async (f: DealsFilterState, pageOffset: number) => {
       setLoading(true);
       setError(null);
       try {
@@ -26,7 +31,7 @@ function useHotDeals(initialFilters: DealsFilterState) {
           deal_type: f.deal_type || undefined,
           category: f.category || undefined,
           limit: PAGE_SIZE,
-          offset,
+          offset: pageOffset,
         });
         setResponse(res);
       } catch (err) {
@@ -38,15 +43,24 @@ function useHotDeals(initialFilters: DealsFilterState) {
     []
   );
 
+  // Filter change → reset to page 1
   useEffect(() => {
-    load(filters);
-  }, [filters, load]);
+    setOffset(0);
+    load(filters, 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
-  return { filters, setFilters, response, loading, error, reload: (offset = 0) => load(filters, offset) };
+  // Manual page change: use latest filters (via ref) + new offset
+  const changePage = useCallback((newOffset: number) => {
+    setOffset(newOffset);
+    load(filtersRef.current, newOffset);
+  }, [load]);
+
+  return { filters, setFilters, offset, response, loading, error, changePage };
 }
 
 export function HotDealsContent() {
-  const { filters, setFilters, response, loading, error, reload } = useHotDeals({
+  const { filters, setFilters, offset, response, loading, error, changePage } = useHotDeals({
     source: 'all', sort: 'hot', deal_type: '', category: '',
   });
 
@@ -85,10 +99,10 @@ export function HotDealsContent() {
 
         <div className="mt-6">
           <DealsGrid
-            deals={response?.deals ?? []} total={total} limit={PAGE_SIZE} offset={0}
+            deals={response?.deals ?? []} total={total} limit={PAGE_SIZE} offset={offset}
             loading={loading} error={error}
             emptyTitle="Chưa có deal hot nào" emptySubtitle="Hãy quay lại sau — chúng tôi cập nhật thường xuyên."
-            onPageChange={(offset) => reload(offset)}
+            onPageChange={changePage}
           />
         </div>
 
