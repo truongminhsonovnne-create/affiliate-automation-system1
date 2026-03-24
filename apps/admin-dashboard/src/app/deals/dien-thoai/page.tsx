@@ -11,7 +11,7 @@ import { PublicLayout } from '@/components/public/PublicLayoutNew';
 import { CategoryDealsClient } from '../CategoryDealsClient';
 
 export const metadata: Metadata = {
-  title: 'Voucher Điện Thoại Giảm Giá | VoucherFinder',
+  title: 'Voucher Điện Thoại Giảm Giá',
   description:
     'Tổng hợp mã giảm giá cho điện thoại: iPhone, Samsung, Xiaomi, OPPO trên Shopee, Lazada. Cập nhật liên tục. Miễn phí, không cần đăng nhập.',
   keywords: [
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: '/deals/dien-thoai' },
   openGraph: {
-    title: 'Voucher Điện Thoại Giảm Giá | VoucherFinder',
+    title: 'Voucher Điện Thoại Giảm Giá',
     description: 'Mã giảm giá iPhone, Samsung, Xiaomi, OPPO trên Shopee & Lazada.',
     url: '/deals/dien-thoai',
     type: 'website',
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary',
-    title: 'Voucher Điện Thoại Giảm Giá | VoucherFinder',
+    title: 'Voucher Điện Thoại Giảm Giá',
     description: 'Mã giảm giá điện thoại iPhone, Samsung, Xiaomi trên Shopee & Lazada.',
     images: ['/og-default.png'],
   },

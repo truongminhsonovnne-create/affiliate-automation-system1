@@ -9,13 +9,13 @@ import { PublicLayout } from '@/components/public/PublicLayoutNew';
 import { HotDealsContent } from './HotDealsClient';
 
 export const metadata = {
-  title: 'Deal Hot Hôm Nay | VoucherFinder',
+  title: 'Deal Hot Hôm Nay',
   description:
     'Những deal được nhiều người dùng nhất hôm nay. Coupon, voucher, freeship Shopee, Lazada, Tiki hot nhất.',
   keywords: ['deal hot', 'coupon hot', 'voucher hot', 'shopee hot', 'deals hot today'],
   alternates: { canonical: '/deals/hot' },
   openGraph: {
-    title: 'Deal Hot Hôm Nay | VoucherFinder',
+    title: 'Deal Hot Hôm Nay',
     description: 'Những deal được nhiều người dùng nhất hôm nay.',
     url: '/deals/hot',
     type: 'website',

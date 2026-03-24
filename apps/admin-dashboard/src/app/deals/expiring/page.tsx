@@ -9,13 +9,13 @@ import { PublicLayout } from '@/components/public/PublicLayoutNew';
 import { ExpiringDealsContent } from './ExpiringDealsClient';
 
 export const metadata = {
-  title: 'Deal Sắp Hết Hạn | VoucherFinder',
+  title: 'Deal Sắp Hết Hạn',
   description:
     'Những voucher và deal sắp hết hạn trong 7 ngày tới. Nhanh tay kẻo hết! Cập nhật liên tục.',
   keywords: ['deal sắp hết hạn', 'voucher hết hạn', 'coupon sắp hết', 'flash sale'],
   alternates: { canonical: '/deals/expiring' },
   openGraph: {
-    title: 'Deal Sắp Hết Hạn | VoucherFinder',
+    title: 'Deal Sắp Hết Hạn',
     description: 'Những voucher và deal sắp hết hạn trong 7 ngày tới. Nhanh tay kẻo hết!',
     url: '/deals/expiring',
     type: 'website',

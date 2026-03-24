@@ -11,7 +11,7 @@ import { PublicLayout } from '@/components/public/PublicLayoutNew';
 import { CategoryDealsClient } from '../CategoryDealsClient';
 
 export const metadata: Metadata = {
-  title: 'Voucher Sức Khỏe & Làm Đẹp Giảm Giá | VoucherFinder',
+  title: 'Voucher Sức Khỏe & Làm Đẹp Giảm Giá',
   description:
     'Mã giảm giá sức khỏe, làm đẹp: kem chống nắng, son, thực phẩm chức năng, vitamin trên Shopee, Lazada. Giảm đến 40%.',
   keywords: [
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: '/deals/suc-khoe-lam-dep' },
   openGraph: {
-    title: 'Voucher Sức Khỏe & Làm Đẹp Giảm Giá | VoucherFinder',
+    title: 'Voucher Sức Khỏe & Làm Đẹp Giảm Giá',
     description: 'Mã giảm giá kem chống nắng, son, thực phẩm chức năng trên Shopee & Lazada.',
     url: '/deals/suc-khoe-lam-dep',
     type: 'website',
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary',
-    title: 'Voucher Sức Khỏe & Làm Đẹp Giảm Giá | VoucherFinder',
+    title: 'Voucher Sức Khỏe & Làm Đẹp Giảm Giá',
     description: 'Mã giảm giá sức khỏe và làm đẹp trên Shopee & Lazada.',
     images: ['/og-default.png'],
   },

@@ -11,7 +11,7 @@ import { PublicLayout } from '@/components/public/PublicLayoutNew';
 import { CategoryDealsClient } from '../CategoryDealsClient';
 
 export const metadata: Metadata = {
-  title: 'Voucher Thời Trang Giảm Giá | VoucherFinder',
+  title: 'Voucher Thời Trang Giảm Giá',
   description:
     'Mã giảm giá thời trang: áo, quần, giày, túi xách trên Shopee, Lazada. Giảm đến 50%. Cập nhật liên tục theo đợt sale.',
   keywords: [
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: '/deals/thoi-trang' },
   openGraph: {
-    title: 'Voucher Thời Trang Giảm Giá | VoucherFinder',
+    title: 'Voucher Thời Trang Giảm Giá',
     description: 'Mã giảm giá thời trang: áo, quần, giày, túi xách trên Shopee & Lazada.',
     url: '/deals/thoi-trang',
     type: 'website',
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary',
-    title: 'Voucher Thời Trang Giảm Giá | VoucherFinder',
+    title: 'Voucher Thời Trang Giảm Giá',
     description: 'Mã giảm giá thời trang trên Shopee & Lazada. Giảm đến 50%.',
     images: ['/og-default.png'],
   },

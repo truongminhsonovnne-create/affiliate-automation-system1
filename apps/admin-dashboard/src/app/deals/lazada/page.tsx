@@ -11,7 +11,7 @@ import { PublicLayout } from '@/components/public/PublicLayoutNew';
 import { CategoryDealsClient } from '../CategoryDealsClient';
 
 export const metadata: Metadata = {
-  title: 'Voucher & Deal Lazada Hôm Nay | VoucherFinder',
+  title: 'Voucher & Deal Lazada Hôm Nay',
   description:
     'Tổng hợp mã giảm giá, voucher Lazada và deal hot nhất hôm nay. Cập nhật liên tục. Miễn phí, không cần đăng nhập.',
   keywords: [
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: '/deals/lazada' },
   openGraph: {
-    title: 'Voucher & Deal Lazada Hôm Nay | VoucherFinder',
+    title: 'Voucher & Deal Lazada Hôm Nay',
     description: 'Tổng hợp mã giảm giá và deal Lazada hot nhất. Cập nhật liên tục.',
     url: '/deals/lazada',
     type: 'website',
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary',
-    title: 'Voucher & Deal Lazada Hôm Nay | VoucherFinder',
+    title: 'Voucher & Deal Lazada Hôm Nay',
     description: 'Mã giảm giá và deal Lazada hot nhất hôm nay.',
     images: ['/og-default.png'],
   },

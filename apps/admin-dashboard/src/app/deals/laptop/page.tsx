@@ -11,7 +11,7 @@ import { PublicLayout } from '@/components/public/PublicLayoutNew';
 import { CategoryDealsClient } from '../CategoryDealsClient';
 
 export const metadata: Metadata = {
-  title: 'Voucher Laptop Giảm Giá | VoucherFinder',
+  title: 'Voucher Laptop Giảm Giá',
   description:
     'Mã giảm giá laptop: MacBook, ASUS, Dell, HP, Lenovo trên Shopee, Lazada. Cập nhật theo đợt sale, giảm đến 30%.',
   keywords: [
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: '/deals/laptop' },
   openGraph: {
-    title: 'Voucher Laptop Giảm Giá | VoucherFinder',
+    title: 'Voucher Laptop Giảm Giá',
     description: 'Mã giảm giá laptop MacBook, ASUS, Dell, HP, Lenovo trên Shopee & Lazada.',
     url: '/deals/laptop',
     type: 'website',
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary',
-    title: 'Voucher Laptop Giảm Giá | VoucherFinder',
+    title: 'Voucher Laptop Giảm Giá',
     description: 'Mã giảm giá laptop trên Shopee & Lazada. Giảm đến 30%.',
     images: ['/og-default.png'],
   },

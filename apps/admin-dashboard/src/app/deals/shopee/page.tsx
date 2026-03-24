@@ -11,7 +11,7 @@ import { PublicLayout } from '@/components/public/PublicLayoutNew';
 import { CategoryDealsClient } from '../CategoryDealsClient';
 
 export const metadata: Metadata = {
-  title: 'Voucher & Deal Shopee Hôm Nay | VoucherFinder',
+  title: 'Voucher & Deal Shopee Hôm Nay',
   description:
     'Tổng hợp mã giảm giá, voucher Shopee và deal hot nhất hôm nay. Cập nhật liên tục 2 lần/ngày. Miễn phí, không cần đăng nhập.',
   keywords: [
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   ],
   alternates: { canonical: '/deals/shopee' },
   openGraph: {
-    title: 'Voucher & Deal Shopee Hôm Nay | VoucherFinder',
+    title: 'Voucher & Deal Shopee Hôm Nay',
     description: 'Tổng hợp mã giảm giá và deal Shopee hot nhất. Cập nhật liên tục.',
     url: '/deals/shopee',
     type: 'website',
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary',
-    title: 'Voucher & Deal Shopee Hôm Nay | VoucherFinder',
+    title: 'Voucher & Deal Shopee Hôm Nay',
     description: 'Mã giảm giá và deal Shopee hot nhất hôm nay.',
     images: ['/og-default.png'],
   },
