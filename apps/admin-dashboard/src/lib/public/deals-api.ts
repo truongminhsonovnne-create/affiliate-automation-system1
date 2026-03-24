@@ -207,7 +207,7 @@ export function encodeDealId(dealId: string): string {
  * redirect endpoint which logs the click and then 302-redirects to the
  * real affiliate tracking link.
  *
- * Format: /redirect?d=<encoded-dealId>&s=<source-short>
+ * Route: /api/public/redirect?d=<encoded-dealId>&s=<source-short>
  *   s: 'at' = accesstrade, 'mo' = masoffer
  */
 export function buildAffiliateRedirectUrl(deal: DealCard): string | null {
@@ -215,7 +215,7 @@ export function buildAffiliateRedirectUrl(deal: DealCard): string | null {
 
   const encodedId = encodeDealId(deal.id);
   const src = deal.source === 'accesstrade' ? 'at' : 'mo';
-  return `/redirect?d=${encodedId}&s=${src}`;
+  return `/api/public/redirect?d=${encodedId}&s=${src}`;
 }
 
 /**

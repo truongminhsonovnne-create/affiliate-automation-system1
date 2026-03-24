@@ -29,7 +29,7 @@ export interface RedirectParams {
  * Build the internal redirect URL for a deal.
  * This is what we store in the DB and what the frontend calls.
  *
- * Format: /redirect?d=<dealId>&s=<source>
+ * Format: /api/public/redirect?d=<dealId>&s=<source>
  *   d = base64url-encoded dealId  (short, not guessable)
  *   s = source (at, mo)
  *
@@ -43,7 +43,7 @@ export function buildRedirectUrl(dealId: string, source: 'accesstrade' | 'masoff
   const encoded = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 
   const src = source === 'accesstrade' ? 'at' : 'mo';
-  return `/redirect?d=${encoded}&s=${src}`;
+  return `/api/public/redirect?d=${encoded}&s=${src}`;
 }
 
 /**
