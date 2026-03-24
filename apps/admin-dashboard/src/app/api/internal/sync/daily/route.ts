@@ -383,6 +383,8 @@ async function insertOrchestratorItem(
 
 // ── Handler ────────────────────────────────────────────────────────────────
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   const authError = rejectUnauthorized(request);
   if (authError) return authError;

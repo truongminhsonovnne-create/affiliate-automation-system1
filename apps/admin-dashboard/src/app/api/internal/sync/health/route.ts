@@ -23,6 +23,8 @@ function rejectUnauthorized(request: NextRequest): Response | null {
   return null;
 }
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   const authError = rejectUnauthorized(request);
   if (authError) return authError;

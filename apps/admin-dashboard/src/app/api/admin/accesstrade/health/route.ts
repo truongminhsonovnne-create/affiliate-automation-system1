@@ -35,6 +35,8 @@ interface AccessTradeHealthResponse {
   } | null;
 }
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(_request: NextRequest) {
   const session = await getSession();
   if (!session) {

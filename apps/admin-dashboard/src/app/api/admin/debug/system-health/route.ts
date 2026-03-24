@@ -314,6 +314,8 @@ async function fetchConfidenceStats(sb: Awaited<ReturnType<typeof getSupabase>>)
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url);

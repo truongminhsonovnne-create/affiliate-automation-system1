@@ -1,6 +1,10 @@
 /**
  * Public Deals API — /api/public/v1/deals
  *
+ * MUST be dynamically rendered — reads query params and queries Supabase at request time.
+ */
+export const dynamic = 'force-dynamic';
+ *
  * Server-side route that queries Supabase directly and returns
  * deal cards for the discovery pages.
  *

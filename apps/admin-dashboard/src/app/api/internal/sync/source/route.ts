@@ -227,6 +227,8 @@ async function syncAccessTrade(opts: { dryRun: boolean; maxPages: number }) {
 
 // ── POST handler ─────────────────────────────────────────────────────────────
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   const authError = rejectUnauthorized(request);
   if (authError) return authError;

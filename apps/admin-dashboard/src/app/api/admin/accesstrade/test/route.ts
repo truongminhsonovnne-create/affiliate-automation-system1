@@ -21,6 +21,8 @@ import type { AccessTradeConnectionTest } from '@/lib/api/accesstrade-types';
  * Test AccessTrade API connectivity.
  * Returns connection status, latency, and basic account info.
  */
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   // ── Auth guard ────────────────────────────────────────────────
   // Uses the same HMAC-signed session cookie as all other admin routes.

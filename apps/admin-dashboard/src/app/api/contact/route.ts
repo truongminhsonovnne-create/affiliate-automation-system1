@@ -93,6 +93,8 @@ async function saveSubmission(submission: ContactSubmission): Promise<void> {
 
 // ── POST handler ────────────────────────────────────────────────────────────
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
 

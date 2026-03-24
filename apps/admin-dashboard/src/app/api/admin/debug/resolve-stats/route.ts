@@ -41,6 +41,8 @@ function pruneTraces(_cutoffMs: number): number {
 
 const INTERNAL_API_URL = process.env.INTERNAL_API_URL;
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.ADMIN_SECRET || 'admin-debug-token'}`) {

@@ -14,6 +14,8 @@ import { getSession } from '@/lib/auth/session';
 const INTERNAL_API_URL = process.env.INTERNAL_API_URL ?? 'http://localhost:3001';
 const CONTROL_PLANE_SECRET = process.env.CONTROL_PLANE_INTERNAL_SECRET ?? '';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(_request: NextRequest) {
   const session = await getSession();
   if (!session) {

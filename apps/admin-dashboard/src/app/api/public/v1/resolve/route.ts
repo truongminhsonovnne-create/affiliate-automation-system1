@@ -1,6 +1,11 @@
 /**
  * Hybrid Voucher Resolution API Route — /api/public/v1/resolve
  *
+ * MUST be dynamically rendered — reads request body, queries Supabase,
+ * and uses INTERNAL_API_URL at request time.
+ */
+export const dynamic = 'force-dynamic';
+ *
  * Architecture: resolve_requests (Supabase) → GET polling contract
  *
  * POST pipeline:

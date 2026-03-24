@@ -29,6 +29,8 @@ function getClientIp(request: NextRequest): string {
   );
 }
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   const ip = getClientIp(request);
   const userAgent = request.headers.get('user-agent') || undefined;
