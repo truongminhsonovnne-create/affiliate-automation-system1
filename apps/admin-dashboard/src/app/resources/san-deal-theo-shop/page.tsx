@@ -26,6 +26,13 @@ export const metadata: Metadata = {
     description: 'Tìm voucher riêng từng cửa hàng — thường rẻ hơn mã sàn chung.',
     url: '/resources/san-deal-theo-shop',
     type: 'article',
+    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: 'Cách săn deal theo shop trên Shopee' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Cách săn deal theo shop trên Shopee | VoucherFinder',
+    description: 'Tìm voucher riêng từng cửa hàng — thường rẻ hơn mã sàn chung.',
+    images: ['/og-default.png'],
   },
 };
 

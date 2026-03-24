@@ -27,6 +27,13 @@ export const metadata: Metadata = {
     description: 'So sánh các loại voucher Shopee để chọn ưu đãi hiệu quả nhất cho từng trường hợp.',
     url: '/resources/uu-dai-hieu-qua-cao',
     type: 'article',
+    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: 'Voucher nào thực sự tiết kiệm?' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Voucher nào thực sự tiết kiệm? | VoucherFinder',
+    description: 'So sánh các loại voucher Shopee để chọn ưu đãi hiệu quả nhất.',
+    images: ['/og-default.png'],
   },
 };
 

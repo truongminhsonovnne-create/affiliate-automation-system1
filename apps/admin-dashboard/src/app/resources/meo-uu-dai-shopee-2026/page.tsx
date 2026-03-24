@@ -17,6 +17,19 @@ export const metadata = {
     'tối ưu voucher Shopee',
   ],
   alternates: { canonical: '/resources/meo-uu-dai-shopee-2026' },
+  openGraph: {
+    title: '10 mẹo tối ưu ưu đãi Shopee 2026 | VoucherFinder',
+    description: 'Những cách ít người biết để tiết kiệm thêm khi mua sắm trên Shopee.',
+    url: '/resources/meo-uu-dai-shopee-2026',
+    type: 'article',
+    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: '10 mẹo tối ưu ưu đãi Shopee 2026' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: '10 mẹo tối ưu ưu đãi Shopee 2026 | VoucherFinder',
+    description: 'Tiết kiệm thêm khi mua sắm trên Shopee — mẹo ít người biết.',
+    images: ['/og-default.png'],
+  },
 };
 
 export default function ArticlePage() {

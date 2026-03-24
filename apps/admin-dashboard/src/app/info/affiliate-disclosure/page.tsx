@@ -26,7 +26,7 @@ export const metadata = {
   ],
 
   alternates: {
-    canonical: '/affiliate-disclosure',
+    canonical: '/info/affiliate-disclosure',
   },
 
   openGraph: {
@@ -48,6 +48,8 @@ export const metadata = {
   twitter: {
     card: 'summary',
     title: 'Công khai liên kết | VoucherFinder',
+    description: 'Thông tin công khai về các mối quan hệ liên kết của VoucherFinder với các nền tảng thương mại điện tử.',
+    images: ['/og-default.png'],
   },
 };
 

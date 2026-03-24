@@ -16,3 +16,4 @@ export {
   ALL_ARTICLES,
 } from './ArticleLayout';
 export { HistoryProvider } from '@/lib/public/useHistory';
+export { WatchAlertForm } from './WatchAlertForm';

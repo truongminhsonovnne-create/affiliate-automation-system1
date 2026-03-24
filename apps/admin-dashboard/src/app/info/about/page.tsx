@@ -21,21 +21,30 @@ export const metadata = {
   ],
 
   alternates: {
-    canonical: '/about',
+    canonical: '/info/about',
   },
 
   openGraph: {
     title: 'Về VoucherFinder — Công cụ tìm mã giảm giá Shopee miễn phí',
     description:
       'Tìm hiểu VoucherFinder là gì, cách thức hoạt động, và cam kết của chúng tôi trong việc giúp người mua sắm tiết kiệm khi mua trên Shopee.',
-    url: '/about',
+    url: '/info/about',
     type: 'website',
+    images: [
+      {
+        url: '/og-default.png',
+        width: 1200,
+        height: 630,
+        alt: 'Về VoucherFinder',
+      },
+    ],
   },
 
   twitter: {
     card: 'summary',
     title: 'Về VoucherFinder',
     description: 'Công cụ tìm mã giảm giá Shopee miễn phí, không quảng cáo.',
+    images: ['/og-default.png'],
   },
 };
 

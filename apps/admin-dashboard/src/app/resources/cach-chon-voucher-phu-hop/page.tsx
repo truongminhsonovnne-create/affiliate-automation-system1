@@ -16,6 +16,19 @@ export const metadata = {
     'tiết kiệm Shopee',
   ],
   alternates: { canonical: '/resources/cach-chon-voucher-phu-hop' },
+  openGraph: {
+    title: 'Cách chọn voucher phù hợp | VoucherFinder',
+    description: 'Cách đọc điều kiện voucher để chọn đúng mã cho giỏ hàng của bạn.',
+    url: '/resources/cach-chon-voucher-phu-hop',
+    type: 'article',
+    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: 'Cách chọn voucher phù hợp' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Cách chọn voucher phù hợp | VoucherFinder',
+    description: 'Hướng dẫn đọc điều kiện voucher để chọn đúng mã cho giỏ hàng.',
+    images: ['/og-default.png'],
+  },
 };
 
 export default function ArticlePage() {

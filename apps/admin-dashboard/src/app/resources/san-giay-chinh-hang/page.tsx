@@ -17,6 +17,19 @@ export const metadata = {
     'voucher giày',
   ],
   alternates: { canonical: '/resources/san-giay-chinh-hang' },
+  openGraph: {
+    title: 'Săn giày chính hãng giá tốt | VoucherFinder',
+    description: 'Cách phân biệt giày chính hãng trên Shopee, thời điểm sale tốt nhất, và mẹo dùng voucher để mua giày Nike, Adidas, New Balance với giá hời.',
+    url: '/resources/san-giay-chinh-hang',
+    type: 'article',
+    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: 'Săn giày chính hãng giá tốt trên Shopee' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Săn giày chính hãng giá tốt | VoucherFinder',
+    description: 'Cách mua giày Nike, Adidas, New Balance với giá tốt trên Shopee.',
+    images: ['/og-default.png'],
+  },
 };
 
 export default function ArticlePage() {

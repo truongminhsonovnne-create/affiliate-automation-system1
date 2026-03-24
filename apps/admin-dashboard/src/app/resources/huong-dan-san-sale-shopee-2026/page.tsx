@@ -17,6 +17,19 @@ export const metadata = {
     'mã giảm giá Shopee',
   ],
   alternates: { canonical: '/resources/huong-dan-san-sale-shopee-2026' },
+  openGraph: {
+    title: 'Hướng dẫn săn sale Shopee 2026 | VoucherFinder',
+    description: 'Tổng hợp các đợt sale lớn trên Shopee năm 2026, thời gian diễn ra, và cách săn mã giảm giá tốt nhất.',
+    url: '/resources/huong-dan-san-sale-shopee-2026',
+    type: 'article',
+    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: 'Hướng dẫn săn sale Shopee 2026' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Hướng dẫn săn sale Shopee 2026 | VoucherFinder',
+    description: 'Cách săn mã giảm giá tốt nhất cho từng đợt sale Shopee 2026.',
+    images: ['/og-default.png'],
+  },
 };
 
 export default function ArticlePage() {

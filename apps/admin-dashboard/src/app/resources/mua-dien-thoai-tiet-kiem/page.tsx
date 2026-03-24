@@ -17,6 +17,19 @@ export const metadata = {
     'voucher điện thoại',
   ],
   alternates: { canonical: '/resources/mua-dien-thoai-tiet-kiem' },
+  openGraph: {
+    title: 'Cách mua điện thoại giá tốt nhất trên Shopee | VoucherFinder',
+    description: 'So sánh đợt sale, chọn thời điểm mua, và mẹo kết hợp voucher để tiết kiệm tối đa khi mua smartphone.',
+    url: '/resources/mua-dien-thoai-tiet-kiem',
+    type: 'article',
+    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: 'Cách mua điện thoại giá tốt nhất trên Shopee' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Cách mua điện thoại giá tốt nhất trên Shopee | VoucherFinder',
+    description: 'Mẹo kết hợp voucher để tiết kiệm tối đa khi mua smartphone trên Shopee.',
+    images: ['/og-default.png'],
+  },
 };
 
 export default function ArticlePage() {

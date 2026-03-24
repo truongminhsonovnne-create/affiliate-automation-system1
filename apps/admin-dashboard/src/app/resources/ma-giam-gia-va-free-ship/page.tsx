@@ -16,6 +16,19 @@ export const metadata = {
     'tối ưu voucher Shopee',
   ],
   alternates: { canonical: '/resources/ma-giam-gia-va-free-ship' },
+  openGraph: {
+    title: 'Voucher giảm giá và Free Ship | VoucherFinder',
+    description: 'Cách kết hợp mã giảm giá với chương trình Free Ship để tối ưu tổng ưu đãi trên Shopee.',
+    url: '/resources/ma-giam-gia-va-free-ship',
+    type: 'article',
+    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: 'Voucher giảm giá và Free Ship' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Voucher giảm giá và Free Ship | VoucherFinder',
+    description: 'Cách kết hợp mã giảm giá với Free Ship để tối ưu ưu đãi Shopee.',
+    images: ['/og-default.png'],
+  },
 };
 
 export default function ArticlePage() {

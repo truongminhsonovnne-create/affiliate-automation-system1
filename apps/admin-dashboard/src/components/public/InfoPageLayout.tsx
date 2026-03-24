@@ -13,7 +13,7 @@
  */
 
 import Link from 'next/link';
-import { PublicLayout } from './PublicLayout';
+import { PublicLayout } from './PublicLayoutNew';
 import { Clock } from 'lucide-react';
 import clsx from 'clsx';
 

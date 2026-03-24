@@ -17,6 +17,19 @@ export const metadata = {
     'mã giảm giá Shopee',
   ],
   alternates: { canonical: '/resources/cac-loai-voucher-shopee' },
+  openGraph: {
+    title: 'Các loại voucher Shopee | VoucherFinder',
+    description: 'Phân biệt và cách sử dụng Shopee Free Ship, voucher shop, mã giảm giá toàn sàn.',
+    url: '/resources/cac-loai-voucher-shopee',
+    type: 'article',
+    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: 'Các loại voucher Shopee' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Các loại voucher Shopee | VoucherFinder',
+    description: 'Hướng dẫn phân biệt và dùng đúng từng loại voucher Shopee.',
+    images: ['/og-default.png'],
+  },
 };
 
 export default function ArticlePage() {

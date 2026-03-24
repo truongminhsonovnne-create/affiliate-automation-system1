@@ -17,6 +17,19 @@ export const metadata = {
     'đợt sale Shopee',
   ],
   alternates: { canonical: '/resources/chuong-trinh-khuyen-mai-shopee' },
+  openGraph: {
+    title: 'Các chương trình khuyến mãi trên Shopee | VoucherFinder',
+    description: 'Flash Sale, 9.9, 11.11, 12.12 — mỗi đợt sale có đặc điểm gì và cách săn được giá tốt nhất.',
+    url: '/resources/chuong-trinh-khuyen-mai-shopee',
+    type: 'article',
+    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: 'Các chương trình khuyến mãi trên Shopee' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Các chương trình khuyến mãi trên Shopee | VoucherFinder',
+    description: 'Hướng dẫn săn sale trên Shopee — Flash Sale, 9.9, 11.11, 12.12.',
+    images: ['/og-default.png'],
+  },
 };
 
 export default function ArticlePage() {

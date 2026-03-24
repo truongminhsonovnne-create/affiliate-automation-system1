@@ -111,6 +111,42 @@ const PUBLIC_ROUTES: Array<{
       changeFrequency: 'hourly',
       priority: 0.6,
     },
+    {
+      path: '/deals/shopee',
+      lastModified: '2026-03-24',
+      changeFrequency: 'hourly',
+      priority: 0.85,
+    },
+    {
+      path: '/deals/lazada',
+      lastModified: '2026-03-24',
+      changeFrequency: 'hourly',
+      priority: 0.75,
+    },
+    {
+      path: '/deals/dien-thoai',
+      lastModified: '2026-03-24',
+      changeFrequency: 'hourly',
+      priority: 0.8,
+    },
+    {
+      path: '/deals/thoi-trang',
+      lastModified: '2026-03-24',
+      changeFrequency: 'hourly',
+      priority: 0.75,
+    },
+    {
+      path: '/deals/suc-khoe-lam-dep',
+      lastModified: '2026-03-24',
+      changeFrequency: 'hourly',
+      priority: 0.7,
+    },
+    {
+      path: '/deals/laptop',
+      lastModified: '2026-03-24',
+      changeFrequency: 'hourly',
+      priority: 0.75,
+    },
 
     // ── Article pages ──
     {

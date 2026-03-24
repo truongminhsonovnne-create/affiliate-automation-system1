@@ -41,7 +41,6 @@ import {
   DatabaseZap,
   CalendarClock,
   HelpCircle,
-  Bell,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type {
@@ -53,6 +52,7 @@ import type {
 } from '@/lib/public/api-client';
 import { formatExpiry, formatDate } from '@/lib/public/api-client';
 import { useAnalytics } from '@/lib/public/analytics-context';
+import { WatchAlertForm } from './WatchAlertForm';
 
 // =============================================================================
 // Types
@@ -932,90 +932,13 @@ function NoVoucherPanel({
       </div>
 
       <div className="p-5 space-y-4">
-        {/* Watch shop card */}
-        <WatchShopCard />
+        {/* Watch alert form */}
+        <WatchAlertForm />
 
         {/* Action bar */}
         <ActionBar onReanalyze={onReanalyze} onNewSearch={onNewSearch} />
       </div>
     </div>
-  );
-}
-
-// =============================================================================
-// WatchShopCard — "notify me" intent capture (used in NoVoucherPanel)
-// =============================================================================
-
-function WatchShopCard() {
-  const [email, setEmail] = useState('');
-  const [submitted, setSubmitted] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim()) return;
-    setLoading(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setLoading(false);
-    setSubmitted(true);
-  }, [email]);
-
-  if (submitted) {
-    return (
-      <div
-        className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3"
-        role="status"
-      >
-        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: '#dcfce7' }} aria-hidden="true">
-          <Bell className="h-4 w-4" style={{ color: '#16a34a' }} />
-        </div>
-        <div>
-          <p className="text-sm font-semibold" style={{ color: '#166534' }}>Đã bật thông báo!</p>
-          <p className="text-xs" style={{ color: '#15803d' }}>Chúng tôi sẽ gửi email khi có voucher mới.</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <form
-      onSubmit={handleSubmit}
-      className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-4"
-      aria-label="Nhận thông báo khi có voucher"
-    >
-      <div className="mb-3 flex items-start gap-2.5">
-        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: '#fef3c7' }} aria-hidden="true">
-          <Bell className="h-4 w-4" style={{ color: '#d97706' }} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold" style={{ color: '#92400e' }}>Khi có voucher mới — thông báo ngay</p>
-          <p className="text-xs mt-0.5" style={{ color: '#b45309' }}>Nhập email, chúng tôi sẽ báo khi shop có khuyến mãi mới.</p>
-        </div>
-      </div>
-      <div className="flex gap-2">
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="email@example.com"
-          required
-          className="flex-1 min-w-0 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-400"
-          style={{ color: '#111827' }}
-          aria-label="Địa chỉ email"
-        />
-        <button
-          type="submit"
-          disabled={loading || !email.trim()}
-          className="flex-shrink-0 flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-all disabled:opacity-50"
-          style={{ backgroundColor: '#d97706' }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#b45309'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#d97706'; }}
-        >
-          {loading ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Bell className="h-4 w-4" aria-hidden="true" />}
-          <span className="hidden sm:inline">Bật thông báo</span>
-        </button>
-      </div>
-    </form>
   );
 }
 

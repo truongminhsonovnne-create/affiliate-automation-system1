@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Zap, Clock, TrendingUp, Flame, ChevronRight, Star, ArrowRight } from 'lucide-react';
+import { Zap, Clock, TrendingUp, Flame, ChevronRight, Star, ArrowRight, Smartphone, Shirt, HeartPulse, Laptop } from 'lucide-react';
 import { DealCard } from '@/components/public/DealCard';
 import { DealsGrid } from '@/components/public/DealsGrid';
 import { DealsFilterBar, type DealsFilterState } from '@/components/public/DealsFilterBar';
@@ -185,11 +185,13 @@ export function DealsPageContent() {
       <div className="mx-auto max-w-5xl px-6 py-8 sm:px-10">
         <section className="mb-8">
           <h2 className="sr-only">Điều hướng nhanh</h2>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
             <QuickNavCard href="/deals/hot" icon={Flame} title="Deal Hot Hôm Nay" subtitle="Deals được nhiều người dùng nhất" accent="#ef4444" />
             <QuickNavCard href="/deals/expiring" icon={Clock} title="Sắp Hết Hạn" subtitle="Nhanh tay kẻo hết!" accent="#d97706" />
-            <QuickNavCard href="/deals/source/masoffer" icon={Star} title="MasOffer" subtitle="Deals từ mạng lưới MasOffer" accent="#1d4ed8" />
-            <QuickNavCard href="/deals/source/accesstrade" icon={TrendingUp} title="AccessTrade" subtitle="Deals từ AccessTrade" accent="#15803d" />
+            <QuickNavCard href="/deals/shopee" icon={Flame} title="Deals Shopee" subtitle="Mã giảm giá Shopee" accent="#ee4d2d" />
+            <QuickNavCard href="/deals/dien-thoai" icon={Smartphone} title="Điện thoại" subtitle="iPhone, Samsung, Xiaomi" accent="#2563eb" />
+            <QuickNavCard href="/deals/thoi-trang" icon={Shirt} title="Thời trang" subtitle="Áo, quần, giày, túi" accent="#db2777" />
+            <QuickNavCard href="/deals/laptop" icon={Laptop} title="Laptop" subtitle="MacBook, ASUS, Dell" accent="#7c3aed" />
           </div>
         </section>
 

@@ -16,6 +16,19 @@ export const metadata = {
     'voucher thương hiệu',
   ],
   alternates: { canonical: '/resources/uu-dai-thuong-hieu' },
+  openGraph: {
+    title: 'Ưu đãi thương hiệu trên Shopee | VoucherFinder',
+    description: 'Cách tìm và kết hợp ưu đãi thương hiệu với mã voucher sàn để tiết kiệm thêm.',
+    url: '/resources/uu-dai-thuong-hieu',
+    type: 'article',
+    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: 'Ưu đãi thương hiệu trên Shopee' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Ưu đãi thương hiệu trên Shopee | VoucherFinder',
+    description: 'Cách tìm ưu đãi thương hiệu và kết hợp với mã voucher Shopee.',
+    images: ['/og-default.png'],
+  },
 };
 
 export default function ArticlePage() {

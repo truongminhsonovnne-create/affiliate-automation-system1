@@ -26,6 +26,13 @@ export const metadata: Metadata = {
     description: 'Cách đọc điểm chất lượng voucher để chọn mã tốt nhất.',
     url: '/resources/confidence-score-la-gi',
     type: 'article',
+    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: 'Confidence Score là gì?' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Confidence Score là gì? | VoucherFinder',
+    description: 'Cách đọc điểm chất lượng voucher để chọn mã tốt nhất.',
+    images: ['/og-default.png'],
   },
 };
 

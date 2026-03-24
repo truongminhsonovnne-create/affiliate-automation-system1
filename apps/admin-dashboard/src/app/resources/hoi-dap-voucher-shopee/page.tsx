@@ -16,6 +16,19 @@ export const metadata = {
     'điều kiện voucher Shopee',
   ],
   alternates: { canonical: '/resources/hoi-dap-voucher-shopee' },
+  openGraph: {
+    title: 'FAQ Voucher Shopee | VoucherFinder',
+    description: 'Hết hạn khi nào? Dùng được cho đơn nào? Giải đáp 15 câu hỏi thường gặp về voucher Shopee.',
+    url: '/resources/hoi-dap-voucher-shopee',
+    type: 'article',
+    images: [{ url: '/og-default.png', width: 1200, height: 630, alt: 'FAQ Voucher Shopee' }],
+  },
+  twitter: {
+    card: 'summary',
+    title: 'FAQ Voucher Shopee | VoucherFinder',
+    description: 'Giải đáp 15 câu hỏi thường gặp về voucher Shopee.',
+    images: ['/og-default.png'],
+  },
 };
 
 export default function ArticlePage() {
