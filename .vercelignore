@@ -1,3 +1,0 @@
-# Exclude the monorepo root's src/ — Vercel deploys from repo root
-# and Next.js lives in apps/admin-dashboard/.next/ as configured in vercel.json
-src/
