@@ -331,8 +331,9 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
         />
       </div>
 
-      {/* ── Shortcut strip (mobile & desktop) ────────────────────────────── */}
-      <ShortcutStrip />
+      {/* ── Shortcut strip — visible on all pages EXCEPT homepage ───────────── */}
+      {/* Homepage manages its own shortcut chips inside HeroNew to avoid duplication */}
+      {pathname !== '/home' && <ShortcutStrip />}
 
       {/* ── Page content ─────────────────────────────────────────────────── */}
       <main className="flex-1" id="main-content" tabIndex={-1}>
