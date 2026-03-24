@@ -21,7 +21,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { Zap, ShieldCheck, CheckCircle2, Flame, ChevronRight, Search, RefreshCw, ArrowRight, Clock, Tag, TrendingUp } from 'lucide-react';
+import { Zap, ShieldCheck, CheckCircle2, Flame, ChevronRight, Search, RefreshCw, ArrowRight, Clock } from 'lucide-react';
 import Link from 'next/link';
 import type { ResolutionStatus } from '@/lib/public/api-client';
 import { useAnalytics } from '@/lib/public/analytics-context';
@@ -272,69 +272,103 @@ function TrustStrip() {
   );
 }
 
-// ── Mobile Shortcut Chips ─────────────────────────────────────────────────────
-// Inline chips inside the hero section (no white bg or border — hero is already white)
+// ── Discovery CTA — large, prominent, above search on mobile ──────────────────
+// Replaces the small "Khám phá:" strip with big clickable cards
 
-function HeroShortcutChips() {
+const DISCOVERY_ITEMS = [
+  {
+    href: '/deals/hot',
+    label: 'Deal Hot',
+    sub: 'Hôm nay',
+    icon: Flame,
+    bg: '#fff1f2',
+    color: '#be123c',
+    border: '#fecdd3',
+    hoverBg: '#ffe4e6',
+  },
+  {
+    href: '/deals/expiring',
+    label: 'Sắp hết hạn',
+    sub: 'Nhanh tay',
+    icon: Clock,
+    bg: '#fefce8',
+    color: '#92400e',
+    border: '#fde68a',
+    hoverBg: '#fef9c3',
+  },
+  {
+    href: '/deals',
+    label: 'Tất cả deals',
+    sub: 'Xem ngay',
+    icon: ChevronRight,
+    bg: '#f9fafb',
+    color: '#374151',
+    border: '#e5e7eb',
+    hoverBg: '#f3f4f6',
+  },
+];
+
+function DiscoveryCTA() {
   return (
     <div
       className="flex gap-2 overflow-x-auto pb-1"
       role="navigation"
-      aria-label="Liên kết nhanh"
+      aria-label="Khám phá deals"
       style={{
         scrollbarWidth: 'none',
         msOverflowStyle: 'none',
         WebkitOverflowScrolling: 'touch',
       }}
     >
-      <style>{`.shortcut-chip::-webkit-scrollbar { display: none; }`}</style>
-      {SHORTCUT_ITEMS.map(({ href, label, icon: Icon, style, hoverStyle }) => (
-        <Link
-          key={href}
-          href={href}
-          className="shortcut-chip flex flex-shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-colors"
-          style={style}
-          onMouseEnter={(e) => Object.assign(e.currentTarget.style, hoverStyle)}
-          onMouseLeave={(e) => Object.assign(e.currentTarget.style, style)}
-        >
-          <Icon className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-          <span className="whitespace-nowrap">{label}</span>
-        </Link>
-      ))}
+      <style>{`
+        .discovery-card::-webkit-scrollbar { display: none; }
+        @media (min-width: 640px) {
+          .discovery-grid { display: grid !important; grid-template-columns: repeat(3, 1fr) !important; overflow: visible !important; }
+          .discovery-card { min-width: unset !important; }
+        }
+      `}</style>
+      <div className="discovery-grid flex gap-2" style={{ display: 'flex' }}>
+        {DISCOVERY_ITEMS.map(({ href, label, sub, icon: Icon, bg, color, border, hoverBg }) => (
+          <Link
+            key={href}
+            href={href}
+            className="discovery-card flex flex-shrink-0 items-center gap-2.5 rounded-xl px-4 py-3.5 transition-all duration-150"
+            style={{
+              backgroundColor: bg,
+              border: `1px solid ${border}`,
+              minWidth: '8rem',
+              flex: '0 0 auto',
+            }}
+            onMouseEnter={(e) => {
+              const el = e.currentTarget as HTMLElement;
+              el.style.backgroundColor = hoverBg;
+              el.style.transform = 'translateY(-2px)';
+              el.style.boxShadow = `0 4px 12px ${border}80`;
+            }}
+            onMouseLeave={(e) => {
+              const el = e.currentTarget as HTMLElement;
+              el.style.backgroundColor = bg;
+              el.style.transform = 'translateY(0)';
+              el.style.boxShadow = 'none';
+            }}
+          >
+            <div
+              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg"
+              style={{ backgroundColor: `${bg}`, border: `1px solid ${border}` }}
+              aria-hidden="true"
+            >
+              <Icon className="h-4 w-4" style={{ color }} />
+            </div>
+            <div>
+              <div className="text-xs font-bold" style={{ color }}>{label}</div>
+              <div className="text-[10px] font-medium" style={{ color: `${color}99` }}>{sub}</div>
+            </div>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }
-
-const SHORTCUT_ITEMS = [
-  {
-    href: '/deals/hot',
-    label: 'Deal Hot',
-    icon: Flame,
-    style: { backgroundColor: '#fff1f2', color: '#be123c', border: '1px solid #fecdd3' },
-    hoverStyle: { backgroundColor: '#ffe4e6' },
-  },
-  {
-    href: '/deals',
-    label: 'Mã Giảm Giá',
-    icon: Tag,
-    style: { backgroundColor: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' },
-    hoverStyle: { backgroundColor: '#ffedd5' },
-  },
-  {
-    href: '/deals/source/shopee',
-    label: 'Shopee Hôm Nay',
-    icon: TrendingUp,
-    style: { backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' },
-    hoverStyle: { backgroundColor: '#dcfce7' },
-  },
-  {
-    href: '/deals/expiring',
-    label: 'Sắp Hết Hạn',
-    icon: Clock,
-    style: { backgroundColor: '#fefce8', color: '#92400e', border: '1px solid #fde68a' },
-    hoverStyle: { backgroundColor: '#fef9c3' },
-  },
-];
 
 // ── Full Hero (uses HeroSearchCard) ──────────────────────────────────────────
 
@@ -391,18 +425,6 @@ export function HeroNew(props: HeroNewProps) {
           padding: '1.5rem 1rem 1.5rem',
         }}
       >
-        {/* ── MOBILE SHORTCUT STRIP (visible immediately) ── */}
-        <div
-          className="mb-4 hero-chip-row"
-          style={{
-            animation: 'fadeSlideUp 200ms ease-out both',
-            overflowX: 'auto',
-            scrollbarWidth: 'none',
-          }}
-        >
-          <HeroShortcutChips />
-        </div>
-
         {/* ── TIER 1: What this is (giây 1) ── */}
         <div style={{ animation: 'fadeSlideUp 400ms ease-out both' }}>
           {/* Eyebrow badge */}
@@ -432,7 +454,7 @@ export function HeroNew(props: HeroNewProps) {
               fontSize: 'clamp(1.75rem, 5vw, 3.5rem)',
               lineHeight: 1.1,
               letterSpacing: '-0.03em',
-              marginBottom: '0.5rem',
+              marginBottom: '0.75rem',
             }}
           >
             Tìm mã giảm giá{' '}
@@ -448,6 +470,12 @@ export function HeroNew(props: HeroNewProps) {
             </span>{' '}
             tốt nhất
           </h1>
+
+          {/* ── DISCOVERY CTA — large cards, above search, mobile first ── */}
+          {/* Visible on all widths; grid on desktop, horizontal scroll on mobile */}
+          <div className="mb-4" style={{ animation: 'fadeSlideUp 300ms ease-out both' }}>
+            <DiscoveryCTA />
+          </div>
 
           {/* Subheadline — hidden on very small mobile, shown on sm+ */}
           <p
@@ -466,7 +494,7 @@ export function HeroNew(props: HeroNewProps) {
 
         {/* ── TIER 2: Search Card (single column on mobile) ── */}
         <div
-          className="mt-4 hero-search-wrapper"
+          className="hero-search-wrapper"
           style={{ animation: 'fadeSlideUp 400ms 80ms ease-out both' }}
         >
           {/* Search card — full width on mobile */}
@@ -549,46 +577,6 @@ export function HeroNew(props: HeroNewProps) {
           <div className="mt-4">
             <TrustStrip />
           </div>
-        </div>
-
-        {/* Discovery strip — visible on mobile */}
-        <div
-          className="mt-4 flex items-center gap-2 overflow-x-auto"
-          style={{
-            animation: 'fadeSlideUp 400ms 200ms ease-out both',
-            scrollbarWidth: 'none',
-          }}
-        >
-          <span className="flex-shrink-0 text-[11px]" style={{ color: '#9ca3af' }}>Khám phá:</span>
-          <Link
-            href="/deals/hot"
-            className="flex flex-shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors"
-            style={{ backgroundColor: '#fff1f2', color: '#be123c' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#ffe4e6'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#fff1f2'; }}
-          >
-            <Flame className="h-3 w-3" aria-hidden="true" />
-            Deal hot
-          </Link>
-          <Link
-            href="/deals/expiring"
-            className="flex flex-shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors"
-            style={{ backgroundColor: '#fefce8', color: '#92400e' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#fef9c3'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#fefce8'; }}
-          >
-            Sắp hết hạn
-          </Link>
-          <Link
-            href="/deals"
-            className="flex flex-shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors"
-            style={{ backgroundColor: '#f9fafb', color: '#374151' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#f3f4f6'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#f9fafb'; }}
-          >
-            Tất cả
-            <ChevronRight className="h-3 w-3" aria-hidden="true" />
-          </Link>
         </div>
       </div>
     </section>
