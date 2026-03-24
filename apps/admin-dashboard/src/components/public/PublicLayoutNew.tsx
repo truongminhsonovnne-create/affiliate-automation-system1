@@ -121,8 +121,6 @@ function MobileMenu({
         className="fixed inset-0 z-40 transition-opacity duration-300"
         style={{
           backgroundColor: 'rgba(0,0,0,0.4)',
-          backdropFilter: 'blur(4px)',
-          WebkitBackdropFilter: 'blur(4px)',
           opacity: isOpen ? 1 : 0,
           pointerEvents: isOpen ? 'auto' : 'none',
         }}
@@ -134,17 +132,33 @@ function MobileMenu({
         role="dialog"
         aria-modal="true"
         aria-label="Điều hướng"
-        className="fixed top-0 right-0 bottom-0 z-50 w-full max-w-sm transition-transform duration-300 ease-out"
+        className="fixed right-0 z-50 flex flex-col w-full max-w-sm transition-transform duration-300 ease-out"
         style={{
+          top: 0,
+          bottom: 0,
+          left: 'auto',
+          maxWidth: '100%',
           backgroundColor: '#ffffff',
           transform: isOpen ? 'translateX(0)' : 'translateX(100%)',
           boxShadow: '-8px 0 40px rgba(0,0,0,0.12)',
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingLeft: 'env(safe-area-inset-left)',
+          paddingRight: 'env(safe-area-inset-right)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          touchAction: 'pan-y',
+          WebkitOverflowScrolling: 'touch',
+          overflowY: 'auto',
+          overscrollBehavior: 'contain',
         }}
       >
         {/* Header */}
         <div
           className="flex items-center justify-between px-6"
-          style={{ height: '4rem', borderBottom: '1px solid #f3f4f6' }}
+          style={{
+            height: '4rem',
+            borderBottom: '1px solid #f3f4f6',
+            flexShrink: 0,
+          }}
         >
           <Logo onClick={onClose} />
           <button
@@ -160,8 +174,12 @@ function MobileMenu({
           </button>
         </div>
 
-        {/* Nav links */}
-        <nav className="flex flex-col gap-1 p-4" aria-label="Điều hướng chính">
+        {/* Nav links — scrollable */}
+        <nav
+          className="flex flex-col gap-1 p-4"
+          style={{ flex: 1, overflowY: 'auto' }}
+          aria-label="Điều hướng chính"
+        >
           {NAV_LINKS.map(({ href, label }, i) => {
             const isActive = pathname === href || (href !== '/home' && pathname?.startsWith(href));
             return (
@@ -192,8 +210,15 @@ function MobileMenu({
           })}
         </nav>
 
-        {/* CTA */}
-        <div className="p-6" style={{ borderTop: '1px solid #f3f4f6' }}>
+        {/* CTA — sticky at bottom */}
+        <div
+          className="p-6"
+          style={{
+            borderTop: '1px solid #f3f4f6',
+            flexShrink: 0,
+            paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))',
+          }}
+        >
           <Link
             href="/home"
             onClick={() => {
