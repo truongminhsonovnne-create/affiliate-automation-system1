@@ -681,9 +681,15 @@ function buildResolutionStateFromPoll(
   requestId: string
 ): ResolutionState {
   const data = (poll as unknown as { data?: PublicVoucherResolveResponse }).data;
+
+  // data is null when the GET response came from the enrich-only fallback
+  // (Supabase had no match, enrich was called but returned no bestMatch either).
+  // This is a no_match, NOT an error — do NOT show PROCESSING_FAILED.
   if (!data) {
-    return buildStateFromPhase('failed', requestId, poll.durationMs ?? 0);
+    return buildStateFromPhase('no_match', requestId, poll.durationMs ?? 0);
   }
+
+  // data is present — build full state from the enrich response
   return buildResolutionState(data, { requestId });
 }
 
