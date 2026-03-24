@@ -2,8 +2,6 @@
  * Public Deals API — /api/public/v1/deals
  *
  * MUST be dynamically rendered — reads query params and queries Supabase at request time.
- */
-export const dynamic = 'force-dynamic';
  *
  * Server-side route that queries Supabase directly and returns
  * deal cards for the discovery pages.
@@ -11,6 +9,8 @@ export const dynamic = 'force-dynamic';
  * This is intentionally server-side so the Supabase anon key and
  * any filtering logic stays out of the browser bundle.
  */
+
+export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
