@@ -29,6 +29,14 @@ export const metadata = {
     description: 'Tổng hợp mã giảm giá, voucher và deal hot từ Shopee, Lazada, Tiki, Tiktok.',
     url: '/deals',
     type: 'website',
+    images: [
+      {
+        url: '/og-default.png',
+        width: 1200,
+        height: 630,
+        alt: 'VoucherFinder — Deals & Voucher Tốt Nhất',
+      },
+    ],
   },
 };
 

@@ -3,13 +3,18 @@
 /**
  * HeroNew — Premium 2026-style hero section + search card.
  *
+ * 3-second value communication:
+ *   Giây 1: Web làm gì  → headline + eyebrow
+ *   Giây 2: User làm gì → search card + platform badges
+ *   Giây 3: Kết quả gì → trust strip + sample result preview
+ *
  * Exports:
  *  - HeroNew: Full hero with headline + search card + trust strip
  *  - HeroSearchCard: Standalone elevated search card (for compact states)
  */
 
 import { useState, useCallback } from 'react';
-import { Zap, ShieldCheck, Clock, CheckCircle2, Flame, ChevronRight } from 'lucide-react';
+import { Zap, ShieldCheck, CheckCircle2, Flame, ChevronRight, Search, RefreshCw, ArrowRight, Clock } from 'lucide-react';
 import Link from 'next/link';
 import type { ResolutionStatus } from '@/lib/public/api-client';
 import { useAnalytics } from '@/lib/public/analytics-context';
@@ -55,6 +60,7 @@ export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: 
     <div
       className="relative w-full rounded-2xl transition-all duration-200"
       style={{
+        minHeight: '5.5rem',
         backgroundColor: '#ffffff',
         border: `1.5px solid ${borderColor}`,
         boxShadow: isFocused
@@ -111,7 +117,7 @@ export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: 
           spellCheck={false}
           inputMode="url"
           enterKeyHint="go"
-          placeholder="Dán link sản phẩm Shopee vào đây..."
+          placeholder="Dán link sản phẩm Shopee (shope.ee cũng được)..."
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onPaste={handlePaste}
@@ -219,9 +225,9 @@ export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: 
 
 function TrustStrip() {
   const items = [
-    { icon: Clock, label: '2–3 giây' },
-    { icon: ShieldCheck, label: 'Không thu thập dữ liệu' },
-    { icon: Zap, label: 'Miễn phí vĩnh viễn' },
+    { icon: Zap, label: '4.700+ voucher' },
+    { icon: Clock, label: 'Kết quả trong 2–3 giây' },
+    { icon: ShieldCheck, label: '0đ phí dịch vụ' },
   ];
 
   return (
@@ -264,69 +270,62 @@ export function HeroNew(props: HeroNewProps) {
       style={{ backgroundColor: '#ffffff' }}
       aria-label="Hero"
     >
-      {/* Ambient background glow */}
+      {/* Ambient glow */}
       <div aria-hidden="true" className="pointer-events-none absolute inset-0">
         <div
           style={{
-            position: 'absolute',
-            top: '-8rem',
-            right: '-4rem',
-            width: '36rem',
-            height: '36rem',
-            borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(249,115,22,0.08) 0%, transparent 65%)',
+            position: 'absolute', top: '-8rem', right: '-4rem',
+            width: '36rem', height: '36rem', borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(249,115,22,0.07) 0%, transparent 65%)',
             filter: 'blur(40px)',
           }}
         />
         <div
           style={{
-            position: 'absolute',
-            bottom: '-6rem',
-            left: '-2rem',
-            width: '28rem',
-            height: '28rem',
-            borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(251,146,60,0.06) 0%, transparent 65%)',
+            position: 'absolute', bottom: '-6rem', left: '-2rem',
+            width: '28rem', height: '28rem', borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(251,146,60,0.05) 0%, transparent 65%)',
             filter: 'blur(40px)',
           }}
         />
       </div>
 
-      {/* Content */}
+      {/* ── Main content ── */}
       <div
         className="relative mx-auto"
-        style={{ maxWidth: '54rem', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}
+        style={{ maxWidth: '58rem', padding: '5rem 1.5rem 4rem' }}
       >
-        {/* Eyebrow */}
-        <div
-          className="mb-6 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold"
-          style={{
-            backgroundColor: '#fff7ed',
-            border: '1px solid #fed7aa',
-            color: '#c2410c',
-            animation: 'fadeSlideUp 400ms ease-out both',
-          }}
-        >
-          <span className="relative flex h-2 w-2" aria-hidden="true">
-            <span
-              className="absolute inline-flex h-full w-full rounded-full opacity-75"
-              style={{ backgroundColor: '#f97316', animation: 'pulse 2s ease-in-out infinite' }}
-            />
-            <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: '#f97316' }} />
-          </span>
-          Miễn phí · Không cần đăng nhập Shopee
-        </div>
 
-        {/* Headline */}
-        <div style={{ animation: 'fadeSlideUp 400ms 60ms ease-out both' }}>
+        {/* ── TIER 1: What this is (giây 1) ── */}
+        <div style={{ animation: 'fadeSlideUp 400ms ease-out both' }}>
+          {/* Eyebrow badge */}
+          <div
+            className="mb-5 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold"
+            style={{
+              backgroundColor: '#fff7ed',
+              border: '1px solid #fed7aa',
+              color: '#c2410c',
+            }}
+          >
+            <span className="relative flex h-2 w-2" aria-hidden="true">
+              <span
+                className="absolute inline-flex h-full w-full rounded-full opacity-75"
+                style={{ backgroundColor: '#f97316', animation: 'pulse 2s ease-in-out infinite' }}
+              />
+              <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: '#f97316' }} />
+            </span>
+            Miễn phí · Không cần đăng nhập · Không giới hạn
+          </div>
+
+          {/* Headline */}
           <h1
             className="font-black tracking-tight"
             style={{
               color: '#111827',
-              fontSize: 'clamp(2.25rem, 5vw, 3.75rem)',
+              fontSize: 'clamp(2.25rem, 5vw, 3.5rem)',
               lineHeight: 1.05,
               letterSpacing: '-0.03em',
-              marginBottom: '1.25rem',
+              marginBottom: '1rem',
             }}
           >
             Tìm mã giảm giá
@@ -339,7 +338,11 @@ export function HeroNew(props: HeroNewProps) {
                 backgroundClip: 'text',
               }}
             >
-              Shopee trong 3 giây
+              Shopee tốt nhất
+            </span>
+            <br />
+            <span style={{ color: '#6b7280', fontSize: 'clamp(1.25rem, 2.5vw, 1.75rem)', fontWeight: 700 }}>
+              Chỉ trong 2–3 giây
             </span>
           </h1>
 
@@ -348,38 +351,120 @@ export function HeroNew(props: HeroNewProps) {
             className="text-base sm:text-lg"
             style={{
               color: '#4b5563',
-              lineHeight: 1.65,
-              maxWidth: '32rem',
-              marginBottom: '2.5rem',
-              fontWeight: '400',
+              lineHeight: 1.7,
+              maxWidth: '34rem',
+              marginBottom: '0',
             }}
           >
-            Dán link sản phẩm Shopee — hệ thống tự kiểm tra hàng trăm mã
-            và trả về voucher tốt nhất cho bạn. Không quảng cáo, không phí dịch vụ.
+            Dán link sản phẩm Shopee vào ô bên dưới. Hệ thống tự động kiểm tra
+            hàng trăm voucher đang hoạt động — trả về mã tốt nhất, hoàn toàn miễn phí.
           </p>
         </div>
 
-        {/* Search — visual centerpiece */}
-        <div style={{ animation: 'fadeSlideUp 400ms 120ms ease-out both' }}>
-          <div style={{ maxWidth: '42rem', margin: '0 auto' }}>
-            <HeroSearchCard {...props} />
+        {/* ── TIER 2: What you do (giây 2) — Search Card ── */}
+        <div
+          className="mt-8"
+          style={{ animation: 'fadeSlideUp 400ms 80ms ease-out both', maxWidth: '46rem' }}
+        >
+          <HeroSearchCard {...props} />
+
+          {/* Platform + format hint */}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px]" style={{ color: '#9ca3af' }}>
+              Hỗ trợ{' '}
+              <span style={{ fontWeight: 600, color: '#6b7280' }}>shopee.vn</span>
+              {' '}và{' '}
+              <span style={{ fontWeight: 600, color: '#6b7280' }}>shope.ee</span>
+              {' '}· Không lưu lịch sử tìm kiếm
+            </p>
+            <Link
+              href="/deals"
+              className="flex items-center gap-1 text-[11px] font-medium transition-colors"
+              style={{ color: '#f97316' }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = '#ea580c'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = '#f97316'; }}
+            >
+              Xem deal trước
+              <ArrowRight className="h-3 w-3" />
+            </Link>
           </div>
-          <p className="mt-3 text-center text-[11px]" style={{ color: '#9ca3af' }}>
-            Không cần đăng nhập Shopee · Không lưu lịch sử tìm kiếm
-          </p>
         </div>
 
-        {/* Trust strip */}
-        <div className="mt-8" style={{ animation: 'fadeSlideUp 400ms 180ms ease-out both' }}>
-          <TrustStrip />
+        {/* ── TIER 3: What you get — sample result preview ── */}
+        <div
+          className="mt-10"
+          style={{ animation: 'fadeSlideUp 400ms 160ms ease-out both' }}
+        >
+          <p
+            className="mb-3 text-[11px] font-semibold uppercase tracking-widest"
+            style={{ color: '#d1d5db', letterSpacing: '0.1em' }}
+          >
+            Kết quả bạn nhận được
+          </p>
+
+          {/* Sample result card */}
+          <div
+            className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+            style={{
+              backgroundColor: '#fafaf9',
+              border: '1px solid #e5e7eb',
+              borderRadius: '1rem',
+              padding: '1rem 1.25rem',
+              maxWidth: '46rem',
+            }}
+          >
+            <div className="flex items-start gap-3">
+              {/* Coupon icon */}
+              <div
+                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl"
+                style={{ backgroundColor: '#fff7ed', border: '1px solid #fed7aa' }}
+                aria-hidden="true"
+              >
+                <Zap className="h-5 w-5" style={{ color: '#f97316', fill: '#f97316' }} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="rounded-full px-2 py-0.5 text-xs font-bold"
+                    style={{ backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}
+                  >
+                    DRSAMUYT
+                  </span>
+                  <span className="text-[11px]" style={{ color: '#6b7280' }}>
+                    Giảm đến 15K
+                  </span>
+                </div>
+                <p className="mt-1 text-xs" style={{ color: '#9ca3af' }}>
+                  Mã được kiểm tra · Áp dụng cho đơn từ 99K
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 sm:flex-col sm:items-end sm:gap-1">
+              <span className="text-[11px]" style={{ color: '#6b7280' }}>
+                <span style={{ fontWeight: 700, color: '#15803d' }}>1 click</span> để copy
+              </span>
+              <div
+                className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+                style={{ backgroundColor: '#f97316' }}
+              >
+                <RefreshCw className="h-3 w-3" />
+                Copy mã
+              </div>
+            </div>
+          </div>
+
+          {/* Trust strip */}
+          <div className="mt-6">
+            <TrustStrip />
+          </div>
         </div>
 
         {/* Discovery strip */}
         <div
-          className="mt-6 flex flex-wrap items-center justify-center gap-2"
-          style={{ animation: 'fadeSlideUp 400ms 240ms ease-out both' }}
+          className="mt-8 flex flex-wrap items-center gap-2"
+          style={{ animation: 'fadeSlideUp 400ms 200ms ease-out both' }}
         >
-          <span className="text-[11px]" style={{ color: '#9ca3af' }}>Khám phá:</span>
+          <span className="text-[11px]" style={{ color: '#9ca3af' }}>Hoặc khám phá:</span>
           <Link
             href="/deals/hot"
             className="flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-colors"

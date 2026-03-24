@@ -31,8 +31,16 @@ export const metadata = {
     title: 'Chính sách Cookie | VoucherFinder',
     description:
       'Cookie nào VoucherFinder sử dụng, mục đích, thời hạn, và cách bạn kiểm soát chúng.',
-    url: '/cookies',
+    url: '/info/cookies',
     type: 'website',
+    images: [
+      {
+        url: '/og-default.png',
+        width: 1200,
+        height: 630,
+        alt: 'VoucherFinder — Chính sách Cookie',
+      },
+    ],
   },
 
   twitter: {

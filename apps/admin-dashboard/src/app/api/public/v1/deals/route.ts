@@ -218,8 +218,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const sb = getSupabase();
 
     // ── Build query ────────────────────────────────────────────────────────────
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let query: any = sb.from('offers').select('*', { count: 'exact', head: false });
+    let query = sb.from('offers').select('*', { count: 'exact', head: false });
 
     // Source filter
     if (params.source && params.source !== 'all') {

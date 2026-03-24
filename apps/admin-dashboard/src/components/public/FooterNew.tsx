@@ -5,9 +5,9 @@
  *
  * Architecture:
  *  - Dark neutral background
- *  - 3-column layout: brand | nav | legal+contact
- *  - Clean, no duplication, no repetitive trust rows
- *  - Disclaimer lives here — nowhere else
+ *  - 3-column layout: brand | nav | legal
+ *  - Stats bar (social proof)
+ *  - Disclaimer in bottom bar
  */
 
 import Link from 'next/link';
@@ -20,6 +20,7 @@ const NAV_LINKS = [
   { href: '/deals', label: 'Khám phá deal' },
   { href: '/resources', label: 'Tài nguyên' },
   { href: '/info/about', label: 'Giới thiệu' },
+  { href: '/info/faq', label: 'FAQ' },
   { href: '/info/contact', label: 'Liên hệ' },
 ];
 
@@ -54,22 +55,18 @@ export function FooterNew() {
 
         {/* Main grid */}
         <div
-          className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-4"
+          className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-3"
           role="navigation"
           aria-label="Footer navigation"
         >
-          {/* Brand column */}
-          <div className="lg:col-span-2">
+          {/* Brand + description column */}
+          <div>
             <Link href="/home" className="group flex items-center gap-2.5 mb-4">
               <div
                 style={{
-                  width: '2rem',
-                  height: '2rem',
-                  borderRadius: '0.5rem',
+                  width: '2rem', height: '2rem', borderRadius: '0.5rem',
                   background: 'linear-gradient(135deg, #f97316, #ea580c)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
                   boxShadow: '0 1px 3px rgba(249,115,22,0.3)',
                 }}
                 aria-hidden="true"
@@ -84,9 +81,9 @@ export function FooterNew() {
               </span>
             </Link>
 
-            <p className="text-sm leading-relaxed mb-6" style={{ color: '#6b7280', maxWidth: '22rem' }}>
-              Công cụ tra cứu mã giảm giá Shopee miễn phí.
-              Không quảng cáo, không phí dịch vụ, không thu thập dữ liệu cá nhân.
+            <p className="text-sm leading-relaxed mb-5" style={{ color: '#6b7280', maxWidth: '20rem' }}>
+              Công cụ tra cứu mã giảm giá Shopee miễn phí. Không quảng cáo,
+              không phí dịch vụ, không thu thập dữ liệu cá nhân.
             </p>
 
             {/* Trust pills */}
@@ -107,13 +104,13 @@ export function FooterNew() {
             </div>
           </div>
 
-          {/* Nav column */}
+          {/* Giới thiệu column */}
           <div>
             <p
               className="mb-4 text-xs font-semibold uppercase tracking-widest"
               style={{ color: '#4b5563', letterSpacing: '0.1em' }}
             >
-              Điều hướng
+              Giới thiệu
             </p>
             <ul className="flex flex-col gap-2.5" role="list">
               {NAV_LINKS.map((link) => (
@@ -138,13 +135,13 @@ export function FooterNew() {
             </ul>
           </div>
 
-          {/* Legal column */}
+          {/* Pháp lý & Riêng tư column */}
           <div>
             <p
               className="mb-4 text-xs font-semibold uppercase tracking-widest"
               style={{ color: '#4b5563', letterSpacing: '0.1em' }}
             >
-              Pháp lý
+              Pháp lý &amp; Riêng tư
             </p>
             <ul className="flex flex-col gap-2.5" role="list">
               {LEGAL_LINKS.map((link) => (
@@ -167,7 +164,58 @@ export function FooterNew() {
                 </li>
               ))}
             </ul>
+
+            {/* Contact */}
+            <div className="mt-6">
+              <p
+                className="mb-2 text-xs font-semibold uppercase tracking-widest"
+                style={{ color: '#4b5563', letterSpacing: '0.1em' }}
+              >
+                Liên hệ
+              </p>
+              <Link
+                href="/info/contact"
+                className="text-sm transition-colors duration-150"
+                style={{ color: '#f97316' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = '#ea580c'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = '#f97316'; }}
+              >
+                Gửi phản hồi / Báo lỗi →
+              </Link>
+            </div>
           </div>
+        </div>
+
+        {/* Stats bar */}
+        <div
+          className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-4"
+          role="list"
+          aria-label="Thống kê dịch vụ"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '2rem' }}
+        >
+          {[
+            { value: '4.700+', label: 'Voucher đang hoạt động' },
+            { value: '0đ', label: 'Phí dịch vụ' },
+            { value: '2–3s', label: 'Thời gian tra cứu' },
+            { value: '2026', label: 'Ra mắt' },
+          ].map(({ value, label }) => (
+            <div key={label} className="text-center" role="listitem">
+              <p
+                className="text-2xl font-black"
+                style={{
+                  color: '#f97316',
+                  letterSpacing: '-0.02em',
+                  lineHeight: 1,
+                  marginBottom: '0.25rem',
+                }}
+              >
+                {value}
+              </p>
+              <p className="text-xs" style={{ color: '#6b7280' }}>
+                {label}
+              </p>
+            </div>
+          ))}
         </div>
 
         {/* Bottom bar */}

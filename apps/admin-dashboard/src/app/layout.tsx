@@ -1,6 +1,13 @@
 import './globals.css';
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
+import { Inter } from 'next/font/google';
 import { AnalyticsProvider } from '@/lib/public/analytics-context';
+
+const inter = Inter({
+  subsets: ['latin', 'latin-ext', 'vietnamese'],
+  display: 'swap',
+  variable: '--font-inter',
+});
 
 /**
  * Root Layout — application shell
@@ -29,6 +36,10 @@ const SITE_NAME = 'VoucherFinder';
 const SITE_DESCRIPTION =
   'Dán link sản phẩm Shopee để tìm mã giảm giá tốt nhất. Nhanh, miễn phí, không quảng cáo.';
 const GSC_VERIFY = process.env.NEXT_PUBLIC_GSC_VERIFY ?? ''; // e.g. "google123..."
+
+export const viewport: Viewport = {
+  themeColor: '#f97316',
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -92,7 +103,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="vi">
+    <html lang="vi" className={`${inter.variable}`}>
       <head>
         {/* Google Search Console verification meta tag */}
         {/* Set NEXT_PUBLIC_GSC_VERIFY in .env to activate */}
@@ -102,14 +113,21 @@ export default function RootLayout({
             content={GSC_VERIFY}
           />
         )}
-        {/* Favicon */}
+        {/* DNS prefetch + preconnect for likely external navigation targets */}
+        <link rel="dns-prefetch" href="//shopee.vn" />
+        <link rel="preconnect" href="https://shopee.vn" />
+
+        {/* Favicons / icons */}
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-        {/* Apple Touch Icon */}
+        <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-        {/* Web App Manifest */}
         <link rel="manifest" href="/site.webmanifest" />
+
+        {/* Ensure social card image is fetched early on link previews */}
+        <link rel="preload" as="image" href="/og-default.png" type="image/png" />
       </head>
-      <body>
+      <body className={`${inter.className} antialiased`}>
+        <a href="#main-content" className="skip-link">Bỏ qua đến nội dung chính</a>
         <AnalyticsProvider>
           {children}
         </AnalyticsProvider>

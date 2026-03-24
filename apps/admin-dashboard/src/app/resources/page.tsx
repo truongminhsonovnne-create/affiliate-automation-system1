@@ -32,6 +32,14 @@ export const metadata: Metadata = {
       'Bài viết, hướng dẫn, và mẹo hay về săn sale Shopee, cách dùng voucher hiệu quả, và mua sắm thông minh trên Shopee Việt Nam.',
     url: '/resources',
     type: 'website',
+    images: [
+      {
+        url: '/og-default.png',
+        width: 1200,
+        height: 630,
+        alt: 'VoucherFinder — Tài nguyên săn sale Shopee',
+      },
+    ],
   },
 
   twitter: {

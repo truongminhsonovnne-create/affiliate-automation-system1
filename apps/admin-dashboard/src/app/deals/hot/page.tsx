@@ -19,6 +19,14 @@ export const metadata = {
     description: 'Những deal được nhiều người dùng nhất hôm nay.',
     url: '/deals/hot',
     type: 'website',
+    images: [
+      {
+        url: '/og-default.png',
+        width: 1200,
+        height: 630,
+        alt: 'VoucherFinder — Deal Hot Hôm Nay',
+      },
+    ],
   },
 };
 

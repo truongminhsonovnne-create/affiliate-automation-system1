@@ -17,7 +17,7 @@
  *   (loading states handled by ResolutionProgress)
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   CheckCircle,
   Copy,
@@ -39,6 +39,8 @@ import {
   Award,
   Activity,
   DatabaseZap,
+  CalendarClock,
+  HelpCircle,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type {
@@ -69,9 +71,9 @@ export interface AnalysisDetailPanelProps {
 const PLATFORM_CONFIG: Record<string, { label: string; bgColor: string; textColor: string }> = {
   shopee: { label: 'Shopee', bgColor: 'bg-brand-50', textColor: 'text-brand-600' },
   lazada: { label: 'Lazada', bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
-  tiki:   { label: 'Tiki',   bgColor: 'bg-teal-50', textColor: 'text-teal-600' },
+  tiki: { label: 'Tiki', bgColor: 'bg-teal-50', textColor: 'text-teal-600' },
   tiktok: { label: 'TikTok Shop', bgColor: 'bg-pink-50', textColor: 'text-pink-600' },
-  unknown:{ label: 'Website', bgColor: 'bg-gray-50', textColor: 'text-gray-500' },
+  unknown: { label: 'Website', bgColor: 'bg-gray-50', textColor: 'text-gray-500' },
 };
 
 // =============================================================================
@@ -108,10 +110,10 @@ function ConfidenceBar({ score }: { score: number }) {
 
 function FreshnessBadge({ freshness }: { freshness: DataFreshnessLevel }) {
   const config: Record<DataFreshnessLevel, { label: string; icon: React.ElementType; bg: string; text: string; dot: string }> = {
-    live:    { label: 'Dữ liệu mới',         icon: Activity,   bg: 'bg-emerald-50',  text: 'text-emerald-700', dot: 'bg-emerald-500' },
-    recent:  { label: 'Cập nhật gần đây',     icon: Clock,       bg: 'bg-blue-50',     text: 'text-blue-700',    dot: 'bg-blue-500' },
-    stale:   { label: 'Dữ liệu cũ',          icon: AlertTriangle,bg: 'bg-amber-50',    text: 'text-amber-700',   dot: 'bg-amber-500' },
-    unknown: { label: 'Chưa rõ',              icon: Info,        bg: 'bg-gray-50',     text: 'text-gray-500',    dot: 'bg-gray-400' },
+    live: { label: 'Dữ liệu mới', icon: Activity, bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
+    recent: { label: 'Cập nhật gần đây', icon: Clock, bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-500' },
+    stale: { label: 'Dữ liệu cũ', icon: AlertTriangle, bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-500' },
+    unknown: { label: 'Chưa rõ', icon: Info, bg: 'bg-gray-50', text: 'text-gray-500', dot: 'bg-gray-400' },
   };
   const c = config[freshness] ?? config.unknown;
   const Icon = c.icon;
@@ -140,18 +142,18 @@ function SourceBadge({ source }: { source?: string }) {
     >
       <DatabaseZap className="h-3 w-3" aria-hidden="true" />
       {source === 'AccessTrade' ? 'AccessTrade' :
-       source === 'MasOffer'     ? 'MasOffer' :
-       source === 'MasOffer_broad' ? 'Broad Promo' :
-       source}
+        source === 'MasOffer' ? 'MasOffer' :
+          source === 'MasOffer_broad' ? 'Broad Promo' :
+            source}
     </span>
   );
 }
 
 function MatchQualityBadge({ quality }: { quality: 'high' | 'medium' | 'low' }) {
   const config = {
-    high:   { label: 'Khớp chính xác', icon: Award,   bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700' },
-    medium: { label: 'Khớp trung bình', icon: Star,    bg: 'bg-amber-50',    border: 'border-amber-200',  text: 'text-amber-700' },
-    low:    { label: 'Khớp thấp',       icon: Info,    bg: 'bg-gray-50',    border: 'border-gray-200',   text: 'text-gray-600' },
+    high: { label: 'Khớp chính xác', icon: Award, bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700' },
+    medium: { label: 'Khớp trung bình', icon: Star, bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700' },
+    low: { label: 'Khớp thấp', icon: Info, bg: 'bg-gray-50', border: 'border-gray-200', text: 'text-gray-600' },
   };
   const c = config[quality];
   const Icon = c.icon;
@@ -172,7 +174,18 @@ function MatchQualityBadge({ quality }: { quality: 'high' | 'medium' | 'low' }) 
 function TrustBar({ result }: { result: AnalysisResult }) {
   const platform = PLATFORM_CONFIG[result.platform] ?? PLATFORM_CONFIG.unknown;
   const serverMs = result.meta.serverDurationMs ?? result.meta.clientLatencyMs;
-  const latencyLabel = serverMs < 1000 ? `${serverMs}ms` : `${(serverMs / 1000).toFixed(1)}s`;
+
+  // Format latency as "X.Xs" or "Xms"
+  const latencyLabel = useMemo(() => {
+    if (serverMs == null) return null;
+    if (serverMs < 1000) return `${serverMs}ms`;
+    return `${(serverMs / 1000).toFixed(1)}s`;
+  }, [serverMs]);
+
+  // Timestamp "lúc HH:mm"
+  const timeLabel = useMemo(() => {
+    return new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  }, []);
 
   return (
     <div
@@ -186,13 +199,26 @@ function TrustBar({ result }: { result: AnalysisResult }) {
         {platform.label}
       </span>
 
-      {/* Separator */}
       <span className="hidden h-4 w-px bg-gray-200 sm:block" aria-hidden="true" />
 
-      {/* Latency */}
+      {/* Checked timestamp */}
       <span className="flex items-center gap-1 text-gray-400">
-        <TrendingUp className="h-3 w-3" aria-hidden="true" />
-        {latencyLabel}
+        <CalendarClock className="h-3 w-3" aria-hidden="true" />
+        Phân tích lúc {timeLabel}
+      </span>
+
+      {/* Latency */}
+      {latencyLabel && (
+        <span className="flex items-center gap-1 text-gray-400">
+          <TrendingUp className="h-3 w-3" aria-hidden="true" />
+          Xong trong {latencyLabel}
+        </span>
+      )}
+
+      {/* Sources */}
+      <span className="flex items-center gap-1.5 font-medium" style={{ color: '#6d28d9' }}>
+        <DatabaseZap className="h-3 w-3" aria-hidden="true" />
+        2 nguồn đối tác
       </span>
 
       {/* Cache */}
@@ -493,23 +519,23 @@ function ExpiryRow({ isoDate }: { isoDate: string }) {
   const dateStr = formatDate(isoDate);
   const diffMs = new Date(isoDate).getTime() - Date.now();
   const isExpired = diffMs <= 0;
-  const isUrgent  = diffMs > 0 && diffMs < 12 * 60 * 60 * 1000;
+  const isUrgent = diffMs > 0 && diffMs < 12 * 60 * 60 * 1000;
 
   return (
     <div
       className={clsx(
         'flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5',
-        isExpired  ? 'border-red-200 bg-red-50' :
-        isUrgent   ? 'border-amber-200 bg-amber-50' :
-                     'border-gray-100 bg-gray-50'
+        isExpired ? 'border-red-200 bg-red-50' :
+          isUrgent ? 'border-amber-200 bg-amber-50' :
+            'border-gray-100 bg-gray-50'
       )}
     >
       <Clock
         className={clsx(
           'h-4 w-4 flex-shrink-0',
-          isExpired  ? 'text-red-400' :
-          isUrgent   ? 'text-amber-500' :
-                       'text-gray-400'
+          isExpired ? 'text-red-400' :
+            isUrgent ? 'text-amber-500' :
+              'text-gray-400'
         )}
         aria-hidden="true"
       />
@@ -517,9 +543,9 @@ function ExpiryRow({ isoDate }: { isoDate: string }) {
         <p
           className={clsx(
             'text-sm font-medium',
-            isExpired  ? 'text-red-600' :
-            isUrgent   ? 'text-amber-700' :
-                         'text-gray-600'
+            isExpired ? 'text-red-600' :
+              isUrgent ? 'text-amber-700' :
+                'text-gray-600'
           )}
         >
           {isExpired ? 'Đã hết hạn' : expiry}
@@ -630,8 +656,8 @@ function AlternativesSection({
 
   const rankColor = (rank: number) =>
     rank === 2 ? 'bg-amber-100 text-amber-700' :
-    rank === 3 ? 'bg-slate-100 text-slate-600' :
-    'bg-brand-50 text-brand-600';
+      rank === 3 ? 'bg-slate-100 text-slate-600' :
+        'bg-brand-50 text-brand-600';
 
   return (
     <div className="space-y-3" role="region" aria-label="Các lựa chọn khác">
@@ -849,6 +875,8 @@ function NoVoucherPanel({
   onNewSearch: () => void;
 }) {
   const platform = PLATFORM_CONFIG[result.platform] ?? PLATFORM_CONFIG.unknown;
+  const timeLabel = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
   return (
     <div className="overflow-hidden rounded-2xl border-2 border-gray-200 bg-white">
       {/* Header */}
@@ -856,7 +884,7 @@ function NoVoucherPanel({
         className="px-5 py-5"
         style={{ background: 'linear-gradient(135deg, var(--gray-50) 0%, white 100%)', borderBottom: '1px solid var(--border-subtle)' }}
       >
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-3">
           <span className={clsx('flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl', platform.bgColor)}>
             <Globe className={clsx('h-4 w-4', platform.textColor)} aria-hidden="true" />
           </span>
@@ -865,32 +893,57 @@ function NoVoucherPanel({
             <p className="text-xs text-gray-400 truncate">{result.displayLabel}</p>
           </div>
         </div>
+
+        {/* Meta pills */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium"
+            style={{ backgroundColor: '#eef2ff', color: '#4338ca' }}
+          >
+            <DatabaseZap className="h-3 w-3" aria-hidden="true" />
+            MasOffer + AccessTrade
+          </span>
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium"
+            style={{ backgroundColor: '#f3f4f6', color: '#6b7280' }}
+          >
+            <CalendarClock className="h-3 w-3" aria-hidden="true" />
+            Kiểm tra lúc {timeLabel}
+          </span>
+        </div>
+
         <p className="text-sm text-gray-600 leading-relaxed">
           Hiện tại chưa có mã giảm giá nào cho sản phẩm này trong hệ thống.
-          Sản phẩm có thể không nằm trong chương trình khuyến mãi hiện tại.
+          Sản phẩm có thể không nằm trong chương trình khuyến mãi hiện tại,
+          hoặc chương trình vừa kết thúc.
         </p>
       </div>
 
       <div className="p-5 space-y-4">
-        {/* Tips */}
-        <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
-          <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-blue-800">
-            <Info className="h-4 w-4" aria-hidden="true" />
-            Bạn có thể thử:
+        {/* Reasons */}
+        <div
+          className="rounded-xl border p-4 text-left"
+          style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a' }}
+        >
+          <p className="mb-2 flex items-center gap-2 text-xs font-semibold" style={{ color: '#92400e' }}>
+            <HelpCircle className="h-3.5 w-3.5" aria-hidden="true" />
+            Tại sao không có voucher?
           </p>
-          <ul className="space-y-1.5 text-xs text-blue-700" role="list">
-            <li className="flex items-start gap-2">
-              <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-blue-400" aria-hidden="true" />
-              Tìm sản phẩm cùng danh mục hoặc shop khác
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-blue-400" aria-hidden="true" />
-              Quay lại sau — voucher được cập nhật thường xuyên
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-blue-400" aria-hidden="true" />
-              Kiểm tra trang khuyến mãi Shopee trực tiếp
-            </li>
+          <ul className="space-y-1.5" role="list">
+            {[
+              'Shop chưa tham gia chương trình khuyến mãi theo sản phẩm cụ thể này.',
+              'Voucher có thể vừa hết — hệ thống cập nhật 2 lần/ngày (6h và 18h).',
+              'Thử dán link sạch từ trang sản phẩm, tránh link từ quảng cáo có thêm tham số.',
+            ].map((tip, i) => (
+              <li key={i} className="flex items-start gap-2 text-xs" style={{ color: '#92400e' }}>
+                <span
+                  className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full"
+                  style={{ backgroundColor: '#d97706' }}
+                  aria-hidden="true"
+                />
+                {tip}
+              </li>
+            ))}
           </ul>
         </div>
 

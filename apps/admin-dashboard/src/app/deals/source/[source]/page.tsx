@@ -42,6 +42,14 @@ export async function generateMetadata({ params }: SourcePageProps): Promise<Met
       description: config.metaDescription,
       url: `/deals/source/${params.source}`,
       type: 'website',
+      images: [
+        {
+          url: '/og-default.png',
+          width: 1200,
+          height: 630,
+          alt: `VoucherFinder — Deals từ ${config.label}`,
+        },
+      ],
     },
   };
 }

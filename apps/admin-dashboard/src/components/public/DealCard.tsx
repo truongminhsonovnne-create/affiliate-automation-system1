@@ -247,14 +247,16 @@ export function DealCard({ deal, showDescription = false, compact = false }: Dea
         backgroundColor: '#ffffff',
         border: '1px solid #f3f4f6',
         boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+        minHeight: '19rem',
+        willChange: 'transform, box-shadow',
       }}
       onMouseEnter={(e) => {
         (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 24px rgba(0,0,0,0.10)';
-        (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)';
+        (e.currentTarget as HTMLElement).style.transform = 'translate3d(0,-2px,0)';
       }}
       onMouseLeave={(e) => {
         (e.currentTarget as HTMLElement).style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)';
-        (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+        (e.currentTarget as HTMLElement).style.transform = 'translate3d(0,0,0)';
       }}
     >
       {/* ── Top color band ─────────────────────────────────────────────── */}

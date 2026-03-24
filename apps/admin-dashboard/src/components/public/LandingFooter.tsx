@@ -17,14 +17,15 @@ import { SITE_CONFIG } from '@/lib/public/site-config';
 const NAV_LINKS = [
   { href: '/home', label: 'Trang chủ' },
   { href: '/resources', label: 'Tài nguyên' },
-  { href: '/about', label: 'Giới thiệu' },
+  { href: '/info/about', label: 'Giới thiệu' },
+  { href: '/info/faq', label: 'FAQ' },
 ];
 
 const LEGAL_LINKS = [
-  { href: '/privacy', label: 'Chính sách bảo mật' },
-  { href: '/cookies', label: 'Chính sách Cookie' },
-  { href: '/terms', label: 'Điều khoản sử dụng' },
-  { href: '/affiliate-disclosure', label: 'Công khai liên kết' },
+  { href: '/info/privacy', label: 'Chính sách bảo mật' },
+  { href: '/info/cookies', label: 'Chính sách Cookie' },
+  { href: '/info/terms', label: 'Điều khoản sử dụng' },
+  { href: '/info/affiliate-disclosure', label: 'Công khai liên kết' },
 ];
 
 const TRUST_FACTS = [

@@ -22,8 +22,16 @@ export const metadata = {
     title: 'Chính sách bảo mật | VoucherFinder',
     description:
       'Chính sách bảo mật của VoucherFinder — dữ liệu nào được thu thập, cách sử dụng, và quyền của bạn.',
-    url: '/privacy',
+    url: '/info/privacy',
     type: 'website',
+    images: [
+      {
+        url: '/og-default.png',
+        width: 1200,
+        height: 630,
+        alt: 'VoucherFinder — Chính sách bảo mật',
+      },
+    ],
   },
 
   twitter: {

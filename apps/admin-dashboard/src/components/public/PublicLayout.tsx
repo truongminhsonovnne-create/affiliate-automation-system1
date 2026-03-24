@@ -31,6 +31,9 @@ const LEGAL_LINKS = [
   { href: '/info/cookies', label: 'Chính sách Cookie' },
   { href: '/info/terms', label: 'Điều khoản sử dụng' },
   { href: '/info/affiliate-disclosure', label: 'Công khai liên kết' },
+  { href: '/info/faq', label: 'FAQ' },
+  { href: '/info/about', label: 'Giới thiệu' },
+  { href: '/info/contact', label: 'Liên hệ' },
 ];
 
 // ── Logo ────────────────────────────────────────────────────────────────────
@@ -144,9 +147,8 @@ function MobileMenu({
       <div
         aria-hidden="true"
         onClick={onClose}
-        className={`fixed inset-0 z-40 transition-opacity duration-200 ${
-          isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
+        className={`fixed inset-0 z-40 transition-opacity duration-200 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
         style={{
           backgroundColor: 'rgba(0,0,0,0.35)',
           backdropFilter: 'blur(2px)',
@@ -160,9 +162,8 @@ function MobileMenu({
         role="dialog"
         aria-modal="true"
         aria-label="Điều hướng"
-        className={`fixed top-0 right-0 bottom-0 z-50 w-72 transition-transform duration-300 ${
-          isOpen ? 'translate-x-0' : 'translate-x-full'
-        }`}
+        className={`fixed top-0 right-0 bottom-0 z-50 w-72 transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
         style={{
           backgroundColor: 'var(--bg-raised)',
           boxShadow: '-4px 0 24px 0 rgb(0 0 0 / 0.10)',
@@ -273,18 +274,18 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
         style={
           isScrolled
             ? {
-                backgroundColor: 'rgba(255,255,255,0.96)',
-                backdropFilter: 'blur(8px)',
-                WebkitBackdropFilter: 'blur(8px)',
-                borderBottom: '1px solid var(--border-subtle)',
-                boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.04)',
-              }
+              backgroundColor: 'rgba(255,255,255,0.96)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              borderBottom: '1px solid var(--border-subtle)',
+              boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.04)',
+            }
             : {
-                backgroundColor: 'rgba(255,255,255,0.85)',
-                backdropFilter: 'blur(4px)',
-                WebkitBackdropFilter: 'blur(4px)',
-                borderBottom: '1px solid transparent',
-              }
+              backgroundColor: 'rgba(255,255,255,0.85)',
+              backdropFilter: 'blur(4px)',
+              WebkitBackdropFilter: 'blur(4px)',
+              borderBottom: '1px solid transparent',
+            }
         }
       >
         <div

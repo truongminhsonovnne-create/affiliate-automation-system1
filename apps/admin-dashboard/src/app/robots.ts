@@ -20,16 +20,18 @@ export default function robots(): MetadataRoute.Robots {
         userAgent: '*',
         allow: [
           '/home',
-          // Info pages are at /info/* (short URLs /about, /contact etc.
-          // are redirected via next.config.js redirects)
           '/info/about',
           '/info/contact',
           '/info/privacy',
           '/info/cookies',
           '/info/terms',
           '/info/affiliate-disclosure',
+          '/deals',
+          '/deals/hot',
+          '/deals/expiring',
+          '/deals/source/masoffer',
+          '/deals/source/accesstrade',
           '/resources',
-          // Article pages
           '/resources/huong-dan-san-sale-shopee-2026',
           '/resources/cac-loai-voucher-shopee',
           '/resources/cach-chon-voucher-phu-hop',
@@ -40,6 +42,9 @@ export default function robots(): MetadataRoute.Robots {
           '/resources/mua-dien-thoai-tiet-kiem',
           '/resources/san-giay-chinh-hang',
           '/resources/uu-dai-thuong-hieu',
+          '/resources/san-deal-theo-shop',
+          '/resources/confidence-score-la-gi',
+          '/resources/uu-dai-hieu-qua-cao',
         ],
         disallow: [
           '/admin/',

@@ -235,12 +235,13 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => { setMobileOpen(false); }, [pathname]);
 
   return (
-    <div className="flex min-h-screen flex-col" style={{ backgroundColor: '#f9fafb', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+    <div className="flex min-h-screen flex-col" style={{ backgroundColor: '#f9fafb' }}>
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <header
         className="sticky top-0 z-50 transition-all duration-200"
-        style={
-          isScrolled
+        style={{
+          minHeight: '3.75rem',
+          ...(isScrolled
             ? {
                 backgroundColor: 'rgba(255,255,255,0.92)',
                 backdropFilter: 'blur(12px)',
@@ -252,8 +253,8 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
                 backgroundColor: 'rgba(255,255,255,0.0)',
                 backdropFilter: 'blur(0px)',
                 borderBottom: '1px solid transparent',
-              }
-        }
+              }),
+        }}
       >
         <div
           className="mx-auto flex items-center justify-between"
@@ -331,6 +332,8 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
 
       {/* ── Page content ─────────────────────────────────────────────────── */}
       <main className="flex-1" id="main-content" tabIndex={-1}>
+
+
         {children}
       </main>
     </div>

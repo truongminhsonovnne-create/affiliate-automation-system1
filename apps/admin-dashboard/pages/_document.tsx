@@ -12,15 +12,13 @@
  *
  *   "<Html> should not be imported outside of pages/_document"
  *
- * Solution: Use plain HTML/head/body tags instead of the `Html/Head/
- * Main/NextScript` components from `next/document`. The plain tags are
- * functionally equivalent for error pages and bypass the Html-class
- * import guard entirely.
+ * Solution: Use plain HTML/body tags instead of the `Html/Head/
+ * Main/NextScript` components from `next/document`. This bypasses the
+ * Html-class import guard while keeping the fallback document minimal.
  */
 export default function Document() {
   return (
     <html lang="vi">
-      <head />
       <body />
     </html>
   );

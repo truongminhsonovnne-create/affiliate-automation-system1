@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Terms of Service — /terms
  *
  * Clear, realistic terms that reflect the actual service scope.
@@ -22,8 +22,16 @@ export const metadata = {
     title: 'Điều khoản sử dụng | VoucherFinder',
     description:
       'Điều khoản sử dụng dịch vụ VoucherFinder — quyền, trách nhiệm, và giới hạn.',
-    url: '/terms',
+    url: '/info/terms',
     type: 'website',
+    images: [
+      {
+        url: '/og-default.png',
+        width: 1200,
+        height: 630,
+        alt: 'VoucherFinder — Điều khoản sử dụng',
+      },
+    ],
   },
 
   twitter: {
@@ -217,7 +225,7 @@ export default function TermsPage() {
         <h2>12. Liên hệ</h2>
         <p>
           Nếu bạn có câu hỏi về các điều khoản này, vui lòng liên hệ qua{' '}
-          <a href="/info/contact">trang Liên hệ</a> 或 email:{' '}
+          <a href="/info/contact">trang Liên hệ</a> hoặc email:{' '}
           <a href={`mailto:${SITE_CONFIG.email}`}>{SITE_CONFIG.email}</a>.
         </p>
       </section>

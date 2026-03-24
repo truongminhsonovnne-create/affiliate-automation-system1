@@ -67,6 +67,7 @@ function ResolutionArea({
   onInputChange,
   onSubmit,
   disabled,
+  checkedAt,
 }: {
   state: ResolutionState;
   livePhase: PhaseMappingResult | null;
@@ -84,6 +85,7 @@ function ResolutionArea({
   onInputChange: (v: string) => void;
   onSubmit: () => void;
   disabled: boolean;
+  checkedAt?: Date;
 }) {
   return (
     <div
@@ -125,15 +127,16 @@ function ResolutionArea({
           <ResultStates
             variant={
               state.status as
-                | 'no_match'
-                | 'invalid_link'
-                | 'error'
-                | 'rate_limited'
-                | 'expired'
-                | 'failed'
+              | 'no_match'
+              | 'invalid_link'
+              | 'error'
+              | 'rate_limited'
+              | 'expired'
+              | 'failed'
             }
             error={state.error}
             onRetry={onRetry}
+            checkedAt={checkedAt}
           />
         </div>
       )}
@@ -267,6 +270,7 @@ export function VoucherResolverPageNew() {
   const [livePhase, setLivePhase] = useState<PhaseMappingResult | null>(null);
   const [lastUrl, setLastUrl] = useState('');
   const [lastResult, setLastResult] = useState<AnalysisResult | null>(null);
+  const [checkedAt, setCheckedAt] = useState<Date | undefined>(undefined);
 
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef('');
@@ -294,6 +298,7 @@ export function VoucherResolverPageNew() {
     setLastUrl(trimmed);
     setLivePhase(null);
     setLastResult(null);
+    setCheckedAt(undefined);
 
     const startTime = Date.now();
 
@@ -323,6 +328,7 @@ export function VoucherResolverPageNew() {
 
       setState(newState);
       setLivePhase(null);
+      setCheckedAt(new Date());
 
       const clientLatencyMs = Date.now() - startTime;
       const analysisResult = buildAnalysisResult(trimmed, newState, clientLatencyMs);
@@ -488,6 +494,7 @@ export function VoucherResolverPageNew() {
           onInputChange={handleInputChange}
           onSubmit={handleSubmit}
           disabled={isLoading}
+          checkedAt={checkedAt}
         />
       </div>
 

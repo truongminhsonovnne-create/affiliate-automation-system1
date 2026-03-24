@@ -58,7 +58,8 @@ export function FinalCTA() {
             marginBottom: '1rem',
           }}
         >
-          Sẵn sàng tiết kiệm?
+          Tiết kiệm ngay hôm nay —
+          <br className="sm:hidden" /> không mất phí
         </h2>
 
         {/* Sub */}
@@ -71,7 +72,7 @@ export function FinalCTA() {
             margin: '0 auto 2.5rem',
           }}
         >
-          Dán link sản phẩm Shopee — tìm mã giảm giá tốt nhất trong 3 giây.
+          Hơn 4.700 voucher đang hoạt động. Dán link sản phẩm bất kỳ để bắt đầu.
         </p>
 
         {/* CTA */}
@@ -103,7 +104,7 @@ export function FinalCTA() {
 
         {/* Trust microcopy */}
         <p className="mt-4 text-xs" style={{ color: '#9ca3af' }}>
-          Miễn phí · Không cần đăng nhập · Không giới hạn
+          0đ phí · Không cần đăng nhập · 4.700+ voucher đang hoạt động
         </p>
       </div>
     </section>

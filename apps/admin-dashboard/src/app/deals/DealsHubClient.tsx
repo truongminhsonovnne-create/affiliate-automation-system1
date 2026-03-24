@@ -152,7 +152,11 @@ export function DealsPageContent() {
     <div>
       <div
         className="relative overflow-hidden px-6 py-10 sm:px-10"
-        style={{ background: 'linear-gradient(135deg, #fff7ed 0%, #fff 100%)', borderBottom: '1px solid #f3f4f6' }}
+        style={{
+          background: 'linear-gradient(135deg, #fff7ed 0%, #fff 100%)',
+          borderBottom: '1px solid #f3f4f6',
+          minHeight: '18rem',
+        }}
       >
         <div className="pointer-events-none absolute right-0 top-0 opacity-10" aria-hidden="true">
           <svg width="300" height="300" viewBox="0 0 300 300" fill="none">

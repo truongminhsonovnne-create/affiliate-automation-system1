@@ -5,8 +5,8 @@
  *
  * Architecture:
  *  - Dark/inverted section band to create strong visual rhythm break
- *  - Numbered steps with a large number overlay for depth
- *  - Left-aligned layout (not centered) for a more editorial feel
+ *  - Numbered steps (top)
+ *  - "Nền tảng nào" platform support grid (bottom)
  */
 
 const STEPS = [
@@ -22,7 +22,7 @@ const STEPS = [
   },
   {
     num: '02',
-    title: 'Hệ thống tự kiểm tra',
+    title: 'Hệ thống quét voucher',
     desc: 'Trong 2–3 giây, hệ thống kiểm tra hàng trăm mã voucher còn hiệu lực phù hợp với sản phẩm của bạn.',
     icon: (
       <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -45,6 +45,13 @@ const STEPS = [
   },
 ];
 
+const PLATFORMS = [
+  { name: 'Shopee', tag: 'shopee.vn', note: 'Hỗ trợ đầy đủ', status: 'active', icon: '🛒' },
+  { name: 'Shopee Short', tag: 'shope.ee', note: 'Link rút gọn tự động expand', status: 'active', icon: '🔗' },
+  { name: 'AccessTrade', tag: 'Nguồn dữ liệu', note: '4.700+ voucher được kiểm chứng', status: 'active', icon: '✓' },
+  { name: 'MasOffer', tag: 'Nguồn dữ liệu', note: 'Cập nhật thường xuyên', status: 'active', icon: '↻' },
+];
+
 export function HowItWorksNew() {
   return (
     <section
@@ -52,13 +59,11 @@ export function HowItWorksNew() {
       style={{ backgroundColor: '#111827' }}
       aria-labelledby="how-it-works-heading"
     >
-      {/* Subtle grain texture overlay */}
+      {/* Grain texture */}
       <div
         aria-hidden="true"
         style={{
-          position: 'absolute',
-          inset: 0,
-          opacity: 0.03,
+          position: 'absolute', inset: 0, opacity: 0.03,
           backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 256 256\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noise)\'/%3E%3C/svg%3E")',
         }}
       />
@@ -120,16 +125,11 @@ export function HowItWorksNew() {
               <div
                 aria-hidden="true"
                 style={{
-                  position: 'absolute',
-                  top: '-0.5rem',
-                  right: '1.25rem',
-                  fontSize: '6rem',
-                  fontWeight: '900',
+                  position: 'absolute', top: '-0.5rem', right: '1.25rem',
+                  fontSize: '6rem', fontWeight: '900',
                   color: 'rgba(255,255,255,0.03)',
-                  lineHeight: 1,
-                  letterSpacing: '-0.05em',
-                  userSelect: 'none',
-                  pointerEvents: 'none',
+                  lineHeight: 1, letterSpacing: '-0.05em',
+                  userSelect: 'none', pointerEvents: 'none',
                 }}
               >
                 {step.num}
@@ -158,7 +158,7 @@ export function HowItWorksNew() {
                 {step.desc}
               </p>
 
-              {/* Connector arrow (not on last) */}
+              {/* Connector arrow */}
               {i < STEPS.length - 1 && (
                 <div
                   className="hidden absolute -right-3 top-1/2 -translate-y-1/2 sm:flex items-center justify-center"
@@ -166,14 +166,10 @@ export function HowItWorksNew() {
                 >
                   <div
                     style={{
-                      width: '1.5rem',
-                      height: '1.5rem',
-                      borderRadius: '50%',
+                      width: '1.5rem', height: '1.5rem', borderRadius: '50%',
                       backgroundColor: 'rgba(255,255,255,0.06)',
                       border: '1px solid rgba(255,255,255,0.1)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}
                   >
                     <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -184,6 +180,80 @@ export function HowItWorksNew() {
               )}
             </div>
           ))}
+        </div>
+
+        {/* ── Trust block: "Hỗ trợ nền tảng nào" ── */}
+        <div
+          className="mt-16 rounded-2xl p-6"
+          style={{
+            backgroundColor: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.07)',
+          }}
+        >
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <p
+                className="mb-1 text-xs font-semibold uppercase tracking-widest"
+                style={{ color: '#f97316', letterSpacing: '0.12em' }}
+              >
+                Hệ thống hỗ trợ
+              </p>
+              <h3
+                className="font-bold"
+                style={{ color: '#ffffff', fontSize: '1.1rem' }}
+              >
+                Nền tảng & nguồn dữ liệu
+              </h3>
+            </div>
+            <div
+              className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
+              style={{ backgroundColor: 'rgba(34,197,94,0.1)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.2)' }}
+            >
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#4ade80' }} />
+              Cập nhật thường xuyên
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {PLATFORMS.map((p) => (
+              <div
+                key={p.name}
+                className="rounded-xl p-4"
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.07)',
+                }}
+              >
+                <p
+                  className="text-2xl mb-2"
+                  role="img"
+                  aria-label={p.name}
+                >
+                  {p.icon}
+                </p>
+                <p
+                  className="text-sm font-semibold"
+                  style={{ color: '#ffffff', marginBottom: '0.25rem' }}
+                >
+                  {p.name}
+                </p>
+                <p
+                  className="text-xs font-medium"
+                  style={{ color: '#f97316', marginBottom: '0.25rem' }}
+                >
+                  {p.tag}
+                </p>
+                <p className="text-xs" style={{ color: '#6b7280' }}>
+                  {p.note}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* Trust statement */}
+          <p className="mt-4 text-xs" style={{ color: '#4b5563' }}>
+            Chỉ hiển thị voucher và deal đã được kiểm chứng điều kiện sử dụng thực tế. Không spam, không mã giả.
+          </p>
         </div>
       </div>
     </section>

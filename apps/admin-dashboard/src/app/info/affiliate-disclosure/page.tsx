@@ -33,8 +33,16 @@ export const metadata = {
     title: 'Công khai liên kết | VoucherFinder',
     description:
       'Thông tin công khai về các mối quan hệ liên kết của VoucherFinder với các nền tảng thương mại điện tử.',
-    url: '/affiliate-disclosure',
+    url: '/info/affiliate-disclosure',
     type: 'website',
+    images: [
+      {
+        url: '/og-default.png',
+        width: 1200,
+        height: 630,
+        alt: 'VoucherFinder — Công khai liên kết',
+      },
+    ],
   },
 
   twitter: {

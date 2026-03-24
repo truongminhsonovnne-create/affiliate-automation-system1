@@ -52,14 +52,14 @@ export default function AboutPage() {
         <h2>VoucherFinder là gì?</h2>
         <p>
           VoucherFinder là một công cụ tra cứu mã giảm giá miễn phí, được xây dựng
-          để giúp người mua sắm trên <strong>Shopee Việt Nam</strong> tìm được mã
-          voucher tốt nhất cho sản phẩm họ muốn mua.
+          để giúp người mua sắm trên Shopee Việt Nam tìm được mã voucher tốt nhất
+          cho sản phẩm họ muốn mua.
         </p>
         <p>
-          Chúng tôi không phải trang thương mại điện tử, không bán hàng, và không
-          phải là đại lý hay chi nhánh chính thức của Shopee. VoucherFinder là một
-          công cụ độc lập do một nhóm nhỏ vận hành với mục tiêu duy nhất: giúp bạn
-          tiết kiệm thời gian và tiền bạc khi mua sắm.
+          VoucherFinder hoạt động từ đầu năm 2026, do một nhóm kỹ sư độc lập vận hành.
+          Chúng tôi không phải trang thương mại điện tử, không bán hàng, và không phải
+          là đại lý hay chi nhánh chính thức của Shopee. Mục tiêu duy nhất của chúng tôi:
+          giúp bạn tiết kiệm thời gian và tiền bạc khi mua sắm.
         </p>
       </section>
 
@@ -145,8 +145,8 @@ export default function AboutPage() {
           </li>
           <li>
             <strong>Chỉ hỗ trợ Shopee Việt Nam</strong> — Hiện tại, công cụ chỉ
-            phân tích sản phẩm trên Shopee Việt Nam. Các nền tảng khác (Lazada, Tiki,
-            TikTok Shop, v.v.) chưa được hỗ trợ.
+            phân tích sản phẩm trên Shopee Việt Nam (cả shopee.vn và shope.ee).
+            Các nền tảng khác (Lazada, Tiki, TikTok Shop, v.v.) chưa được hỗ trợ.
           </li>
           <li>
             <strong>Không phải công cụ affiliate</strong> — VoucherFinder không theo dõi

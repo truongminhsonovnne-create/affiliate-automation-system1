@@ -19,6 +19,14 @@ export const metadata = {
     description: 'Những voucher và deal sắp hết hạn trong 7 ngày tới. Nhanh tay kẻo hết!',
     url: '/deals/expiring',
     type: 'website',
+    images: [
+      {
+        url: '/og-default.png',
+        width: 1200,
+        height: 630,
+        alt: 'VoucherFinder — Deal Sắp Hết Hạn',
+      },
+    ],
   },
 };
 

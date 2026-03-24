@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { type LucideIcon, Link2, BrainCircuit, Database, Sparkles, RotateCw, Loader2 } from 'lucide-react';
+import { type LucideIcon, Link2, BrainCircuit, Database, Sparkles, RotateCw, Loader2, ShieldCheck } from 'lucide-react';
 import clsx from 'clsx';
 
 // =============================================================================
@@ -46,6 +46,7 @@ const PROCESSING_STEPS = [
   { id: 'context', label: 'Tải thông tin sản phẩm', icon: Database },
   { id: 'matching', label: 'Tìm voucher phù hợp', icon: BrainCircuit },
   { id: 'ranking', label: 'Xếp hạng ưu tiên', icon: Sparkles },
+  { id: 'verify', label: 'Xác minh hiệu lực mã', icon: ShieldCheck },
 ];
 
 // =============================================================================
@@ -162,8 +163,8 @@ function StepItem({ step, status, delay = 0, accentColor }: StepItemProps) {
               accentColor === 'blue'
                 ? { backgroundColor: 'var(--info-200)' }
                 : accentColor === 'orange'
-                ? { backgroundColor: 'var(--brand-200)' }
-                : { backgroundColor: 'var(--warning-200)' }
+                  ? { backgroundColor: 'var(--brand-200)' }
+                  : { backgroundColor: 'var(--warning-200)' }
             }
           />
         )}
@@ -175,8 +176,8 @@ function StepItem({ step, status, delay = 0, accentColor }: StepItemProps) {
           status === 'done'
             ? { color: 'var(--success-600)' }
             : status === 'active'
-            ? { color: 'var(--brand-600)' }
-            : { color: 'var(--text-muted)' }
+              ? { color: 'var(--brand-600)' }
+              : { color: 'var(--text-muted)' }
         }
       >
         {step.label}
@@ -337,7 +338,17 @@ export function ResolutionProgress({
   const isRetrying = phase === 'retrying';
 
   const steps = isQueued ? QUEUED_STEPS : PROCESSING_STEPS;
-  const activeIndex = config.activeStepIndex;
+  const [activeIndex, setActiveIndex] = useState(config.activeStepIndex);
+
+  // Auto-advance steps every 1.8s during processing to signal live analysis
+  useEffect(() => {
+    setActiveIndex(config.activeStepIndex);
+    if (phase !== 'processing') return;
+    const interval = setInterval(() => {
+      setActiveIndex((prev) => Math.min(prev + 1, steps.length - 1));
+    }, 1800);
+    return () => clearInterval(interval);
+  }, [phase, config.activeStepIndex, steps.length]);
 
   const [isLongWait, setIsLongWait] = useState(false);
   const [longWaitMs, setLongWaitMs] = useState(0);
@@ -362,8 +373,8 @@ export function ResolutionProgress({
         phase === 'queued'
           ? { borderColor: 'var(--info-100)' }
           : phase === 'processing'
-          ? { borderColor: 'var(--brand-100)', boxShadow: 'var(--shadow-brand)' }
-          : { borderColor: 'var(--warning-200)' }
+            ? { borderColor: 'var(--brand-100)', boxShadow: 'var(--shadow-brand)' }
+            : { borderColor: 'var(--warning-200)' }
       }
     >
       {/* Animated icon with orbiting dots */}
@@ -374,8 +385,8 @@ export function ResolutionProgress({
             phase === 'queued'
               ? { backgroundColor: 'var(--info-50)' }
               : phase === 'processing'
-              ? { backgroundColor: 'var(--brand-50)' }
-              : { backgroundColor: 'var(--warning-50)' }
+                ? { backgroundColor: 'var(--brand-50)' }
+                : { backgroundColor: 'var(--warning-50)' }
           }
         >
           <ActiveIcon
@@ -384,8 +395,8 @@ export function ResolutionProgress({
               phase === 'queued'
                 ? { color: 'var(--info-400)', animation: 'pulse 2s ease-in-out infinite' }
                 : phase === 'processing'
-                ? { color: 'var(--brand-400)' }
-                : { color: 'var(--warning-500)', animation: 'spin 1.5s linear infinite' }
+                  ? { color: 'var(--brand-400)' }
+                  : { color: 'var(--warning-500)', animation: 'spin 1.5s linear infinite' }
             }
             aria-hidden="true"
           />
@@ -400,8 +411,8 @@ export function ResolutionProgress({
               phase === 'queued'
                 ? { backgroundColor: 'var(--info-400)', top: '50%', left: '50%', transform: `rotate(${i * 120}deg) translateX(42px) translateY(-50%)`, animation: `orbit 1.5s linear infinite`, animationDelay: `${i * 0.5}s` }
                 : phase === 'processing'
-                ? { backgroundColor: 'var(--brand-400)', top: '50%', left: '50%', transform: `rotate(${i * 120}deg) translateX(42px) translateY(-50%)`, animation: `orbit 1.5s linear infinite`, animationDelay: `${i * 0.5}s` }
-                : { backgroundColor: 'var(--warning-400)', top: '50%', left: '50%', transform: `rotate(${i * 120}deg) translateX(42px) translateY(-50%)`, animation: `orbit 1.5s linear infinite`, animationDelay: `${i * 0.5}s` }
+                  ? { backgroundColor: 'var(--brand-400)', top: '50%', left: '50%', transform: `rotate(${i * 120}deg) translateX(42px) translateY(-50%)`, animation: `orbit 1.5s linear infinite`, animationDelay: `${i * 0.5}s` }
+                  : { backgroundColor: 'var(--warning-400)', top: '50%', left: '50%', transform: `rotate(${i * 120}deg) translateX(42px) translateY(-50%)`, animation: `orbit 1.5s linear infinite`, animationDelay: `${i * 0.5}s` }
             }
             aria-hidden="true"
           />
@@ -416,8 +427,8 @@ export function ResolutionProgress({
             phase === 'queued'
               ? { color: 'var(--info-800)' }
               : phase === 'processing'
-              ? { color: 'var(--gray-800)' }
-              : { color: 'var(--warning-800)' }
+                ? { color: 'var(--gray-800)' }
+                : { color: 'var(--warning-800)' }
           }
         >
           {config.headline}
@@ -444,8 +455,8 @@ export function ResolutionProgress({
             step={step}
             status={
               i < activeIndex ? 'done' :
-              i === activeIndex ? 'active' :
-              'pending'
+                i === activeIndex ? 'active' :
+                  'pending'
             }
             delay={i * 150}
             accentColor={config.accentColor}
