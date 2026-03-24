@@ -216,7 +216,7 @@ export function DealsPageContent() {
           <DealsFilterBar filters={filters} onChange={setFilters} showSource showSort showDealType showCategory />
           <div className="mt-6">
             <DealsGrid
-              deals={response?.deals ?? []} total={total} limit={PAGE_SIZE} offset={0}
+              deals={response?.deals ?? []} total={total} limit={PAGE_SIZE} offset={offset}
               loading={loading} error={error}
               emptyTitle="Chưa có deal nào phù hợp" emptySubtitle="Thử thay đổi bộ lọc hoặc quay lại sau."
               onPageChange={changePage}
