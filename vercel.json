@@ -1,8 +1,5 @@
 {
-  "rootDirectory": "apps/admin-dashboard",
+  "outputDirectory": "apps/admin-dashboard/.next",
   "installCommand": "npm install",
-  "buildCommand": "npm run build",
-  "outputDirectory": ".next",
-  "cleanUrls": true,
-  "rewrites": []
+  "buildCommand": "cd apps/admin-dashboard && npm run build"
 }
