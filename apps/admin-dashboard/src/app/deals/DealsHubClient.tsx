@@ -7,7 +7,7 @@
  * Imported by page.tsx (server component) which provides metadata.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { Zap, Clock, TrendingUp, Flame, ChevronRight, Star, ArrowRight, Smartphone, Shirt, HeartPulse, Laptop } from 'lucide-react';
 import { DealCard } from '@/components/public/DealCard';
@@ -19,12 +19,17 @@ const PAGE_SIZE = 8;
 
 function useDeals(initialFilters: DealsFilterState) {
   const [filters, setFilters] = useState<DealsFilterState>(initialFilters);
+  const [offset, setOffset] = useState(0);
   const [response, setResponse] = useState<DealsApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Keep a ref to latest filters so async load() always reads fresh values
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+
   const load = useCallback(
-    async (f: DealsFilterState, offset = 0) => {
+    async (f: DealsFilterState, pageOffset: number) => {
       setLoading(true);
       setError(null);
       try {
@@ -34,7 +39,7 @@ function useDeals(initialFilters: DealsFilterState) {
           deal_type: f.deal_type || undefined,
           category: f.category || undefined,
           limit: PAGE_SIZE,
-          offset,
+          offset: pageOffset,
         });
         setResponse(res);
       } catch (err) {
@@ -46,11 +51,20 @@ function useDeals(initialFilters: DealsFilterState) {
     []
   );
 
+  // Reload when filters change — always start from page 1
   useEffect(() => {
-    load(filters);
-  }, [filters, load]);
+    setOffset(0);
+    load(filters, 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
-  return { filters, setFilters, response, loading, error, reload: (offset = 0) => load(filters, offset) };
+  // Manual page change — use latest filters (via ref) + new offset
+  const changePage = useCallback((newOffset: number) => {
+    setOffset(newOffset);
+    load(filtersRef.current, newOffset);
+  }, [load]);
+
+  return { filters, setFilters, offset, response, loading, error, changePage };
 }
 
 function StatPill({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
@@ -142,7 +156,7 @@ function FeaturedRow({ source }: { source: 'masoffer' | 'accesstrade' }) {
 }
 
 export function DealsPageContent() {
-  const { filters, setFilters, response, loading, error, reload } = useDeals({
+  const { filters, setFilters, offset, response, loading, error, changePage } = useDeals({
     source: 'all', sort: 'hot', deal_type: '', category: '',
   });
 
@@ -205,7 +219,7 @@ export function DealsPageContent() {
               deals={response?.deals ?? []} total={total} limit={PAGE_SIZE} offset={0}
               loading={loading} error={error}
               emptyTitle="Chưa có deal nào phù hợp" emptySubtitle="Thử thay đổi bộ lọc hoặc quay lại sau."
-              onPageChange={(offset) => reload(offset)}
+              onPageChange={changePage}
             />
           </div>
         </section>

@@ -16,7 +16,7 @@
  * Falls back to skeleton loading → "Chưa có deal" state gracefully.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { Zap, Star, ArrowRight, Package, Smartphone, Shirt, HeartPulse, Laptop } from 'lucide-react';
 import { DealCard } from '@/components/public/DealCard';
@@ -115,18 +115,25 @@ export function CategoryDealsClient({
   dealType,
   seoSubtitle,
 }: CategoryDealsClientProps) {
+  const [offset, setOffset] = useState(0);
   const [response, setResponse] = useState<DealsApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Keep latest params in a ref so load() always reads current values
+  const paramsRef = useRef({ platform, categorySlug, dealType });
+  paramsRef.current = { platform, categorySlug, dealType };
+
+  const load = useCallback((pageOffset: number) => {
+    const { platform: p, categorySlug: cs, dealType: dt } = paramsRef.current;
     setLoading(true);
     fetchDeals({
-      source: platform === 'all' ? undefined : platform,
-      category: categorySlug,
-      deal_type: dealType,
+      source: p === 'all' ? undefined : p,
+      category: cs,
+      deal_type: dt,
       sort: 'hot',
       limit: 20,
+      offset: pageOffset,
     })
       .then((res) => {
         setResponse(res);
@@ -136,7 +143,19 @@ export function CategoryDealsClient({
         setError(err instanceof Error ? err.message : 'Tải dữ liệu thất bại.');
       })
       .finally(() => setLoading(false));
+  }, []);
+
+  // Re-fetch from page 1 when category/filter changes
+  useEffect(() => {
+    setOffset(0);
+    load(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [platform, categorySlug, dealType]);
+
+  const changePage = useCallback((newOffset: number) => {
+    setOffset(newOffset);
+    load(newOffset);
+  }, [load]);
 
   const deals = response?.deals ?? [];
   const total = response?.total ?? 0;
@@ -218,12 +237,12 @@ export function CategoryDealsClient({
             deals={deals}
             total={total}
             limit={20}
-            offset={0}
+            offset={offset}
             loading={loading}
             error={error}
             emptyTitle="Chưa có deal trong danh mục này"
             emptySubtitle="Chúng tôi đang cập nhật — quay lại sau hoặc thử trang khác."
-            onPageChange={() => {}}
+            onPageChange={changePage}
           />
         </section>
 
