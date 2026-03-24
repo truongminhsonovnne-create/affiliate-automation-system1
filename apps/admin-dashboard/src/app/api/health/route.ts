@@ -8,7 +8,7 @@
  *   - Kubernetes readiness probes
  *   - Docker HEALTHCHECK
  *
- * No authentication required.
+ * No authentication required. Always dynamic.
  */
 
 import { NextResponse } from 'next/server';
