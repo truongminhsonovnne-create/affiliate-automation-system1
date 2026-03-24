@@ -647,6 +647,36 @@ button, a, input, select, textarea {
   top: 0.75rem;
 }
 
+/* ================================================================
+   Mobile Hero Optimizations
+   ================================================================ */
+
+/* Shortcut chips — horizontal scroll, hidden scrollbar */
+.hero-chip-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+.hero-chip-scroll::-webkit-scrollbar { display: none; }
+.hero-chip-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+
+/* Search card — ensure no overflow on any mobile width */
+.hero-search-card {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Hero section — no overflow */
+.hero-section {
+  width: 100%;
+  max-width: 100vw;
+  overflow: hidden;
+}
+
+/* Ensure inner elements don't overflow */
+.hero-inner {
+  max-width: 100%;
+  overflow: hidden;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

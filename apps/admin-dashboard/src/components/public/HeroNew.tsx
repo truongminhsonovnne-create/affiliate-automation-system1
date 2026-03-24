@@ -8,13 +8,20 @@
  *   Giây 2: User làm gì → search card + platform badges
  *   Giây 3: Kết quả gì → trust strip + sample result preview
  *
+ * Mobile optimizations:
+ *   - Compact hero (reduced padding)
+ *   - Horizontal shortcut chips strip visible above the fold
+ *   - Full-width search card (single-column layout)
+ *   - Button on separate row for easy one-hand tapping
+ *   - Above-fold CTAs visible without scrolling
+ *
  * Exports:
  *  - HeroNew: Full hero with headline + search card + trust strip
  *  - HeroSearchCard: Standalone elevated search card (for compact states)
  */
 
 import { useState, useCallback } from 'react';
-import { Zap, ShieldCheck, CheckCircle2, Flame, ChevronRight, Search, RefreshCw, ArrowRight, Clock } from 'lucide-react';
+import { Zap, ShieldCheck, CheckCircle2, Flame, ChevronRight, Search, RefreshCw, ArrowRight, Clock, Tag, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
 import type { ResolutionStatus } from '@/lib/public/api-client';
 import { useAnalytics } from '@/lib/public/analytics-context';
@@ -30,6 +37,7 @@ export interface HeroSearchCardProps {
 }
 
 // ── Search Card (standalone) ────────────────────────────────────────────────
+// Mobile-first: single column, full-width button, no overflow
 
 export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: HeroSearchCardProps) {
   const [isFocused, setIsFocused] = useState(false);
@@ -60,12 +68,11 @@ export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: 
     <div
       className="relative w-full rounded-2xl transition-all duration-200"
       style={{
-        minHeight: '5.5rem',
         backgroundColor: '#ffffff',
         border: `1.5px solid ${borderColor}`,
         boxShadow: isFocused
-          ? '0 0 0 4px rgba(249,115,22,0.12), 0 20px 60px -12px rgba(0,0,0,0.18), 0 8px 24px -4px rgba(0,0,0,0.08)'
-          : '0 4px 24px -4px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04)',
+          ? '0 0 0 4px rgba(249,115,22,0.12), 0 8px 24px -4px rgba(0,0,0,0.12)'
+          : '0 2px 12px -2px rgba(0,0,0,0.08)',
         transition: 'border-color 200ms ease, box-shadow 200ms ease',
       }}
     >
@@ -83,13 +90,15 @@ export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: 
         aria-hidden="true"
       />
 
-      <div className="flex items-center gap-3 px-5 py-4 sm:px-6 sm:py-5">
+      {/* Input row: icon + input + paste badge */}
+      <div className="flex items-center gap-2 px-3 py-3 sm:px-5 sm:py-4">
         {/* Icon */}
         <div
-          className="flex-shrink-0 flex items-center justify-center rounded-xl transition-colors duration-200"
+          className="flex flex-shrink-0 items-center justify-center rounded-xl transition-colors duration-200"
           style={{
-            width: '2.75rem',
-            height: '2.75rem',
+            width: '2.5rem',
+            height: '2.5rem',
+            minWidth: '2.5rem',
             backgroundColor: hasValue && !isDisabled ? '#fff7ed' : '#f9fafb',
             color: hasValue && !isDisabled ? '#f97316' : '#9ca3af',
             transition: 'background-color 200ms ease, color 200ms ease',
@@ -97,12 +106,12 @@ export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: 
           aria-hidden="true"
         >
           {isProcessing ? (
-            <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
           ) : (
-            <Zap className="h-5 w-5" style={{ fill: hasValue && !isDisabled ? '#f97316' : 'none' }} />
+            <Zap className="h-4 w-4" style={{ fill: hasValue && !isDisabled ? '#f97316' : 'none' }} />
           )}
         </div>
 
@@ -117,7 +126,7 @@ export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: 
           spellCheck={false}
           inputMode="url"
           enterKeyHint="go"
-          placeholder="Dán link sản phẩm Shopee (shope.ee cũng được)..."
+          placeholder="Dán link sản phẩm Shopee..."
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onPaste={handlePaste}
@@ -127,46 +136,50 @@ export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: 
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           disabled={isDisabled}
-          className="min-h-[2.75rem] flex-1 text-sm rounded-lg bg-transparent outline-none disabled:cursor-not-allowed disabled:opacity-60"
+          className="min-h-[2.5rem] flex-1 bg-transparent outline-none disabled:cursor-not-allowed disabled:opacity-60"
           style={{
             color: '#111827',
-            fontSize: '0.9375rem',
+            fontSize: '0.875rem',
             lineHeight: 1.5,
+            minWidth: 0, // prevent flex overflow
           }}
         />
 
         {/* Paste badge */}
         {showPasteBadge && !isProcessing && (
           <span
-            className="flex-shrink-0 flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium"
+            className="flex-shrink-0 flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
             style={{
               backgroundColor: '#f0fdf4',
               border: '1px solid #22c55e',
               color: '#15803d',
               animation: 'badgePop 200ms cubic-bezier(0.175, 0.885, 0.32, 1.275) both',
+              whiteSpace: 'nowrap',
             }}
           >
-            <CheckCircle2 className="h-3 w-3" />
+            <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
             Đã dán
           </span>
         )}
+      </div>
 
-        {/* CTA Button */}
+      {/* CTA Button — full width on mobile, inline on sm+ */}
+      <div className="px-3 pb-3 sm:px-5 sm:pb-0">
         <button
           type="button"
           onClick={handleSubmit}
           disabled={isDisabled || !hasValue}
           aria-label="Tìm mã giảm giá"
-          className="flex-shrink-0 flex items-center gap-2 rounded-xl font-semibold text-sm text-white transition-all duration-150"
+          className="flex w-full items-center justify-center gap-2 rounded-xl font-semibold text-sm text-white transition-all duration-150 sm:w-auto"
           style={
             hasValue && !isDisabled
               ? {
-                  padding: '0.625rem 1.375rem',
+                  padding: '0.75rem 1.5rem',
                   backgroundColor: '#f97316',
                   boxShadow: '0 2px 12px rgba(249,115,22,0.3)',
                 }
               : {
-                  padding: '0.625rem 1.375rem',
+                  padding: '0.75rem 1.5rem',
                   backgroundColor: '#f3f4f6',
                   color: '#9ca3af',
                   cursor: 'not-allowed',
@@ -189,16 +202,16 @@ export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: 
         >
           {isProcessing ? (
             <>
-              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <svg className="h-4 w-4 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              <span className="hidden sm:inline">Đang tìm...</span>
+              <span>Đang tìm mã...</span>
             </>
           ) : (
             <>
-              <Zap className="h-4 w-4" aria-hidden="true" />
-              <span>Tìm mã</span>
+              <Zap className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+              <span>Tìm mã giảm giá</span>
             </>
           )}
         </button>
@@ -207,7 +220,7 @@ export function HeroSearchCard({ value, onChange, onSubmit, status, disabled }: 
       {/* Hint */}
       {hasValue && value.trim().length < 5 && (
         <div
-          className="flex items-center gap-1.5 px-6 pb-4 text-xs"
+          className="flex items-center gap-1.5 px-5 pb-3 text-xs"
           style={{ color: '#9ca3af', animation: 'hintFadeIn 200ms ease-out both' }}
         >
           <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -259,6 +272,70 @@ function TrustStrip() {
   );
 }
 
+// ── Mobile Shortcut Chips ─────────────────────────────────────────────────────
+// Inline chips inside the hero section (no white bg or border — hero is already white)
+
+function HeroShortcutChips() {
+  return (
+    <div
+      className="flex gap-2 overflow-x-auto pb-1"
+      role="navigation"
+      aria-label="Liên kết nhanh"
+      style={{
+        scrollbarWidth: 'none',
+        msOverflowStyle: 'none',
+        WebkitOverflowScrolling: 'touch',
+      }}
+    >
+      <style>{`.shortcut-chip::-webkit-scrollbar { display: none; }`}</style>
+      {SHORTCUT_ITEMS.map(({ href, label, icon: Icon, style, hoverStyle }) => (
+        <Link
+          key={href}
+          href={href}
+          className="shortcut-chip flex flex-shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-colors"
+          style={style}
+          onMouseEnter={(e) => Object.assign(e.currentTarget.style, hoverStyle)}
+          onMouseLeave={(e) => Object.assign(e.currentTarget.style, style)}
+        >
+          <Icon className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+          <span className="whitespace-nowrap">{label}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+const SHORTCUT_ITEMS = [
+  {
+    href: '/deals/hot',
+    label: 'Deal Hot',
+    icon: Flame,
+    style: { backgroundColor: '#fff1f2', color: '#be123c', border: '1px solid #fecdd3' },
+    hoverStyle: { backgroundColor: '#ffe4e6' },
+  },
+  {
+    href: '/deals',
+    label: 'Mã Giảm Giá',
+    icon: Tag,
+    style: { backgroundColor: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' },
+    hoverStyle: { backgroundColor: '#ffedd5' },
+  },
+  {
+    href: '/deals/source/shopee',
+    label: 'Shopee Hôm Nay',
+    icon: TrendingUp,
+    style: { backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' },
+    hoverStyle: { backgroundColor: '#dcfce7' },
+  },
+  {
+    href: '/deals/expiring',
+    label: 'Sắp Hết Hạn',
+    icon: Clock,
+    style: { backgroundColor: '#fefce8', color: '#92400e', border: '1px solid #fde68a' },
+    hoverStyle: { backgroundColor: '#fef9c3' },
+  },
+];
+
 // ── Full Hero (uses HeroSearchCard) ──────────────────────────────────────────
 
 export interface HeroNewProps extends HeroSearchCardProps {}
@@ -291,45 +368,74 @@ export function HeroNew(props: HeroNewProps) {
       </div>
 
       {/* ── Main content ── */}
+      {/* CSS for responsive overrides */}
+      <style>{`
+        @media (min-width: 640px) {
+          .hero-main-content {
+            padding: 5rem 1.5rem 4rem !important;
+            max-width: 58rem !important;
+          }
+          .hero-search-wrapper {
+            max-width: 46rem !important;
+          }
+          .hero-chip-row {
+            overflow-x: unset !important;
+          }
+        }
+        .hero-chip-row::-webkit-scrollbar { display: none; }
+      `}</style>
       <div
-        className="relative mx-auto"
-        style={{ maxWidth: '58rem', padding: '5rem 1.5rem 4rem' }}
+        className="hero-main-content relative mx-auto"
+        style={{
+          maxWidth: '100%',
+          padding: '1.5rem 1rem 1.5rem',
+        }}
       >
+        {/* ── MOBILE SHORTCUT STRIP (visible immediately) ── */}
+        <div
+          className="mb-4 hero-chip-row"
+          style={{
+            animation: 'fadeSlideUp 200ms ease-out both',
+            overflowX: 'auto',
+            scrollbarWidth: 'none',
+          }}
+        >
+          <HeroShortcutChips />
+        </div>
 
         {/* ── TIER 1: What this is (giây 1) ── */}
         <div style={{ animation: 'fadeSlideUp 400ms ease-out both' }}>
           {/* Eyebrow badge */}
           <div
-            className="mb-5 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold"
+            className="mb-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold"
             style={{
               backgroundColor: '#fff7ed',
               border: '1px solid #fed7aa',
               color: '#c2410c',
             }}
           >
-            <span className="relative flex h-2 w-2" aria-hidden="true">
+            <span className="relative flex h-1.5 w-1.5 flex-shrink-0" aria-hidden="true">
               <span
                 className="absolute inline-flex h-full w-full rounded-full opacity-75"
                 style={{ backgroundColor: '#f97316', animation: 'pulse 2s ease-in-out infinite' }}
               />
-              <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: '#f97316' }} />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#f97316' }} />
             </span>
-            Miễn phí · Không cần đăng nhập · Không giới hạn
+            Miễn phí · Không cần đăng nhập
           </div>
 
-          {/* Headline */}
+          {/* Headline — compact on mobile */}
           <h1
             className="font-black tracking-tight"
             style={{
               color: '#111827',
-              fontSize: 'clamp(2.25rem, 5vw, 3.5rem)',
-              lineHeight: 1.05,
+              fontSize: 'clamp(1.75rem, 5vw, 3.5rem)',
+              lineHeight: 1.1,
               letterSpacing: '-0.03em',
-              marginBottom: '1rem',
+              marginBottom: '0.5rem',
             }}
           >
-            Tìm mã giảm giá
-            <br />
+            Tìm mã giảm giá{' '}
             <span
               style={{
                 background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
@@ -338,20 +444,17 @@ export function HeroNew(props: HeroNewProps) {
                 backgroundClip: 'text',
               }}
             >
-              Shopee tốt nhất
-            </span>
-            <br />
-            <span style={{ color: '#6b7280', fontSize: 'clamp(1.25rem, 2.5vw, 1.75rem)', fontWeight: 700 }}>
-              Chỉ trong 2–3 giây
-            </span>
+              Shopee
+            </span>{' '}
+            tốt nhất
           </h1>
 
-          {/* Subheadline */}
+          {/* Subheadline — hidden on very small mobile, shown on sm+ */}
           <p
-            className="text-base sm:text-lg"
+            className="hidden sm:block text-sm"
             style={{
-              color: '#4b5563',
-              lineHeight: 1.7,
+              color: '#6b7280',
+              lineHeight: 1.6,
               maxWidth: '34rem',
               marginBottom: '0',
             }}
@@ -361,15 +464,18 @@ export function HeroNew(props: HeroNewProps) {
           </p>
         </div>
 
-        {/* ── TIER 2: What you do (giây 2) — Search Card ── */}
+        {/* ── TIER 2: Search Card (single column on mobile) ── */}
         <div
-          className="mt-8"
-          style={{ animation: 'fadeSlideUp 400ms 80ms ease-out both', maxWidth: '46rem' }}
+          className="mt-4 hero-search-wrapper"
+          style={{ animation: 'fadeSlideUp 400ms 80ms ease-out both' }}
         >
-          <HeroSearchCard {...props} />
+          {/* Search card — full width on mobile */}
+          <div className="w-full">
+            <HeroSearchCard {...props} />
+          </div>
 
-          {/* Platform + format hint */}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          {/* Platform hint — only visible on sm+ */}
+          <div className="mt-2 hidden sm:flex flex-wrap items-center justify-between gap-2">
             <p className="text-[11px]" style={{ color: '#9ca3af' }}>
               Hỗ trợ{' '}
               <span style={{ fontWeight: 600, color: '#6b7280' }}>shopee.vn</span>
@@ -390,59 +496,45 @@ export function HeroNew(props: HeroNewProps) {
           </div>
         </div>
 
-        {/* ── TIER 3: What you get — sample result preview ── */}
+        {/* ── TIER 3: Trust strip (compact on mobile) ── */}
         <div
-          className="mt-10"
+          className="mt-4"
           style={{ animation: 'fadeSlideUp 400ms 160ms ease-out both' }}
         >
-          <p
-            className="mb-3 text-[11px] font-semibold uppercase tracking-widest"
-            style={{ color: '#d1d5db', letterSpacing: '0.1em' }}
-          >
-            Kết quả bạn nhận được
-          </p>
-
-          {/* Sample result card */}
+          {/* Compact sample result — only on sm+ */}
           <div
-            className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+            className="hidden sm:flex flex-col gap-3"
             style={{
               backgroundColor: '#fafaf9',
               border: '1px solid #e5e7eb',
               borderRadius: '1rem',
-              padding: '1rem 1.25rem',
+              padding: '0.875rem 1.25rem',
               maxWidth: '46rem',
             }}
           >
-            <div className="flex items-start gap-3">
-              {/* Coupon icon */}
-              <div
-                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl"
-                style={{ backgroundColor: '#fff7ed', border: '1px solid #fed7aa' }}
-                aria-hidden="true"
-              >
-                <Zap className="h-5 w-5" style={{ color: '#f97316', fill: '#f97316' }} />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className="rounded-full px-2 py-0.5 text-xs font-bold"
-                    style={{ backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}
-                  >
-                    DRSAMUYT
-                  </span>
-                  <span className="text-[11px]" style={{ color: '#6b7280' }}>
-                    Giảm đến 15K
-                  </span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div
+                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl"
+                  style={{ backgroundColor: '#fff7ed', border: '1px solid #fed7aa' }}
+                  aria-hidden="true"
+                >
+                  <Zap className="h-4 w-4" style={{ color: '#f97316', fill: '#f97316' }} />
                 </div>
-                <p className="mt-1 text-xs" style={{ color: '#9ca3af' }}>
-                  Mã được kiểm tra · Áp dụng cho đơn từ 99K
-                </p>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="rounded-full px-2 py-0.5 text-xs font-bold"
+                      style={{ backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}
+                    >
+                      DRSAMUYT
+                    </span>
+                    <span className="text-[11px]" style={{ color: '#6b7280' }}>
+                      Giảm đến 15K · 1 click để copy
+                    </span>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-2 sm:flex-col sm:items-end sm:gap-1">
-              <span className="text-[11px]" style={{ color: '#6b7280' }}>
-                <span style={{ fontWeight: 700, color: '#15803d' }}>1 click</span> để copy
-              </span>
               <div
                 className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
                 style={{ backgroundColor: '#f97316' }}
@@ -454,45 +546,48 @@ export function HeroNew(props: HeroNewProps) {
           </div>
 
           {/* Trust strip */}
-          <div className="mt-6">
+          <div className="mt-4">
             <TrustStrip />
           </div>
         </div>
 
-        {/* Discovery strip */}
+        {/* Discovery strip — visible on mobile */}
         <div
-          className="mt-8 flex flex-wrap items-center gap-2"
-          style={{ animation: 'fadeSlideUp 400ms 200ms ease-out both' }}
+          className="mt-4 flex items-center gap-2 overflow-x-auto"
+          style={{
+            animation: 'fadeSlideUp 400ms 200ms ease-out both',
+            scrollbarWidth: 'none',
+          }}
         >
-          <span className="text-[11px]" style={{ color: '#9ca3af' }}>Hoặc khám phá:</span>
+          <span className="flex-shrink-0 text-[11px]" style={{ color: '#9ca3af' }}>Khám phá:</span>
           <Link
             href="/deals/hot"
-            className="flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-colors"
+            className="flex flex-shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors"
             style={{ backgroundColor: '#fff1f2', color: '#be123c' }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#ffe4e6'; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#fff1f2'; }}
           >
-            <Flame className="h-3 w-3" />
-            Deal hot hôm nay
+            <Flame className="h-3 w-3" aria-hidden="true" />
+            Deal hot
           </Link>
           <Link
             href="/deals/expiring"
-            className="flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-colors"
+            className="flex flex-shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors"
             style={{ backgroundColor: '#fefce8', color: '#92400e' }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#fef9c3'; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#fefce8'; }}
           >
-            ⏰ Sắp hết hạn
+            Sắp hết hạn
           </Link>
           <Link
             href="/deals"
-            className="flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-colors"
+            className="flex flex-shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors"
             style={{ backgroundColor: '#f9fafb', color: '#374151' }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#f3f4f6'; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#f9fafb'; }}
           >
-            Tất cả deals
-            <ChevronRight className="h-3 w-3" />
+            Tất cả
+            <ChevronRight className="h-3 w-3" aria-hidden="true" />
           </Link>
         </div>
       </div>

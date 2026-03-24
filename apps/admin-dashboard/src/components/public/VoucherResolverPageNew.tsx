@@ -28,6 +28,7 @@ import { ResourcesSectionNew } from '@/components/public/ResourcesSectionNew';
 import { FaqSectionNew } from '@/components/public/FaqSectionNew';
 import { FinalCTA } from '@/components/public/FinalCTA';
 import { FooterNew } from '@/components/public/FooterNew';
+import { ShortcutStrip } from '@/components/public/ShortcutStrip';
 import {
   resolveVoucherAsync,
   buildAnalysisResult,
@@ -225,6 +226,11 @@ function ResultHeader({
           <p className="text-sm" style={{ color: '#9ca3af' }}>
             Mã giảm giá tốt nhất cho sản phẩm này
           </p>
+        </div>
+
+        {/* Shortcut strip — always accessible even after search */}
+        <div className="mt-3">
+          <ShortcutStrip />
         </div>
 
         {/* Inline search card */}

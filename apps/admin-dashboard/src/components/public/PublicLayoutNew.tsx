@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { Zap, Menu, X } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useAnalytics } from '@/lib/public/analytics-context';
+import { ShortcutStrip } from '@/components/public/ShortcutStrip';
 
 const NAV_LINKS = [
   { href: '/home', label: 'Tra cứu' },
@@ -329,6 +330,9 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
           pathname={pathname ?? ''}
         />
       </div>
+
+      {/* ── Shortcut strip (mobile & desktop) ────────────────────────────── */}
+      <ShortcutStrip />
 
       {/* ── Page content ─────────────────────────────────────────────────── */}
       <main className="flex-1" id="main-content" tabIndex={-1}>
