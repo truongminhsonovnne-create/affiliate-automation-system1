@@ -186,3 +186,46 @@ export function openDealLink(deal: DealCard): void {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 }
+
+// ── Affiliate Redirect URLs ─────────────────────────────────────────────────────
+
+/**
+ * Encode a deal ID to base64url (URL-safe, no padding).
+ * This is the inverse of decodeDealId in the server-side links module.
+ */
+export function encodeDealId(dealId: string): string {
+  return Buffer.from(dealId)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+}
+
+/**
+ * Build the internal redirect URL for a deal.
+ * When the user clicks "Mua ngay" / "Lấy mã", they go through our
+ * redirect endpoint which logs the click and then 302-redirects to the
+ * real affiliate tracking link.
+ *
+ * Format: /redirect?d=<encoded-dealId>&s=<source-short>
+ *   s: 'at' = accesstrade, 'mo' = masoffer
+ */
+export function buildAffiliateRedirectUrl(deal: DealCard): string | null {
+  if (!deal.tracking_url && !deal.destination_url) return null;
+
+  const encodedId = encodeDealId(deal.id);
+  const src = deal.source === 'accesstrade' ? 'at' : 'mo';
+  return `/redirect?d=${encodedId}&s=${src}`;
+}
+
+/**
+ * Navigate to the affiliate redirect URL (new tab).
+ * Use this instead of openDealLink() when the deal has a tracking_url
+ * and you want to earn affiliate commission on the click.
+ */
+export function clickDealAffiliate(deal: DealCard): void {
+  const url = buildAffiliateRedirectUrl(deal);
+  if (url) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}

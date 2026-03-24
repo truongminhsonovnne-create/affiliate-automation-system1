@@ -14,8 +14,9 @@
  */
 
 import { useState, useCallback } from 'react';
-import { Clock, Check, Copy, ExternalLink, Zap, Star, Flame } from 'lucide-react';
+import { Clock, Check, Copy, ExternalLink, Zap, Star, Flame, ShoppingCart } from 'lucide-react';
 import type { DealCard as DealCardType } from '@/lib/public/deals-api';
+import { buildAffiliateRedirectUrl } from '@/lib/public/deals-api';
 
 interface DealCardProps {
   deal: DealCardType;
@@ -381,7 +382,7 @@ export function DealCard({ deal, showDescription = false, compact = false }: Dea
             </>
           ) : (
             <a
-              href={openUrl}
+              href={buildAffiliateRedirectUrl(deal) ?? openUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white transition-all duration-150"
@@ -392,8 +393,8 @@ export function DealCard({ deal, showDescription = false, compact = false }: Dea
               onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#ea580c'; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#f97316'; }}
             >
-              <ExternalLink className="h-4 w-4" />
-              Mở trang deal
+              <ShoppingCart className="h-4 w-4" />
+              Mua ngay qua Affiliate
             </a>
           )}
         </div>
