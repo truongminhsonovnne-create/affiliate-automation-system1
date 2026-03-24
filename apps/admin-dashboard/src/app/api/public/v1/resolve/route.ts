@@ -256,62 +256,113 @@ async function querySupabase(
   phaseStart: number,
   requestId: string
 ): Promise<SupabaseResult> {
-  const t0 = Date.now() - phaseStart;
-
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
     return { offers: [], found: false, freshness: 'unknown', error: 'MISSING_SUPABASE_ENV' };
   }
 
   try {
     const sb = getSupabase();
-    const sbQuery = sb
+
+    let offers: DbOffer[] = [];
+
+    // ── Tier 1: Exact shop match ──────────────────────────────────────────────
+    if (normalized.shopId) {
+      const { data, error } = await sb
+        .from('offers')
+        .select('*')
+        .eq('status', 'active')
+        .eq('merchant_id', normalized.shopId)
+        .order('confidence_score', { ascending: false, nulls: 'last' })
+        .order('synced_at', { ascending: false, nulls: 'last' })
+        .limit(20);
+
+      if (!error && (data ?? []).length > 0) {
+        log('info', 'SUPABASE_MATCH_FOUND', {
+          requestId,
+          platform: normalized.platform,
+          shopId: normalized.shopId,
+          itemId: normalized.itemId,
+          offerCount: data!.length,
+          matchTier: 'exact_merchant',
+        });
+        return { offers: data as DbOffer[], found: true, freshness: computeFreshness((data as DbOffer[])[0]?.synced_at) };
+      }
+    }
+
+    // ── Tier 2: Broad promotions for this platform ────────────────────────────
+    // When no exact match exists, fall back to platform-level broad promotions.
+    // These are non-specific vouchers (e.g. "Shopee Sale", "Tiki khuyến mãi")
+    // that are still valid and useful to the user.
+    // We prioritize offers with actual discount values and coupon codes.
+    const platformFilter = normalized.platform === 'shopee'
+      ? 'Shopee'
+      : normalized.platform === 'lazada'
+      ? 'Lazada'
+      : normalized.platform === 'tiki'
+      ? 'Tiki'
+      : null;
+
+    const { data: broadData, error: broadError } = await sb
       .from('offers')
       .select('*')
+      .eq('status', 'active')
       .order('confidence_score', { ascending: false, nulls: 'last' })
       .order('synced_at', { ascending: false, nulls: 'last' })
       .limit(20);
 
-    // Build filter conditions
-    const conditions: string[] = ['status.eq.active'];
-    if (normalized.shopId) {
-      // Flat or() list — no extra parens. Supabase expects: "col1.eq.val1,col2.eq.val2"
-      conditions.push(`merchant_id.eq.${normalized.shopId}`);
-      conditions.push('merchant_id.is.null');
+    if (!broadError && (broadData ?? []).length > 0) {
+      // Filter by platform (via merchant_name) if available
+      let filtered = (broadData as DbOffer[]);
+      if (platformFilter) {
+        filtered = filtered.filter(o =>
+          o.merchant_name?.toLowerCase().includes(platformFilter.toLowerCase()) ?? false
+        );
+      }
+
+      // Further filter: prefer offers with actual discount info or coupon codes
+      filtered = filtered.sort((a, b) => {
+        const aScore = (a.coupon_code ? 100 : 0) + (a.discount_value != null ? 50 : 0) + (a.confidence_score ?? 0);
+        const bScore = (b.coupon_code ? 100 : 0) + (b.discount_value != null ? 50 : 0) + (b.confidence_score ?? 0);
+        return bScore - aScore;
+      }).slice(0, 10);
+
+      log('info', filtered.length > 0 ? 'SUPABASE_MATCH_FOUND' : 'SUPABASE_NO_MATCH', {
+        requestId,
+        platform: normalized.platform,
+        shopId: normalized.shopId,
+        itemId: normalized.itemId,
+        offerCount: filtered.length,
+        matchTier: 'broad_fallback',
+      });
+      return {
+        offers: filtered,
+        found: filtered.length > 0,
+        freshness: computeFreshness(filtered[0]?.synced_at),
+      };
     }
 
-    // Only call .or() when there are additional conditions beyond status.
-    // Without shopId the status filter alone is sufficient.
-    const { data, error } = conditions.length > 1
-      ? await sbQuery.or(conditions.join(','))
-      : await sbQuery;
+    const queryTime = Date.now() - phaseStart;
 
-    const queryTime = Date.now() - phaseStart - t0;
-
-    if (error) {
-      log('error', 'SUPABASE_QUERY_FAILED', { requestId, platform: normalized.platform, error: error.message, queryTimeMs: queryTime });
-      return { offers: [], found: false, freshness: 'unknown', error: error.message };
+    if (broadError) {
+      log('error', 'SUPABASE_QUERY_FAILED', { requestId, platform: normalized.platform, error: broadError.message, queryTimeMs: queryTime });
+      return { offers: [], found: false, freshness: 'unknown', error: broadError.message };
     }
 
-    const offers = (data ?? []) as DbOffer[];
-    const freshness = computeFreshness(offers[0]?.synced_at);
-
-    log('info', offers.length > 0 ? 'SUPABASE_MATCH_FOUND' : 'SUPABASE_NO_MATCH', {
+    log('info', 'SUPABASE_NO_MATCH', {
       requestId,
       platform: normalized.platform,
       shopId: normalized.shopId,
       itemId: normalized.itemId,
-      offerCount: offers.length,
-      freshness,
-      queryTimeMs: queryTime,
+      offerCount: 0,
     });
-
-    return { offers, found: offers.length > 0, freshness };
+    return { offers: [], found: false, freshness: 'unknown' };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log('error', 'SUPABASE_UNEXPECTED_ERROR', { requestId, platform: normalized.platform, error: msg });
     return { offers: [], found: false, freshness: 'unknown', error: msg };
   }
 }
+
 
 function computeFreshness(syncedAt: string | null | undefined): 'live' | 'recent' | 'stale' | 'unknown' {
   if (!syncedAt) return 'unknown';
