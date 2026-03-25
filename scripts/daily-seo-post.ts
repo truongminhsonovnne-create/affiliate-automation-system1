@@ -6,13 +6,15 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 import Groq from "groq-sdk";
+// jsonrepair exports: { jsonrepair, JSONRepairError }
+import { jsonrepair as repair } from "jsonrepair";
 
 // Verify Groq API key is loaded
 const groqApiKey = process.env.GROQ_API_KEY;
 if (!groqApiKey) {
-  console.error("❌ GROQ_API_KEY not found in environment!");
-  console.error("   Please set GROQ_API_KEY in .env.local or .env");
-  console.error("   Get your key at: https://console.groq.com/keys");
+  console.error("ERROR: GROQ_API_KEY not found!");
+  console.error("Set it in .env.local or .env");
+  console.error("Get key at: https://console.groq.com/keys");
   process.exit(1);
 }
 
@@ -35,10 +37,9 @@ const CONFIG = {
 // ============================================================
 const PROMPTS = [
   {
-    prompt: `
-Bạn là chuyên gia SEO Việt Nam. Dựa vào dữ liệu deals bên dưới, viết bài SEO hoàn chỉnh.
+    prompt: `Bạn là chuyên gia SEO Việt Nam. Dựa vào dữ liệu deals bên dưới, viết bài SEO hoàn chỉnh.
 
-## YÊU CẦU:
+YÊU CẦU:
 - Tiêu đề dưới 60 ký tự, có từ khóa chính
 - Meta description dưới 160 ký tự, hấp dẫn
 - Nội dung 800-1200 từ, viết tự nhiên
@@ -46,66 +47,64 @@ Bạn là chuyên gia SEO Việt Nam. Dựa vào dữ liệu deals bên dưới,
 - Có danh sách mã giảm giá
 - Kết thúc bằng CTA
 - VIẾT BẰNG TIẾNG VIỆT TỰ NHIÊN
+- Nội dung content phải viết trên 1 dòng, không xuống dòng trong chuỗi JSON
 
-## Định dạng trả về JSON:
-{
-  "title": "Tiêu đề bài viết",
-  "meta_description": "Mô tả meta",
-  "slug": "duong-dan-url",
-  "content": "Nội dung HTML đầy đủ",
-  "keywords": ["kw1", "kw2"],
-  "category": "voucher",
-  "featured_image_prompt": "Mô tả ngắn gọn cho ảnh cover (TIẾNG ANH, 1-2 câu, style vibrant colorful blog cover)"
-}
+Định dạng trả về JSON (1 dòng duy nhất, không xuống dòng):
+{"title":"Tiêu đề","meta_description":"Mô tả","slug":"duong-dan","content":"Nội dung HTML viết liền, không xuống dòng","keywords":["kw1","kw2"],"category":"voucher","featured_image_prompt":"Mô tả ảnh tiếng Anh 1-2 câu"}
 
-## Dữ liệu deals:
+Dữ liệu deals:
 {DEALS_DATA}
 
-CHỈ TRẢ VỀ JSON, không giải thích.
-`
+CHỈ TRẢ VỀ JSON, không giải thích.`
   },
   {
-    prompt: `
-Bạn là chuyên gia SEO Việt Nam. Viết bài so sánh/hướng dẫn dựa trên deals.
+    prompt: `Bạn là chuyên gia SEO Việt Nam. Viết bài so sánh/hướng dẫn dựa trên deals.
 
-## YÊU CẦU:
+YÊU CẦU:
 - Tiêu đề dưới 60 ký tự
 - Meta description dưới 160 ký tự
 - Nội dung 800-1200 từ
 - Cấu trúc: Giới thiệu → So sánh → Hướng dẫn → Kết luận
 - Có bullet points, CTA cuối bài
 - VIẾT BẰNG TIẾNG VIỆT TỰ NHIÊN
+- Nội dung content viết LIỀN TRÊN 1 DÒNG, không xuống dòng trong chuỗi
 
-## Định dạng trả về JSON:
-{
-  "title": "Tiêu đề bài viết",
-  "meta_description": "Mô tả meta",
-  "slug": "duong-dan-url",
-  "content": "Nội dung HTML đầy đủ",
-  "keywords": ["kw1", "kw2"],
-  "category": "review",
-  "featured_image_prompt": "Mô tả ngắn gọn cho ảnh cover (TIẾNG ANH, 1-2 câu, style vibrant colorful blog cover)"
-}
+Định dạng trả về JSON (1 dòng duy nhất):
+{"title":"Tiêu đề","meta_description":"Mô tả","slug":"duong-dan","content":"Nội dung HTML viết liền không xuống dòng","keywords":["kw1","kw2"],"category":"review","featured_image_prompt":"Mô tả ảnh tiếng Anh 1-2 câu"}
 
-## Dữ liệu deals:
+Dữ liệu deals:
 {DEALS_DATA}
 
-CHỈ TRẢ VỀ JSON, không giải thích.
-`
+CHỈ TRẢ VỀ JSON, không giải thích.`
   }
 ];
 
 // ============================================================
-// HELPER: Clean control characters from AI response
+// HELPER: Extract + repair JSON from AI response
 // ============================================================
-function cleanJSONResponse(raw: string): string {
-  // Remove ANSI escape sequences (colors, etc)
-  let cleaned = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
-  // Remove other control chars except newlines/tabs
-  cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
-  // Remove markdown code fences if AI wrapped JSON in them
-  cleaned = cleaned.replace(/^```json\s*/i, "").replace(/\s*```$/i, "");
-  return cleaned.trim();
+function extractArticle(raw: string): any | null {
+  // 1. Strip markdown code fences
+  let cleaned = raw.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
+
+  // 2. Find JSON bounds
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1) {
+    console.error("No JSON object found in response");
+    return null;
+  }
+
+  const jsonStr = cleaned.substring(start, end + 1);
+
+  // 3. Repair malformed JSON (newlines in strings, etc)
+  try {
+    const repaired = repair(jsonStr);
+    return JSON.parse(repaired);
+  } catch (e) {
+    console.error("JSON repair/parse failed:", e);
+    console.error("Raw (first 200):", raw.substring(0, 200));
+    return null;
+  }
 }
 
 // ============================================================
@@ -115,7 +114,7 @@ async function fetchAccessTradeDeals(): Promise<any[]> {
   const apiKey = process.env.ACCESSTRADE_API_KEY;
 
   if (!apiKey) {
-    console.log("⚠️  ACCESSTRADE_API_KEY not set, dùng mock data...");
+    console.log("ACCESSTRADE_API_KEY not set, using mock data...");
     return getMockDeals();
   }
 
@@ -133,7 +132,7 @@ async function fetchAccessTradeDeals(): Promise<any[]> {
     if (!response.ok) return getMockDeals();
 
     const data = await response.json();
-    console.log(`✅ Fetched ${data.data?.length || 0} deals from AccessTrade`);
+    console.log(`Fetched ${data.data?.length || 0} deals from AccessTrade`);
     return data.data || [];
   } catch {
     return getMockDeals();
@@ -155,10 +154,10 @@ function getMockDeals() {
 // ============================================================
 async function generateSEOArticle(deals: any[], promptIndex: number): Promise<any | null> {
   const template = PROMPTS[promptIndex].prompt;
-  const dealsText = JSON.stringify(deals, null, 2);
+  const dealsText = JSON.stringify(deals);
   const prompt = template.replace("{DEALS_DATA}", dealsText);
 
-  console.log(`🤖 Groq AI đang viết bài #${promptIndex + 1}...`);
+  console.log(`Groq AI writing article #${promptIndex + 1}...`);
 
   try {
     const chatCompletion = await groq.chat.completions.create({
@@ -169,23 +168,12 @@ async function generateSEOArticle(deals: any[], promptIndex: number): Promise<an
     });
 
     const rawResponse = chatCompletion.choices[0]?.message?.content || "";
-    const cleanedResponse = cleanJSONResponse(rawResponse);
+    const article = extractArticle(rawResponse);
 
-    // Extract JSON from response
-    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+    if (!article) return null;
 
-    if (!jsonMatch) {
-      console.error("❌ Không tìm thấy JSON trong response");
-      console.error("Response (first 300 chars):", cleanedResponse.substring(0, 300));
-      return null;
-    }
-
-    let article;
-    try {
-      article = JSON.parse(jsonMatch[0]);
-    } catch (parseErr) {
-      console.error("❌ JSON parse error:", parseErr);
-      console.error("JSON (first 300 chars):", jsonMatch[0].substring(0, 300));
+    if (!article.title || !article.content || !article.slug) {
+      console.error("Article missing required fields:", article);
       return null;
     }
 
@@ -193,10 +181,10 @@ async function generateSEOArticle(deals: any[], promptIndex: number): Promise<an
     article.slug = `${article.slug}-${timestamp}`;
     article.articleIndex = promptIndex + 1;
 
-    console.log(`✅ Hoàn thành bài: "${article.title}"`);
+    console.log(`Article ready: "${article.title}"`);
     return article;
   } catch (error) {
-    console.error("❌ Lỗi Groq AI:", error);
+    console.error("Groq AI error:", error);
     return null;
   }
 }
@@ -205,7 +193,7 @@ async function generateSEOArticle(deals: any[], promptIndex: number): Promise<an
 // 3. AI HORDE TẠO ẢNH COVER
 // ============================================================
 async function generateCoverImage(imagePrompt: string, articleSlug: string): Promise<string | null> {
-  console.log(`🎨 AI Horde đang tạo ảnh: "${imagePrompt}"`);
+  console.log(`AI Horde generating image: "${imagePrompt}"`);
 
   const hordeEndpoint = "https://aihorde.net/api/v2";
 
@@ -234,13 +222,13 @@ async function generateCoverImage(imagePrompt: string, articleSlug: string): Pro
 
     if (!submitResponse.ok) {
       const err = await submitResponse.text();
-      console.error("❌ AI Horde submit error:", err);
+      console.error("AI Horde submit error:", err);
       return null;
     }
 
     const submitData = await submitResponse.json();
     const requestId = submitData.id;
-    console.log(`⏳ Request ID: ${requestId}, đang chờ...`);
+    console.log(`Horde request ID: ${requestId}, waiting...`);
 
     let imageBase64: string | null = null;
     let retries = 0;
@@ -252,20 +240,18 @@ async function generateCoverImage(imagePrompt: string, articleSlug: string): Pro
 
       const statusResponse = await fetch(
         `${hordeEndpoint}/generate/status/${requestId}`,
-        {
-          headers: { "apikey": CONFIG.aihordeApiKey },
-        }
+        { headers: { "apikey": CONFIG.aihordeApiKey } }
       );
 
       if (!statusResponse.ok) {
-        console.log(`⏳ Đang chờ... (${retries}/${maxRetries})`);
+        console.log(`Waiting... (${retries}/${maxRetries})`);
         continue;
       }
 
       const statusData = await statusResponse.json();
       const state = statusData.state;
 
-      console.log(`⏳ State: ${state} (${retries}/${maxRetries})`);
+      console.log(`State: ${state} (${retries}/${maxRetries})`);
 
       if (state === "completed") {
         const generations = statusData.generations;
@@ -274,20 +260,20 @@ async function generateCoverImage(imagePrompt: string, articleSlug: string): Pro
         }
         break;
       } else if (state === "failed" || state === "cancelled") {
-        console.error(`❌ Generation ${state}`);
+        console.error(`Generation ${state}`);
         break;
       }
     }
 
     if (imageBase64) {
-      console.log(`✅ Ảnh đã tạo (${imageBase64.length} chars base64)`);
+      console.log(`Image created (${imageBase64.length} base64 chars)`);
       return `data:image/png;base64,${imageBase64}`;
     } else {
-      console.log(`⚠️  Timeout hoặc lỗi (retried ${retries} lần)`);
+      console.log(`Timeout or error (tried ${retries} times)`);
       return null;
     }
   } catch (error) {
-    console.error("❌ Lỗi AI Horde:", error);
+    console.error("AI Horde error:", error);
     return null;
   }
 }
@@ -296,21 +282,19 @@ async function generateCoverImage(imagePrompt: string, articleSlug: string): Pro
 // 4. UPLOAD ẢNH LÊN SUPABASE STORAGE
 // ============================================================
 async function uploadImageToSupabase(imageData: string, articleSlug: string): Promise<string | null> {
-  console.log(`📤 Đang upload ảnh lên Supabase Storage...`);
+  console.log(`Uploading image to Supabase Storage...`);
 
   try {
     const base64Match = imageData.match(/^data:(.+);base64,(.+)$/);
     if (!base64Match) {
-      console.error("❌ Invalid base64 image format");
+      console.error("Invalid base64 image format");
       return null;
     }
 
     const mimeType = base64Match[1];
     const base64Data = base64Match[2];
     const imageBuffer = Buffer.from(base64Data, "base64");
-
-    const fileName = `${articleSlug}.png`;
-    const filePath = `covers/${fileName}`;
+    const filePath = `covers/${articleSlug}.png`;
 
     const uploadResponse = await fetch(
       `${CONFIG.supabaseStorageUrl}/storage/v1/object/blog-images/${filePath}`,
@@ -327,15 +311,15 @@ async function uploadImageToSupabase(imageData: string, articleSlug: string): Pr
 
     if (!uploadResponse.ok) {
       const err = await uploadResponse.text();
-      console.error("❌ Upload failed:", err);
+      console.error("Upload failed:", err);
       return null;
     }
 
     const publicUrl = `${CONFIG.supabaseStorageUrl}/storage/v1/object/public/blog-images/${filePath}`;
-    console.log(`✅ Ảnh đã upload: ${publicUrl}`);
+    console.log(`Image uploaded: ${publicUrl}`);
     return publicUrl;
   } catch (error) {
-    console.error("❌ Lỗi upload ảnh:", error);
+    console.error("Upload error:", error);
     return null;
   }
 }
@@ -357,11 +341,11 @@ async function saveArticle(article: any, imageUrl: string | null): Promise<boole
         title: article.title,
         slug: article.slug,
         content: article.content,
-        meta_description: article.meta_description,
-        keywords: article.keywords,
-        category: article.category,
+        meta_description: article.meta_description || "",
+        keywords: article.keywords || [],
+        category: article.category || "voucher",
         featured_image_url: imageUrl,
-        featured_image_prompt: article.featured_image_prompt,
+        featured_image_prompt: article.featured_image_prompt || "",
         status: "published",
         source: "auto-generated",
         published_at: new Date().toISOString(),
@@ -370,15 +354,15 @@ async function saveArticle(article: any, imageUrl: string | null): Promise<boole
     });
 
     if (!response.ok) {
-      console.error("❌ Lỗi lưu bài:", response.status);
+      console.error("Save article error:", response.status);
       return false;
     }
 
     const data = await response.json();
-    console.log(`💾 Đã lưu bài: "${article.title}" (ID: ${data[0]?.id})`);
+    console.log(`Article saved: "${article.title}" (ID: ${data[0]?.id})`);
     return true;
   } catch (error) {
-    console.error("❌ Lỗi Supabase:", error);
+    console.error("Save error:", error);
     return false;
   }
 }
@@ -391,7 +375,7 @@ async function deleteOldArticles(): Promise<number> {
   cutoffDate.setDate(cutoffDate.getDate() - CONFIG.deleteAfterDays);
   const cutoffStr = cutoffDate.toISOString();
 
-  console.log(`🗑️ Xóa bài cũ hơn ${CONFIG.deleteAfterDays} ngày...`);
+  console.log(`Deleting articles older than ${CONFIG.deleteAfterDays} days...`);
 
   try {
     const selectResponse = await fetch(
@@ -408,21 +392,20 @@ async function deleteOldArticles(): Promise<number> {
     const oldArticles = await selectResponse.json();
 
     if (oldArticles.length === 0) {
-      console.log("✅ Không có bài cũ cần xóa");
+      console.log("No old articles to delete");
       return 0;
     }
 
+    // Delete images from storage
     for (const article of oldArticles) {
-      const fileName = `covers/${article.slug}.png`;
+      const filePath = `covers/${article.slug}.png`;
       await fetch(
-        `${CONFIG.supabaseStorageUrl}/storage/v1/object/blog-images/${fileName}`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${CONFIG.supabaseKey}` },
-        }
+        `${CONFIG.supabaseStorageUrl}/storage/v1/object/blog-images/${filePath}`,
+        { method: "DELETE", headers: { Authorization: `Bearer ${CONFIG.supabaseKey}` } }
       );
     }
 
+    // Delete articles from DB
     const ids = oldArticles.map((a: any) => a.id).join(",");
     await fetch(
       `${CONFIG.supabaseUrl}/rest/v1/posts?id=in.(${ids})`,
@@ -435,10 +418,10 @@ async function deleteOldArticles(): Promise<number> {
       }
     );
 
-    console.log(`✅ Đã xóa ${oldArticles.length} bài cũ + ảnh đi kèm`);
+    console.log(`Deleted ${oldArticles.length} old articles`);
     return oldArticles.length;
   } catch (error) {
-    console.error("❌ Lỗi xóa bài cũ:", error);
+    console.error("Delete error:", error);
     return 0;
   }
 }
@@ -469,20 +452,20 @@ async function countArticles(): Promise<number> {
 // MAIN
 // ============================================================
 async function main() {
-  console.log("═══════════════════════════════════════════════════");
-  console.log("🚀 DAILY SEO + AI HORDE IMAGE PIPELINE");
-  console.log(`📅 ${new Date().toLocaleString("vi-VN")}`);
-  console.log("═══════════════════════════════════════════════════");
-  console.log(`✅ Groq API Key: ${groqApiKey.substring(0, 10)}...`);
-  console.log(`📦 Supabase: ${CONFIG.supabaseUrl}`);
-  console.log(`🎨 AI Horde: ${CONFIG.aihordeApiKey === "0000000000" ? "Anonymous (no key)" : "Configured"}`);
+  console.log("====================================================");
+  console.log("DAILY SEO + AI HORDE IMAGE PIPELINE");
+  console.log(`Time: ${new Date().toLocaleString("vi-VN")}`);
+  console.log("====================================================");
+  console.log(`Groq Key: ${groqApiKey.substring(0, 10)}...`);
+  console.log(`Supabase: ${CONFIG.supabaseUrl}`);
+  console.log(`AI Horde: ${CONFIG.aihordeApiKey === "0000000000" ? "Anonymous" : "Has Key"}`);
 
   const currentCount = await countArticles();
-  console.log(`📊 Bài viết hiện có: ${currentCount}`);
+  console.log(`Current articles: ${currentCount}`);
 
   const deals = await fetchAccessTradeDeals();
   if (deals.length === 0) {
-    console.log("❌ Không có deals");
+    console.error("No deals to process");
     process.exit(1);
   }
 
@@ -490,9 +473,7 @@ async function main() {
   const results: { title: string; imageUrl: string | null }[] = [];
 
   for (let i = 0; i < CONFIG.articlesPerDay; i++) {
-    console.log(`\n${"─".repeat(50)}`);
-    console.log(`📝 BÀI VIẾT #${i + 1}/${CONFIG.articlesPerDay}`);
-    console.log("─".repeat(50));
+    console.log(`\n--- ARTICLE ${i + 1}/${CONFIG.articlesPerDay} ---`);
 
     const article = await generateSEOArticle(deals, i);
     if (!article) continue;
@@ -513,7 +494,7 @@ async function main() {
     }
 
     if (i < CONFIG.articlesPerDay - 1) {
-      console.log("⏳ Đợi 20 giây...");
+      console.log("Waiting 20 seconds...");
       await new Promise(resolve => setTimeout(resolve, 20000));
     }
   }
@@ -521,24 +502,24 @@ async function main() {
   const deletedCount = await deleteOldArticles();
   const finalCount = await countArticles();
 
-  console.log("\n" + "═".repeat(50));
-  console.log("📊 BÁO CÁO CUỐI NGÀY");
-  console.log("═".repeat(50));
-  console.log(`✅ Bài viết mới: ${successCount}/${CONFIG.articlesPerDay}`);
-  console.log(`🎨 Ảnh cover: ${results.filter(r => r.imageUrl).length}/${successCount}`);
-  console.log(`🗑️  Bài đã xóa: ${deletedCount}`);
-  console.log(`📊 Tổng bài: ${finalCount}`);
-  console.log("═".repeat(50));
+  console.log("\n====================================================");
+  console.log("REPORT");
+  console.log("====================================================");
+  console.log(`New articles: ${successCount}/${CONFIG.articlesPerDay}`);
+  console.log(`Images: ${results.filter(r => r.imageUrl).length}/${successCount}`);
+  console.log(`Deleted: ${deletedCount}`);
+  console.log(`Total articles: ${finalCount}`);
+  console.log("====================================================");
 
   results.forEach((r, i) => {
-    console.log(`   ${i + 1}. ${r.title}`);
-    if (r.imageUrl) console.log(`      🖼️  ${r.imageUrl}`);
+    console.log(` ${i + 1}. ${r.title}`);
+    if (r.imageUrl) console.log(`    Image: ${r.imageUrl}`);
   });
 
-  console.log("═".repeat(50));
+  console.log("====================================================");
 
   if (successCount === CONFIG.articlesPerDay) {
-    console.log("🎉 HOÀN THÀNH! Chúc bạn ngày mới tốt lành!");
+    console.log("SUCCESS! Pipeline completed.");
   } else {
     process.exit(1);
   }
