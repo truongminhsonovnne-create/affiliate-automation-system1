@@ -1,7 +1,22 @@
-import Groq from "groq-sdk";
-import { createClient } from "@supabase/supabase-js";
+import * as dotenv from "dotenv";
+import * as path from "path";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+// Load .env.local first (has priority), then .env
+dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+
+import Groq from "groq-sdk";
+
+// Verify Groq API key is loaded
+const groqApiKey = process.env.GROQ_API_KEY;
+if (!groqApiKey) {
+  console.error("❌ GROQ_API_KEY not found in environment!");
+  console.error("   Please set GROQ_API_KEY in .env.local or .env");
+  console.error("   Get your key at: https://console.groq.com/keys");
+  process.exit(1);
+}
+
+const groq = new Groq({ apiKey: groqApiKey });
 
 // ============================================================
 // CẤU HÌNH
@@ -81,6 +96,19 @@ CHỈ TRẢ VỀ JSON, không giải thích.
 ];
 
 // ============================================================
+// HELPER: Clean control characters from AI response
+// ============================================================
+function cleanJSONResponse(raw: string): string {
+  // Remove ANSI escape sequences (colors, etc)
+  let cleaned = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+  // Remove other control chars except newlines/tabs
+  cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+  // Remove markdown code fences if AI wrapped JSON in them
+  cleaned = cleaned.replace(/^```json\s*/i, "").replace(/\s*```$/i, "");
+  return cleaned.trim();
+}
+
+// ============================================================
 // 1. FETCH DEALS TỪ ACCESSTRADE
 // ============================================================
 async function fetchAccessTradeDeals(): Promise<any[]> {
@@ -140,15 +168,27 @@ async function generateSEOArticle(deals: any[], promptIndex: number): Promise<an
       max_tokens: 4096,
     });
 
-    const response = chatCompletion.choices[0]?.message?.content || "";
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    const rawResponse = chatCompletion.choices[0]?.message?.content || "";
+    const cleanedResponse = cleanJSONResponse(rawResponse);
+
+    // Extract JSON from response
+    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
 
     if (!jsonMatch) {
-      console.error("❌ Không parse được JSON từ Groq");
+      console.error("❌ Không tìm thấy JSON trong response");
+      console.error("Response (first 300 chars):", cleanedResponse.substring(0, 300));
       return null;
     }
 
-    const article = JSON.parse(jsonMatch[0]);
+    let article;
+    try {
+      article = JSON.parse(jsonMatch[0]);
+    } catch (parseErr) {
+      console.error("❌ JSON parse error:", parseErr);
+      console.error("JSON (first 300 chars):", jsonMatch[0].substring(0, 300));
+      return null;
+    }
+
     const timestamp = Date.now();
     article.slug = `${article.slug}-${timestamp}`;
     article.articleIndex = promptIndex + 1;
@@ -170,7 +210,6 @@ async function generateCoverImage(imagePrompt: string, articleSlug: string): Pro
   const hordeEndpoint = "https://aihorde.net/api/v2";
 
   try {
-    // Submit request
     const submitResponse = await fetch(`${hordeEndpoint}/generate/async`, {
       method: "POST",
       headers: {
@@ -203,7 +242,6 @@ async function generateCoverImage(imagePrompt: string, articleSlug: string): Pro
     const requestId = submitData.id;
     console.log(`⏳ Request ID: ${requestId}, đang chờ...`);
 
-    // Poll cho đến khi xong
     let imageBase64: string | null = null;
     let retries = 0;
     const maxRetries = 60;
@@ -215,9 +253,7 @@ async function generateCoverImage(imagePrompt: string, articleSlug: string): Pro
       const statusResponse = await fetch(
         `${hordeEndpoint}/generate/status/${requestId}`,
         {
-          headers: {
-            "apikey": CONFIG.aihordeApiKey,
-          },
+          headers: { "apikey": CONFIG.aihordeApiKey },
         }
       );
 
@@ -376,21 +412,17 @@ async function deleteOldArticles(): Promise<number> {
       return 0;
     }
 
-    // Xóa ảnh cũ
     for (const article of oldArticles) {
       const fileName = `covers/${article.slug}.png`;
       await fetch(
         `${CONFIG.supabaseStorageUrl}/storage/v1/object/blog-images/${fileName}`,
         {
           method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${CONFIG.supabaseKey}`,
-          },
+          headers: { Authorization: `Bearer ${CONFIG.supabaseKey}` },
         }
       );
     }
 
-    // Xóa bài viết
     const ids = oldArticles.map((a: any) => a.id).join(",");
     await fetch(
       `${CONFIG.supabaseUrl}/rest/v1/posts?id=in.(${ids})`,
@@ -441,6 +473,9 @@ async function main() {
   console.log("🚀 DAILY SEO + AI HORDE IMAGE PIPELINE");
   console.log(`📅 ${new Date().toLocaleString("vi-VN")}`);
   console.log("═══════════════════════════════════════════════════");
+  console.log(`✅ Groq API Key: ${groqApiKey.substring(0, 10)}...`);
+  console.log(`📦 Supabase: ${CONFIG.supabaseUrl}`);
+  console.log(`🎨 AI Horde: ${CONFIG.aihordeApiKey === "0000000000" ? "Anonymous (no key)" : "Configured"}`);
 
   const currentCount = await countArticles();
   console.log(`📊 Bài viết hiện có: ${currentCount}`);
@@ -459,40 +494,33 @@ async function main() {
     console.log(`📝 BÀI VIẾT #${i + 1}/${CONFIG.articlesPerDay}`);
     console.log("─".repeat(50));
 
-    // AI viết bài
     const article = await generateSEOArticle(deals, i);
     if (!article) continue;
 
-    // AI Horde tạo ảnh
     let imageUrl: string | null = null;
     if (article.featured_image_prompt) {
       imageUrl = await generateCoverImage(article.featured_image_prompt, article.slug);
     }
 
-    // Upload ảnh lên Supabase
     if (imageUrl) {
       imageUrl = await uploadImageToSupabase(imageUrl, article.slug);
     }
 
-    // Lưu bài
     const saved = await saveArticle(article, imageUrl);
     if (saved) {
       successCount++;
       results.push({ title: article.title, imageUrl });
     }
 
-    // Đợi 20 giây giữa 2 bài
     if (i < CONFIG.articlesPerDay - 1) {
       console.log("⏳ Đợi 20 giây...");
       await new Promise(resolve => setTimeout(resolve, 20000));
     }
   }
 
-  // Xóa bài cũ
   const deletedCount = await deleteOldArticles();
   const finalCount = await countArticles();
 
-  // Tổng kết
   console.log("\n" + "═".repeat(50));
   console.log("📊 BÁO CÁO CUỐI NGÀY");
   console.log("═".repeat(50));
