@@ -7,15 +7,16 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 import Groq from "groq-sdk";
 import { jsonrepair as repair } from "jsonrepair";
 
-// Force reload env
+// Force reload env - support both naming conventions
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const AIHORDE_API_KEY = process.env.AIHORDE_API_KEY || "0000000000";
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error("FATAL: SUPABASE_URL or SUPABASE_SERVICE_KEY not set!");
   console.error("SUPABASE_URL:", SUPABASE_URL ? "OK" : "MISSING");
   console.error("SUPABASE_SERVICE_KEY:", SUPABASE_SERVICE_KEY ? "OK" : "MISSING");
+  console.error("  (Note: env var may be named SUPABASE_SERVICE_ROLE_KEY)");
   process.exit(1);
 }
 
