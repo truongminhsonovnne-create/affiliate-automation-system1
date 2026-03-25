@@ -87,11 +87,13 @@
     "masoffer:sync:offers": "tsx src/scripts/runMasOfferSync.ts --offers",
     "masoffer:sync:campaigns": "tsx src/scripts/runMasOfferSync.ts --campaigns",
     "masoffer:sync:dry": "tsx src/scripts/runMasOfferSync.ts --offers --dry-run",
-    "masoffer:health": "tsx src/scripts/runMasOfferSync.ts --health"
+    "masoffer:health": "tsx src/scripts/runMasOfferSync.ts --health",
+    "seo:daily": "tsx scripts/daily-seo-post.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
     "@supabase/supabase-js": "^2.49.1",
+    "groq-sdk": "^0.15.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "csv-parse": "^5.5.6",

@@ -1,0 +1,92 @@
+name: Daily SEO - 2 Articles + AI Horde Image
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Chạy 2 lần/ngày: 7h sáng & 7h tối (00:00 & 12:00 UTC = 07:00 & 19:00 VN)
+# ──────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    # 7h sáng & 7h tối Vietnam = 00:00 & 12:00 UTC
+    - cron: '0 0,12 * * *'
+
+  # Chạy thủ công khi cần
+  workflow_dispatch:
+    inputs:
+      articles_count:
+        description: 'Số bài viết cần tạo'
+        required: false
+        default: '2'
+        type: string
+
+# Không cancel nếu có job đang chạy
+concurrency:
+  group: daily-seo
+  cancel-in-progress: false
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECRETS CẦN THIẾT - Settings → Secrets and variables → Actions
+# ──────────────────────────────────────────────────────────────────────────────
+# GROQ_API_KEY        — console.groq.com (miễn phí)
+# AIHORDE_API_KEY     — aihorde.net/register (miễn phí)
+# ACCESSTRADE_API_KEY — pub.accesstrade.vn
+# SUPABASE_URL        — https://xxx.supabase.co
+# SUPABASE_SERVICE_KEY — service role key
+# ──────────────────────────────────────────────────────────────────────────────
+
+jobs:
+  generate-seo-articles:
+    name: Generate 2 SEO Articles with AI Horde Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install groq-sdk
+
+      - name: Validate required secrets
+        run: |
+          echo "🔍 Checking required secrets..."
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_KEY" ]; then
+            echo "❌ SUPABASE_URL or SUPABASE_SERVICE_KEY not set"
+            exit 1
+          fi
+          if [ -z "$GROQ_API_KEY" ]; then
+            echo "❌ GROQ_API_KEY not set"
+            exit 1
+          fi
+          echo "✅ All required secrets are set"
+
+      - name: Run SEO + AI Horde Image Pipeline
+        run: npx tsx scripts/daily-seo-post.ts
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          AIHORDE_API_KEY: ${{ secrets.AIHORDE_API_KEY }}
+          ACCESSTRADE_API_KEY: ${{ secrets.ACCESSTRADE_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ARTICLES_PER_DAY: ${{ inputs.articles_count || '2' }}
+          DELETE_AFTER_DAYS: '30'
+
+      - name: Report Summary
+        if: always()
+        run: |
+          echo "## 📅 Daily SEO Report - $(date +'%Y-%m-%d %H:%M')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Hạng mục | Kết quả |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Bài viết mới | ✅ 2 bài SEO |" >> $GITHUB_STEP_SUMMARY
+          echo "| Ảnh cover | 🎨 AI Horde (miễn phí) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Xóa bài cũ | 🗑️ Tự động 30 ngày |" >> $GITHUB_STEP_SUMMARY
+          echo "| Lưu ảnh | 📦 Supabase Storage |" >> $GITHUB_STEP_SUMMARY
+          echo "| Chi phí | 💰 $0 / tháng |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Chạy lúc:** $(date) | **Branch:** ${{ github.ref_name }}**" >> $GITHUB_STEP_SUMMARY

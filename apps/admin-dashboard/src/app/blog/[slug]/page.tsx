@@ -1,0 +1,284 @@
+/**
+ * Blog Post Detail Page — /blog/[slug]
+ *
+ * Hiển thị chi tiết bài viết SEO từ Supabase.
+ */
+
+// ============================================================
+// TYPES
+// ============================================================
+interface BlogPost {
+  id: string;
+  title: string;
+  slug: string;
+  content: string;
+  meta_description: string;
+  keywords: string[];
+  category: string;
+  featured_image_url: string | null;
+  featured_image_prompt: string | null;
+  status: string;
+  source: string;
+  published_at: string;
+  created_at: string;
+}
+
+// ============================================================
+// FETCH DATA (SERVER COMPONENT)
+// ============================================================
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+async function getPost(slug: string): Promise<BlogPost | null> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/posts?slug=eq.${encodeURIComponent(slug)}&status=eq.published&select=*&limit=1`,
+      {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        next: { revalidate: 3600 },
+      }
+    );
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    return data[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getRecentPosts(limit = 5): Promise<BlogPost[]> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return [];
+  }
+
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/posts?status=eq.published&order=published_at.desc&limit=${limit}&select=id,title,slug,meta_description,featured_image_url,category,published_at`,
+      {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        next: { revalidate: 3600 },
+      }
+    );
+
+    if (!response.ok) return [];
+    return await response.json();
+  } catch {
+    return [];
+  }
+}
+
+// ============================================================
+// METADATA
+// ============================================================
+export async function generateMetadata({ params }: { params: { slug: string } }) {
+  const post = await getPost(params.slug);
+
+  if (!post) {
+    return {
+      title: 'Không tìm thấy bài viết',
+    };
+  }
+
+  return {
+    title: post.title,
+    description: post.meta_description,
+    keywords: post.keywords,
+    openGraph: {
+      title: post.title,
+      description: post.meta_description,
+      type: 'article',
+      publishedTime: post.published_at,
+      images: post.featured_image_url
+        ? [{ url: post.featured_image_url, alt: post.title }]
+        : [],
+    },
+    alternates: {
+      canonical: `/blog/${post.slug}`,
+    },
+  };
+}
+
+// ============================================================
+// PAGE COMPONENT
+// ============================================================
+export default async function BlogPostPage({ params }: { params: { slug: string } }) {
+  const [post, recentPosts] = await Promise.all([
+    getPost(params.slug),
+    getRecentPosts(5),
+  ]);
+
+  if (!post) {
+    return <NotFound />;
+  }
+
+  return (
+    <div className="min-h-screen bg-white">
+      {/* Navigation */}
+      <nav className="border-b">
+        <div className="max-w-4xl mx-auto px-4 py-4">
+          <a href="/blog" className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+            ← Quay lại Blog
+          </a>
+        </div>
+      </nav>
+
+      {/* Article */}
+      <article className="max-w-3xl mx-auto px-4 py-8">
+        {/* Cover Image */}
+        {post.featured_image_url && (
+          <div className="relative w-full h-64 md:h-96 rounded-lg overflow-hidden mb-8">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={post.featured_image_url}
+              alt={post.title}
+              className="w-full h-full object-cover"
+            />
+          </div>
+        )}
+
+        {/* Header */}
+        <header className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="inline-block bg-blue-100 text-blue-700 text-xs font-medium px-3 py-1 rounded-full">
+              {post.category?.toUpperCase() || 'BLOG'}
+            </span>
+            <span className="text-gray-400 text-sm">
+              {new Date(post.published_at || post.created_at).toLocaleDateString('vi-VN', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+              })}
+            </span>
+          </div>
+
+          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4 leading-tight">
+            {post.title}
+          </h1>
+
+          <p className="text-lg text-gray-600 leading-relaxed">{post.meta_description}</p>
+
+          {/* Keywords */}
+          {post.keywords && post.keywords.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-4">
+              {post.keywords.map((kw) => (
+                <span
+                  key={kw}
+                  className="bg-gray-100 text-gray-600 text-sm px-3 py-1 rounded-full"
+                >
+                  #{kw}
+                </span>
+              ))}
+            </div>
+          )}
+        </header>
+
+        {/* Content */}
+        <div
+          className="prose prose-lg max-w-none"
+          dangerouslySetInnerHTML={{ __html: post.content }}
+          style={{
+            lineHeight: '1.8',
+            fontSize: '17px',
+          }}
+        />
+
+        {/* Footer */}
+        <footer className="mt-12 pt-8 border-t">
+          <div className="flex items-center justify-between text-sm text-gray-500">
+            <span>
+              📅 Đăng ngày{' '}
+              {new Date(post.published_at || post.created_at).toLocaleDateString('vi-VN', {
+                day: '2-digit',
+                month: 'long',
+                year: 'numeric',
+              })}
+            </span>
+            <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs">
+              🤖 Auto-generated by AI
+            </span>
+          </div>
+        </footer>
+
+        {/* CTA */}
+        <div className="mt-8 p-6 bg-blue-50 rounded-lg text-center">
+          <h3 className="text-lg font-bold text-gray-900 mb-2">
+            🎉 Tìm mã giảm giá Shopee ngay!
+          </h3>
+          <p className="text-gray-600 mb-4">
+            Dán link sản phẩm để tìm mã giảm giá tốt nhất, nhanh và miễn phí.
+          </p>
+          <a
+            href="/home"
+            className="inline-block bg-blue-600 text-white font-bold px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Tìm mã giảm giá ngay →
+          </a>
+        </div>
+      </article>
+
+      {/* Recent Posts Sidebar */}
+      {recentPosts.length > 1 && (
+        <div className="max-w-4xl mx-auto px-4 pb-12">
+          <h2 className="text-xl font-bold text-gray-900 mb-6">📚 Bài viết khác</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {recentPosts
+              .filter((p) => p.id !== post.id)
+              .slice(0, 3)
+              .map((p) => (
+                <a
+                  key={p.id}
+                  href={`/blog/${p.slug}`}
+                  className="border rounded-lg p-4 hover:shadow-md transition-all hover:border-blue-300"
+                >
+                  {p.featured_image_url && (
+                    <img
+                      src={p.featured_image_url}
+                      alt={p.title}
+                      className="w-full h-32 object-cover rounded mb-3"
+                    />
+                  )}
+                  <h3 className="font-semibold text-gray-900 text-sm line-clamp-2">{p.title}</h3>
+                  <p className="text-gray-500 text-xs mt-1 line-clamp-2">{p.meta_description}</p>
+                </a>
+              ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// NOT FOUND
+// ============================================================
+function NotFound() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="text-center">
+        <div className="text-8xl mb-4">🔍</div>
+        <h1 className="text-3xl font-bold text-gray-900 mb-4">Không tìm thấy bài viết</h1>
+        <p className="text-gray-600 mb-6">
+          Bài viết bạn đang tìm có thể đã bị xóa hoặc không tồn tại.
+        </p>
+        <a
+          href="/blog"
+          className="inline-block bg-blue-600 text-white font-bold px-6 py-3 rounded-lg hover:bg-blue-700"
+        >
+          ← Quay lại Blog
+        </a>
+      </div>
+    </div>
+  );
+}
