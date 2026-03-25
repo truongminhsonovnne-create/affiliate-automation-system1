@@ -1,8 +1,9 @@
 import * as dotenv from "dotenv";
 import * as path from "path";
 
-dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
+// Load .env first (base defaults), then .env.local (real credentials override)
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 
 import Groq from "groq-sdk";
 import { jsonrepair as repair } from "jsonrepair";
@@ -130,7 +131,7 @@ async function fetchDeals(): Promise<any[]> {
       const campaigns = data.data.slice(0, 10).map((c: any) => ({
         name: c.name || "Campaign",
         merchant: c.advertiser_name || "Unknown",
-        discount: typeof c.description === "string" ? c.description.substring(0, 80) : "",
+        discount: typeof c.description === "string" ? c.description.substring(0, 80) : String(c.description ?? "").substring(0, 80),
         code: c.code || "",
         expires: c.end_date || "2026-12-31",
       }));
