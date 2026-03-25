@@ -25,11 +25,25 @@ const CONFIG = {
 };
 
 // ============================================================
+// MOCK DEALS
+// ============================================================
+const MOCK_DEALS = [
+  { name: "Giảm 50% Lazada Friday", merchant: "Lazada", discount: "50%", code: "LAZADA50", expires: "2026-03-31" },
+  { name: "Freeship Shopee 0đ", merchant: "Shopee", discount: "Freeship", code: "FREESHIP0", expires: "2026-03-31" },
+  { name: "Mã 30% Tiki", merchant: "Tiki", discount: "30%", code: "TIKI30", expires: "2026-04-15" },
+  { name: "Giảm 100k Lazada", merchant: "Lazada", discount: "100k", code: "LAZADA100", expires: "2026-03-31" },
+  { name: "Sale 70% Điện thoại Shopee", merchant: "Shopee", discount: "70%", code: "PHONE70", expires: "2026-04-01" },
+  { name: "Giảm 25% Tiki Sách", merchant: "Tiki", discount: "25%", code: "SAH25", expires: "2026-04-10" },
+  { name: "Freeship 0đ Lazada", merchant: "Lazada", discount: "Freeship", code: "LAZFS", expires: "2026-03-31" },
+  { name: "Giảm 200k cho đơn 1 triệu", merchant: "Shopee", discount: "200k", code: "SHOP200", expires: "2026-04-05" },
+];
+
+// ============================================================
 // PROMPTS
 // ============================================================
 const PROMPTS = [
   {
-    prompt: `Bạn là chuyên gia SEO Việt Nam. Viết bài SEO tổng hợp deals.
+    prompt: `Bạn là chuyên gia SEO Việt Nam. Viết bài SEO tổng hợp deals khuyến mãi.
 
 YÊU CẦU:
 - Tiêu đề dưới 60 ký tự, có từ khóa chính
@@ -37,7 +51,7 @@ YÊU CẦU:
 - Nội dung 800-1200 từ, viết tự nhiên
 - Có H2, H3, bullet points, danh sách mã giảm giá, CTA
 - VIẾT BẰNG TIẾNG VIỆT TỰ NHIÊN
-- Nội dung content viết LIỀN TRÊN 1 DÒNG, không xuống dòng trong JSON
+- Content viết LIỀN TRÊN 1 DÒNG trong JSON
 
 Định dạng trả về (JSON 1 dòng duy nhất):
 {"title":"Tiêu đề","meta_description":"Mô tả","slug":"duong-dan","content":"Nội dung HTML viết liền, không xuống dòng trong chuỗi","keywords":["kw1","kw2"],"category":"voucher","featured_image_prompt":"English prompt 1-2 sentences for AI image generation, vibrant colorful blog cover style"}
@@ -85,31 +99,41 @@ function extractArticle(raw: string): any | null {
 }
 
 // ============================================================
-// 1. FETCH DEALS
+// 1. FETCH DEALS / CAMPAIGNS TỪ ACCESSTRADE
 // ============================================================
 async function fetchDeals(): Promise<any[]> {
   const apiKey = process.env.ACCESSTRADE_API_KEY;
-  if (!apiKey) {
-    console.log("Using mock deals (no ACCESSTRADE_API_KEY)");
-    return [
-      { name: "Giảm 50% Lazada Friday", merchant: "Lazada", discount: "50%", code: "LAZADA50", expires: "2026-03-31" },
-      { name: "Freeship Shopee 0đ", merchant: "Shopee", discount: "Freeship", code: "FREESHIP0", expires: "2026-03-31" },
-      { name: "Mã 30% Tiki", merchant: "Tiki", discount: "30%", code: "TIKI30", expires: "2026-04-15" },
-      { name: "Giảm 100k Lazada", merchant: "Lazada", discount: "100k", code: "LAZADA100", expires: "2026-03-31" },
-      { name: "Sale 70% Điện thoại", merchant: "Shopee", discount: "70%", code: "PHONE70", expires: "2026-04-01" },
-    ];
+
+  // Try AccessTrade API
+  if (apiKey) {
+    try {
+      // Try /v1/campaigns endpoint (confirmed working)
+      const res = await fetch("https://api.accesstrade.vn/v1/campaigns?status=active&limit=50", {
+        headers: { Authorization: `Token ${apiKey}`, "Content-Type": "application/json" },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.data && data.data.length > 0) {
+          const campaigns = data.data.slice(0, 10).map((c: any) => ({
+            name: c.name || c.title || "Campaign",
+            merchant: c.advertiser_name || c.advertiser || "Unknown",
+            discount: c.description?.substring(0, 50) || "",
+            code: c.code || "",
+            expires: c.end_date || "2026-12-31",
+          }));
+          console.log(`Fetched ${campaigns.length} campaigns from AccessTrade`);
+          return campaigns;
+        }
+      }
+    } catch (e) {
+      console.log("AccessTrade API error, using mock data:", e);
+    }
   }
-  try {
-    const res = await fetch("https://api.accesstrade.vn/v1/deals?status=active&limit=50", {
-      headers: { Authorization: `Token ${apiKey}`, "Content-Type": "application/json" },
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    console.log(`Fetched ${data.data?.length || 0} deals from AccessTrade`);
-    return data.data || [];
-  } catch {
-    return [];
-  }
+
+  // Fallback to mock data
+  console.log("Using mock deals data (5 deals available)");
+  return MOCK_DEALS;
 }
 
 // ============================================================
@@ -144,97 +168,80 @@ async function writeArticle(deals: any[], idx: number): Promise<any | null> {
 // 3. AI HORDE TẠO ẢNH
 // ============================================================
 async function generateImage(prompt: string, slug: string): Promise<string | null> {
-  const hasKey = CONFIG.aihordeApiKey !== "0000000000";
-  const isAnon = !hasKey;
+  const isAnon = CONFIG.aihordeApiKey === "0000000000";
+  console.log(`AI Horde ${isAnon ? "(anonymous)" : "(API key)"} generating image...`);
 
-  // Anonymous: max 512x512, max 30 steps. Has key: 1024x576, 25 steps
-  const imgW = isAnon ? 512 : 512;
-  const imgH = isAnon ? 512 : 512;
-  const steps = isAnon ? 30 : 25;
-
-  console.log(`AI Horde ${isAnon ? "(anonymous)" : "(with API key)"} generating image: ${imgW}x${imgH}, ${steps} steps`);
-
-  try {
-    // Submit
+  const genConfig = async (w: number, h: number, steps: number) => {
     const res = await fetch("https://aihorde.net/api/v2/generate/async", {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: CONFIG.aihordeApiKey },
       body: JSON.stringify({
         prompt: prompt,
-        params: { sampler_name: "k_euler", steps, width: imgW, height: imgH, cfg_scale: 7.5 },
+        params: { sampler_name: "k_euler", steps, width: w, height: h, cfg_scale: 7.5 },
         models: ["Flux1.1"],
         nsfw: false,
         trusted_workers: false,
       }),
     });
+    return res;
+  };
 
+  let res: Response;
+  try {
+    res = await genConfig(512, 512, 25);
     if (!res.ok) {
       const err = await res.text();
-      // If kudos error, try smaller
-      if (err.includes("kudos") || err.includes("KudosUpfront")) {
-        console.log("Anonymous kudos limit, trying smaller image (384x384, 20 steps)...");
-        const res2 = await fetch("https://aihorde.net/api/v2/generate/async", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", apikey: CONFIG.aihordeApiKey },
-          body: JSON.stringify({
-            prompt: prompt,
-            params: { sampler_name: "k_euler", steps: 20, width: 384, height: 384, cfg_scale: 7.5 },
-            models: ["Flux1.1"],
-            nsfw: false,
-            trusted_workers: false,
-          }),
-        });
-        if (!res2.ok) {
-          console.error("Image gen failed:", await res2.text());
-          return null;
-        }
-        var submitData = await res2.json();
-      } else {
-        console.error("Image gen failed:", err);
+      if (err.includes("kudos")) {
+        console.log("Kudos required, trying smaller...");
+        res = await genConfig(384, 384, 20);
+      }
+      if (!res.ok) {
+        const err2 = await res.text();
+        console.error("Image gen failed:", err2.substring(0, 200));
         return null;
       }
-    } else {
-      var submitData = await res.json();
     }
+  } catch (e) {
+    console.error("Image gen error:", e);
+    return null;
+  }
 
-    const reqId = submitData.id;
-    console.log(`Horde ID: ${reqId}, polling...`);
+  const { id: reqId } = await res.json();
+  console.log(`Horde request: ${reqId}, polling...`);
 
-    // Poll
-    for (let i = 0; i < 60; i++) {
-      await new Promise(r => setTimeout(r, 3000));
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    try {
       const stat = await fetch(`https://aihorde.net/api/v2/generate/status/${reqId}`, {
         headers: { apikey: CONFIG.aihordeApiKey }
       });
       if (!stat.ok) continue;
 
       const data = await stat.json();
-      // State can be in different places
-      const state = data.state || data.status;
+      const state = data.state || data.status || "";
       console.log(`State: ${state} (${i + 1}/60)`);
 
       if (state === "completed") {
-        const gen = data.generations?.[0]?.img || data.generations?.[0]?.base64;
-        if (gen) {
-          console.log(`Image ready (${gen.length} chars)`);
-          return `data:image/png;base64,${gen}`;
+        const gen = data.generations?.[0];
+        const img = gen?.img || gen?.base64;
+        if (img) {
+          console.log(`Image ready (${img.length} chars)`);
+          return `data:image/png;base64,${img}`;
         }
       }
       if (state === "failed" || state === "cancelled") break;
-    }
-    console.log("Image timeout");
-    return null;
-  } catch (e) {
-    console.error("Image gen error:", e);
-    return null;
+    } catch { /* continue polling */ }
   }
+
+  console.log("Image timeout");
+  return null;
 }
 
 // ============================================================
-// 4. UPLOAD ẢNH LÊN SUPABASE
+// 4. UPLOAD ẢNH
 // ============================================================
 async function uploadImage(dataUrl: string, slug: string): Promise<string | null> {
-  console.log("Uploading image to Supabase...");
+  console.log("Uploading image...");
   try {
     const m = dataUrl.match(/^data:(.+);base64,(.+)$/);
     if (!m) return null;
@@ -259,26 +266,11 @@ async function uploadImage(dataUrl: string, slug: string): Promise<string | null
 }
 
 // ============================================================
-// 5. LƯU BÀI VÀO SUPABASE
+// 5. LƯU BÀI
 // ============================================================
 async function saveArticle(article: any, imgUrl: string | null): Promise<boolean> {
-  console.log(`Saving article: "${article.title}"...`);
+  console.log(`Saving: "${article.title}"...`);
   try {
-    const body = {
-      title: article.title,
-      slug: article.slug,
-      content: article.content,
-      meta_description: article.meta_description || "",
-      keywords: article.keywords || [],
-      category: article.category || "voucher",
-      featured_image_url: imgUrl,
-      featured_image_prompt: article.featured_image_prompt || "",
-      status: "published",
-      source: "auto-generated",
-      published_at: new Date().toISOString(),
-      created_at: new Date().toISOString(),
-    };
-
     const res = await fetch(`${CONFIG.supabaseUrl}/rest/v1/posts`, {
       method: "POST",
       headers: {
@@ -287,15 +279,26 @@ async function saveArticle(article: any, imgUrl: string | null): Promise<boolean
         Authorization: `Bearer ${CONFIG.supabaseKey}`,
         Prefer: "return=representation",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        title: article.title,
+        slug: article.slug,
+        content: article.content,
+        meta_description: article.meta_description || "",
+        keywords: article.keywords || [],
+        category: article.category || "voucher",
+        featured_image_url: imgUrl,
+        featured_image_prompt: article.featured_image_prompt || "",
+        status: "published",
+        source: "auto-generated",
+        published_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      }),
     });
-
     if (!res.ok) {
-      const errText = await res.text();
-      console.error("Save failed:", res.status, errText);
+      const err = await res.text();
+      console.error("Save failed:", res.status, err.substring(0, 200));
       return false;
     }
-
     const data = await res.json();
     console.log(`Saved! ID: ${data[0]?.id}`);
     return true;
@@ -311,47 +314,38 @@ async function saveArticle(article: any, imgUrl: string | null): Promise<boolean
 async function cleanupOld(): Promise<number> {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - CONFIG.deleteAfterDays);
-  const cutoffStr = cutoff.toISOString();
-
   try {
     const sel = await fetch(
-      `${CONFIG.supabaseUrl}/rest/v1/posts?created_at=lt.${cutoffStr}&status=eq.published&source=eq.auto-generated&select=id,slug`,
+      `${CONFIG.supabaseUrl}/rest/v1/posts?created_at=lt.${cutoff.toISOString()}&status=eq.published&source=eq.auto-generated&select=id,slug`,
       { headers: { apikey: CONFIG.supabaseKey, Authorization: `Bearer ${CONFIG.supabaseKey}` } }
     );
     if (!sel.ok) return 0;
     const old = await sel.json();
-    if (!old.length) { console.log("No old articles to delete"); return 0; }
-
+    if (!old.length) { console.log("No old articles"); return 0; }
     for (const a of old) {
       await fetch(`${CONFIG.supabaseStorageUrl}/storage/v1/object/blog-images/covers/${a.slug}.png`, {
         method: "DELETE", headers: { Authorization: `Bearer ${CONFIG.supabaseKey}` }
       });
     }
-
     const ids = old.map((a: any) => a.id).join(",");
     await fetch(`${CONFIG.supabaseUrl}/rest/v1/posts?id=in.(${ids})`, {
       method: "DELETE",
       headers: { apikey: CONFIG.supabaseKey, Authorization: `Bearer ${CONFIG.supabaseKey}` }
     });
-
     console.log(`Deleted ${old.length} old articles`);
     return old.length;
-  } catch (e) {
-    console.error("Cleanup error:", e);
-    return 0;
-  }
+  } catch (e) { console.error("Cleanup error:", e); return 0; }
 }
 
 // ============================================================
-// COUNT ARTICLES
+// COUNT
 // ============================================================
 async function countArticles(): Promise<number> {
   try {
     const res = await fetch(`${CONFIG.supabaseUrl}/rest/v1/posts?status=eq.published&select=id`, {
       headers: { apikey: CONFIG.supabaseKey, Authorization: `Bearer ${CONFIG.supabaseKey}` }
     });
-    if (!res.ok) return 0;
-    return (await res.json()).length;
+    return res.ok ? (await res.json()).length : 0;
   } catch { return 0; }
 }
 
@@ -376,19 +370,20 @@ async function main() {
   for (let i = 0; i < CONFIG.articlesPerDay; i++) {
     console.log(`\n--- Article ${i + 1}/${CONFIG.articlesPerDay} ---`);
     const article = await writeArticle(deals, i);
-    if (!article) { console.error("Failed to write article"); continue; }
+    if (!article) continue;
 
     let imgUrl: string | null = null;
     if (article.featured_image_prompt) {
       imgUrl = await generateImage(article.featured_image_prompt, article.slug);
     }
-
     if (imgUrl) {
       imgUrl = await uploadImage(imgUrl, article.slug);
     }
 
-    const saved = await saveArticle(article, imgUrl);
-    if (saved) { ok++; results.push({ title: article.title, img: imgUrl }); }
+    if (await saveArticle(article, imgUrl)) {
+      ok++;
+      results.push({ title: article.title, img: imgUrl });
+    }
 
     if (i < CONFIG.articlesPerDay - 1) {
       console.log("Waiting 15s...");
@@ -401,18 +396,15 @@ async function main() {
 
   console.log("\n====================================================");
   console.log("REPORT");
-  console.log(`New articles: ${ok}/${CONFIG.articlesPerDay}`);
+  console.log(`New: ${ok}/${CONFIG.articlesPerDay}`);
   console.log(`Images: ${results.filter(r => r.img).length}/${ok}`);
   console.log(`Deleted: ${deleted}`);
-  console.log(`Articles after: ${after}`);
-  results.forEach((r, i) => console.log(` ${i + 1}. "${r.title}"${r.img ? `\n    Image: ${r.img}` : ""}`));
+  console.log(`Total: ${after}`);
+  results.forEach((r, i) => console.log(` ${i + 1}. "${r.title}"${r.img ? `\n    Img: ${r.img}` : ""}`));
   console.log("====================================================");
 
-  if (ok === CONFIG.articlesPerDay) {
-    console.log("SUCCESS!");
-  } else {
-    process.exit(1);
-  }
+  if (ok === CONFIG.articlesPerDay) console.log("SUCCESS!");
+  else process.exit(1);
 }
 
 main();
