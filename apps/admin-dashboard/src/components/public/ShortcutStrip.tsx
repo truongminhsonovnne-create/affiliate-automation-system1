@@ -12,7 +12,7 @@
  */
 
 import Link from 'next/link';
-import { Flame, Tag, TrendingUp, Clock } from 'lucide-react';
+import { Flame, Tag, TrendingUp, Clock, BookOpen } from 'lucide-react';
 
 export const SHORTCUT_ITEMS = [
   {
@@ -50,6 +50,15 @@ export const SHORTCUT_ITEMS = [
     color: '#92400e',
     border: '#fde68a',
     hoverBg: '#fef9c3',
+  },
+  {
+    href: '/blog',
+    label: 'Blog SEO',
+    icon: BookOpen,
+    bg: '#eff6ff',
+    color: '#1d4ed8',
+    border: '#bfdbfe',
+    hoverBg: '#dbeafe',
   },
 ];
 
