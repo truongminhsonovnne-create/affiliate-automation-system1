@@ -1,28 +1,20 @@
 import * as dotenv from "dotenv";
 import * as path from "path";
 
-// Load .env.local first (has priority), then .env
 dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 import Groq from "groq-sdk";
-// jsonrepair exports: { jsonrepair, JSONRepairError }
 import { jsonrepair as repair } from "jsonrepair";
 
-// Verify Groq API key is loaded
 const groqApiKey = process.env.GROQ_API_KEY;
 if (!groqApiKey) {
-  console.error("ERROR: GROQ_API_KEY not found!");
-  console.error("Set it in .env.local or .env");
-  console.error("Get key at: https://console.groq.com/keys");
+  console.error("ERROR: GROQ_API_KEY not set!");
   process.exit(1);
 }
 
 const groq = new Groq({ apiKey: groqApiKey });
 
-// ============================================================
-// CẤU HÌNH
-// ============================================================
 const CONFIG = {
   articlesPerDay: parseInt(process.env.ARTICLES_PER_DAY || "2"),
   deleteAfterDays: parseInt(process.env.DELETE_AFTER_DAYS || "30"),
@@ -33,24 +25,22 @@ const CONFIG = {
 };
 
 // ============================================================
-// PROMPTS SEO
+// PROMPTS
 // ============================================================
 const PROMPTS = [
   {
-    prompt: `Bạn là chuyên gia SEO Việt Nam. Dựa vào dữ liệu deals bên dưới, viết bài SEO hoàn chỉnh.
+    prompt: `Bạn là chuyên gia SEO Việt Nam. Viết bài SEO tổng hợp deals.
 
 YÊU CẦU:
 - Tiêu đề dưới 60 ký tự, có từ khóa chính
 - Meta description dưới 160 ký tự, hấp dẫn
 - Nội dung 800-1200 từ, viết tự nhiên
-- Có H2, H3, bullet points
-- Có danh sách mã giảm giá
-- Kết thúc bằng CTA
+- Có H2, H3, bullet points, danh sách mã giảm giá, CTA
 - VIẾT BẰNG TIẾNG VIỆT TỰ NHIÊN
-- Nội dung content phải viết trên 1 dòng, không xuống dòng trong chuỗi JSON
+- Nội dung content viết LIỀN TRÊN 1 DÒNG, không xuống dòng trong JSON
 
-Định dạng trả về JSON (1 dòng duy nhất, không xuống dòng):
-{"title":"Tiêu đề","meta_description":"Mô tả","slug":"duong-dan","content":"Nội dung HTML viết liền, không xuống dòng","keywords":["kw1","kw2"],"category":"voucher","featured_image_prompt":"Mô tả ảnh tiếng Anh 1-2 câu"}
+Định dạng trả về (JSON 1 dòng duy nhất):
+{"title":"Tiêu đề","meta_description":"Mô tả","slug":"duong-dan","content":"Nội dung HTML viết liền, không xuống dòng trong chuỗi","keywords":["kw1","kw2"],"category":"voucher","featured_image_prompt":"English prompt 1-2 sentences for AI image generation, vibrant colorful blog cover style"}
 
 Dữ liệu deals:
 {DEALS_DATA}
@@ -58,19 +48,18 @@ Dữ liệu deals:
 CHỈ TRẢ VỀ JSON, không giải thích.`
   },
   {
-    prompt: `Bạn là chuyên gia SEO Việt Nam. Viết bài so sánh/hướng dẫn dựa trên deals.
+    prompt: `Bạn là chuyên gia SEO Việt Nam. Viết bài so sánh/hướng dẫn từ deals.
 
 YÊU CẦU:
 - Tiêu đề dưới 60 ký tự
 - Meta description dưới 160 ký tự
 - Nội dung 800-1200 từ
-- Cấu trúc: Giới thiệu → So sánh → Hướng dẫn → Kết luận
-- Có bullet points, CTA cuối bài
+- Cấu trúc: Giới thiệu → So sánh → Hướng dẫn → Kết luận → CTA
 - VIẾT BẰNG TIẾNG VIỆT TỰ NHIÊN
-- Nội dung content viết LIỀN TRÊN 1 DÒNG, không xuống dòng trong chuỗi
+- Content viết LIỀN TRÊN 1 DÒNG trong JSON
 
-Định dạng trả về JSON (1 dòng duy nhất):
-{"title":"Tiêu đề","meta_description":"Mô tả","slug":"duong-dan","content":"Nội dung HTML viết liền không xuống dòng","keywords":["kw1","kw2"],"category":"review","featured_image_prompt":"Mô tả ảnh tiếng Anh 1-2 câu"}
+Định dạng trả về (JSON 1 dòng duy nhất):
+{"title":"Tiêu đề","meta_description":"Mô tả","slug":"duong-dan","content":"Nội dung HTML viết liền không xuống dòng trong chuỗi","keywords":["kw1","kw2"],"category":"review","featured_image_prompt":"English prompt 1-2 sentences for AI image, vibrant colorful blog cover style"}
 
 Dữ liệu deals:
 {DEALS_DATA}
@@ -80,256 +69,217 @@ CHỈ TRẢ VỀ JSON, không giải thích.`
 ];
 
 // ============================================================
-// HELPER: Extract + repair JSON from AI response
+// HELPER: Extract + repair JSON
 // ============================================================
 function extractArticle(raw: string): any | null {
-  // 1. Strip markdown code fences
   let cleaned = raw.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
-
-  // 2. Find JSON bounds
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1) {
-    console.error("No JSON object found in response");
-    return null;
-  }
-
+  if (start === -1 || end === -1) return null;
   const jsonStr = cleaned.substring(start, end + 1);
-
-  // 3. Repair malformed JSON (newlines in strings, etc)
   try {
-    const repaired = repair(jsonStr);
-    return JSON.parse(repaired);
-  } catch (e) {
-    console.error("JSON repair/parse failed:", e);
-    console.error("Raw (first 200):", raw.substring(0, 200));
+    return JSON.parse(repair(jsonStr));
+  } catch {
     return null;
   }
 }
 
 // ============================================================
-// 1. FETCH DEALS TỪ ACCESSTRADE
+// 1. FETCH DEALS
 // ============================================================
-async function fetchAccessTradeDeals(): Promise<any[]> {
+async function fetchDeals(): Promise<any[]> {
   const apiKey = process.env.ACCESSTRADE_API_KEY;
-
   if (!apiKey) {
-    console.log("ACCESSTRADE_API_KEY not set, using mock data...");
-    return getMockDeals();
+    console.log("Using mock deals (no ACCESSTRADE_API_KEY)");
+    return [
+      { name: "Giảm 50% Lazada Friday", merchant: "Lazada", discount: "50%", code: "LAZADA50", expires: "2026-03-31" },
+      { name: "Freeship Shopee 0đ", merchant: "Shopee", discount: "Freeship", code: "FREESHIP0", expires: "2026-03-31" },
+      { name: "Mã 30% Tiki", merchant: "Tiki", discount: "30%", code: "TIKI30", expires: "2026-04-15" },
+      { name: "Giảm 100k Lazada", merchant: "Lazada", discount: "100k", code: "LAZADA100", expires: "2026-03-31" },
+      { name: "Sale 70% Điện thoại", merchant: "Shopee", discount: "70%", code: "PHONE70", expires: "2026-04-01" },
+    ];
   }
-
   try {
-    const response = await fetch(
-      "https://api.accesstrade.vn/v1/deals?status=active&limit=50",
-      {
-        headers: {
-          Authorization: `Token ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    if (!response.ok) return getMockDeals();
-
-    const data = await response.json();
+    const res = await fetch("https://api.accesstrade.vn/v1/deals?status=active&limit=50", {
+      headers: { Authorization: `Token ${apiKey}`, "Content-Type": "application/json" },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
     console.log(`Fetched ${data.data?.length || 0} deals from AccessTrade`);
     return data.data || [];
   } catch {
-    return getMockDeals();
+    return [];
   }
 }
 
-function getMockDeals() {
-  return [
-    { name: "Giảm 50% Lazada Friday", merchant: "Lazada", discount: "50%", code: "LAZADA50", expires: "2026-03-31" },
-    { name: "Freeship Shopee 0đ", merchant: "Shopee", discount: "Freeship", code: "FREESHIP0", expires: "2026-03-31" },
-    { name: "Mã 30% Tiki Tháng 3", merchant: "Tiki", discount: "30%", code: "TIKI30", expires: "2026-04-15" },
-    { name: "Giảm 100k cho đơn 500k", merchant: "Lazada", discount: "100k", code: "LAZADA100", expires: "2026-03-31" },
-    { name: "Sale 70% Điện thoại", merchant: "Shopee", discount: "70%", code: "PHONE70", expires: "2026-04-01" },
-  ];
-}
-
 // ============================================================
-// 2. GROQ AI VIẾT BÀI SEO
+// 2. GROQ VIẾT BÀI
 // ============================================================
-async function generateSEOArticle(deals: any[], promptIndex: number): Promise<any | null> {
-  const template = PROMPTS[promptIndex].prompt;
-  const dealsText = JSON.stringify(deals);
-  const prompt = template.replace("{DEALS_DATA}", dealsText);
-
-  console.log(`Groq AI writing article #${promptIndex + 1}...`);
-
+async function writeArticle(deals: any[], idx: number): Promise<any | null> {
+  const prompt = PROMPTS[idx].prompt.replace("{DEALS_DATA}", JSON.stringify(deals));
+  console.log(`Groq writing article #${idx + 1}...`);
   try {
-    const chatCompletion = await groq.chat.completions.create({
+    const result = await groq.chat.completions.create({
       messages: [{ role: "user", content: prompt }],
       model: "llama-3.3-70b-versatile",
       temperature: 0.7,
       max_tokens: 4096,
     });
-
-    const rawResponse = chatCompletion.choices[0]?.message?.content || "";
-    const article = extractArticle(rawResponse);
-
-    if (!article) return null;
-
-    if (!article.title || !article.content || !article.slug) {
-      console.error("Article missing required fields:", article);
+    const raw = result.choices[0]?.message?.content || "";
+    const article = extractArticle(raw);
+    if (!article || !article.title || !article.content || !article.slug) {
+      console.error("Invalid article from AI:", article);
       return null;
     }
-
-    const timestamp = Date.now();
-    article.slug = `${article.slug}-${timestamp}`;
-    article.articleIndex = promptIndex + 1;
-
+    article.slug = `${article.slug}-${Date.now()}`;
     console.log(`Article ready: "${article.title}"`);
     return article;
-  } catch (error) {
-    console.error("Groq AI error:", error);
+  } catch (e) {
+    console.error("Groq error:", e);
     return null;
   }
 }
 
 // ============================================================
-// 3. AI HORDE TẠO ẢNH COVER
+// 3. AI HORDE TẠO ẢNH
 // ============================================================
-async function generateCoverImage(imagePrompt: string, articleSlug: string): Promise<string | null> {
-  console.log(`AI Horde generating image: "${imagePrompt}"`);
+async function generateImage(prompt: string, slug: string): Promise<string | null> {
+  const hasKey = CONFIG.aihordeApiKey !== "0000000000";
+  const isAnon = !hasKey;
 
-  const hordeEndpoint = "https://aihorde.net/api/v2";
+  // Anonymous: max 512x512, max 30 steps. Has key: 1024x576, 25 steps
+  const imgW = isAnon ? 512 : 512;
+  const imgH = isAnon ? 512 : 512;
+  const steps = isAnon ? 30 : 25;
+
+  console.log(`AI Horde ${isAnon ? "(anonymous)" : "(with API key)"} generating image: ${imgW}x${imgH}, ${steps} steps`);
 
   try {
-    const submitResponse = await fetch(`${hordeEndpoint}/generate/async`, {
+    // Submit
+    const res = await fetch("https://aihorde.net/api/v2/generate/async", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": CONFIG.aihordeApiKey,
-      },
+      headers: { "Content-Type": "application/json", apikey: CONFIG.aihordeApiKey },
       body: JSON.stringify({
-        prompt: imagePrompt,
-        params: {
-          sampler_name: "k_euler",
-          steps: 25,
-          width: 1024,
-          height: 576,
-          cfg_scale: 7.5,
-          seed_variation: 1,
-        },
+        prompt: prompt,
+        params: { sampler_name: "k_euler", steps, width: imgW, height: imgH, cfg_scale: 7.5 },
         models: ["Flux1.1"],
         nsfw: false,
         trusted_workers: false,
       }),
     });
 
-    if (!submitResponse.ok) {
-      const err = await submitResponse.text();
-      console.error("AI Horde submit error:", err);
-      return null;
+    if (!res.ok) {
+      const err = await res.text();
+      // If kudos error, try smaller
+      if (err.includes("kudos") || err.includes("KudosUpfront")) {
+        console.log("Anonymous kudos limit, trying smaller image (384x384, 20 steps)...");
+        const res2 = await fetch("https://aihorde.net/api/v2/generate/async", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: CONFIG.aihordeApiKey },
+          body: JSON.stringify({
+            prompt: prompt,
+            params: { sampler_name: "k_euler", steps: 20, width: 384, height: 384, cfg_scale: 7.5 },
+            models: ["Flux1.1"],
+            nsfw: false,
+            trusted_workers: false,
+          }),
+        });
+        if (!res2.ok) {
+          console.error("Image gen failed:", await res2.text());
+          return null;
+        }
+        var submitData = await res2.json();
+      } else {
+        console.error("Image gen failed:", err);
+        return null;
+      }
+    } else {
+      var submitData = await res.json();
     }
 
-    const submitData = await submitResponse.json();
-    const requestId = submitData.id;
-    console.log(`Horde request ID: ${requestId}, waiting...`);
+    const reqId = submitData.id;
+    console.log(`Horde ID: ${reqId}, polling...`);
 
-    let imageBase64: string | null = null;
-    let retries = 0;
-    const maxRetries = 60;
+    // Poll
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      const stat = await fetch(`https://aihorde.net/api/v2/generate/status/${reqId}`, {
+        headers: { apikey: CONFIG.aihordeApiKey }
+      });
+      if (!stat.ok) continue;
 
-    while (retries < maxRetries) {
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      retries++;
-
-      const statusResponse = await fetch(
-        `${hordeEndpoint}/generate/status/${requestId}`,
-        { headers: { "apikey": CONFIG.aihordeApiKey } }
-      );
-
-      if (!statusResponse.ok) {
-        console.log(`Waiting... (${retries}/${maxRetries})`);
-        continue;
-      }
-
-      const statusData = await statusResponse.json();
-      const state = statusData.state;
-
-      console.log(`State: ${state} (${retries}/${maxRetries})`);
+      const data = await stat.json();
+      // State can be in different places
+      const state = data.state || data.status;
+      console.log(`State: ${state} (${i + 1}/60)`);
 
       if (state === "completed") {
-        const generations = statusData.generations;
-        if (generations && generations.length > 0) {
-          imageBase64 = generations[0].img;
+        const gen = data.generations?.[0]?.img || data.generations?.[0]?.base64;
+        if (gen) {
+          console.log(`Image ready (${gen.length} chars)`);
+          return `data:image/png;base64,${gen}`;
         }
-        break;
-      } else if (state === "failed" || state === "cancelled") {
-        console.error(`Generation ${state}`);
-        break;
       }
+      if (state === "failed" || state === "cancelled") break;
     }
-
-    if (imageBase64) {
-      console.log(`Image created (${imageBase64.length} base64 chars)`);
-      return `data:image/png;base64,${imageBase64}`;
-    } else {
-      console.log(`Timeout or error (tried ${retries} times)`);
-      return null;
-    }
-  } catch (error) {
-    console.error("AI Horde error:", error);
+    console.log("Image timeout");
+    return null;
+  } catch (e) {
+    console.error("Image gen error:", e);
     return null;
   }
 }
 
 // ============================================================
-// 4. UPLOAD ẢNH LÊN SUPABASE STORAGE
+// 4. UPLOAD ẢNH LÊN SUPABASE
 // ============================================================
-async function uploadImageToSupabase(imageData: string, articleSlug: string): Promise<string | null> {
-  console.log(`Uploading image to Supabase Storage...`);
-
+async function uploadImage(dataUrl: string, slug: string): Promise<string | null> {
+  console.log("Uploading image to Supabase...");
   try {
-    const base64Match = imageData.match(/^data:(.+);base64,(.+)$/);
-    if (!base64Match) {
-      console.error("Invalid base64 image format");
+    const m = dataUrl.match(/^data:(.+);base64,(.+)$/);
+    if (!m) return null;
+    const buf = Buffer.from(m[2], "base64");
+    const fp = `covers/${slug}.png`;
+    const res = await fetch(`${CONFIG.supabaseStorageUrl}/storage/v1/object/blog-images/${fp}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${CONFIG.supabaseKey}`, "Content-Type": m[1], "x-upsert": "true" },
+      body: buf,
+    });
+    if (!res.ok) {
+      console.error("Upload failed:", await res.text());
       return null;
     }
-
-    const mimeType = base64Match[1];
-    const base64Data = base64Match[2];
-    const imageBuffer = Buffer.from(base64Data, "base64");
-    const filePath = `covers/${articleSlug}.png`;
-
-    const uploadResponse = await fetch(
-      `${CONFIG.supabaseStorageUrl}/storage/v1/object/blog-images/${filePath}`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${CONFIG.supabaseKey}`,
-          "Content-Type": mimeType,
-          "x-upsert": "true",
-        },
-        body: imageBuffer,
-      }
-    );
-
-    if (!uploadResponse.ok) {
-      const err = await uploadResponse.text();
-      console.error("Upload failed:", err);
-      return null;
-    }
-
-    const publicUrl = `${CONFIG.supabaseStorageUrl}/storage/v1/object/public/blog-images/${filePath}`;
-    console.log(`Image uploaded: ${publicUrl}`);
-    return publicUrl;
-  } catch (error) {
-    console.error("Upload error:", error);
+    const url = `${CONFIG.supabaseStorageUrl}/storage/v1/object/public/blog-images/${fp}`;
+    console.log("Image URL:", url);
+    return url;
+  } catch (e) {
+    console.error("Upload error:", e);
     return null;
   }
 }
 
 // ============================================================
-// 5. LƯU BÀI VIẾT VÀO SUPABASE DATABASE
+// 5. LƯU BÀI VÀO SUPABASE
 // ============================================================
-async function saveArticle(article: any, imageUrl: string | null): Promise<boolean> {
+async function saveArticle(article: any, imgUrl: string | null): Promise<boolean> {
+  console.log(`Saving article: "${article.title}"...`);
   try {
-    const response = await fetch(`${CONFIG.supabaseUrl}/rest/v1/posts`, {
+    const body = {
+      title: article.title,
+      slug: article.slug,
+      content: article.content,
+      meta_description: article.meta_description || "",
+      keywords: article.keywords || [],
+      category: article.category || "voucher",
+      featured_image_url: imgUrl,
+      featured_image_prompt: article.featured_image_prompt || "",
+      status: "published",
+      source: "auto-generated",
+      published_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+    };
+
+    const res = await fetch(`${CONFIG.supabaseUrl}/rest/v1/posts`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -337,115 +287,72 @@ async function saveArticle(article: any, imageUrl: string | null): Promise<boole
         Authorization: `Bearer ${CONFIG.supabaseKey}`,
         Prefer: "return=representation",
       },
-      body: JSON.stringify({
-        title: article.title,
-        slug: article.slug,
-        content: article.content,
-        meta_description: article.meta_description || "",
-        keywords: article.keywords || [],
-        category: article.category || "voucher",
-        featured_image_url: imageUrl,
-        featured_image_prompt: article.featured_image_prompt || "",
-        status: "published",
-        source: "auto-generated",
-        published_at: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-      }),
+      body: JSON.stringify(body),
     });
 
-    if (!response.ok) {
-      console.error("Save article error:", response.status);
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("Save failed:", res.status, errText);
       return false;
     }
 
-    const data = await response.json();
-    console.log(`Article saved: "${article.title}" (ID: ${data[0]?.id})`);
+    const data = await res.json();
+    console.log(`Saved! ID: ${data[0]?.id}`);
     return true;
-  } catch (error) {
-    console.error("Save error:", error);
+  } catch (e) {
+    console.error("Save error:", e);
     return false;
   }
 }
 
 // ============================================================
-// 6. XÓA BÀI CŨ HƠN 30 NGÀY
+// 6. XÓA BÀI CŨ
 // ============================================================
-async function deleteOldArticles(): Promise<number> {
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - CONFIG.deleteAfterDays);
-  const cutoffStr = cutoffDate.toISOString();
-
-  console.log(`Deleting articles older than ${CONFIG.deleteAfterDays} days...`);
+async function cleanupOld(): Promise<number> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - CONFIG.deleteAfterDays);
+  const cutoffStr = cutoff.toISOString();
 
   try {
-    const selectResponse = await fetch(
+    const sel = await fetch(
       `${CONFIG.supabaseUrl}/rest/v1/posts?created_at=lt.${cutoffStr}&status=eq.published&source=eq.auto-generated&select=id,slug`,
-      {
-        headers: {
-          apikey: CONFIG.supabaseKey,
-          Authorization: `Bearer ${CONFIG.supabaseKey}`,
-        },
-      }
+      { headers: { apikey: CONFIG.supabaseKey, Authorization: `Bearer ${CONFIG.supabaseKey}` } }
     );
+    if (!sel.ok) return 0;
+    const old = await sel.json();
+    if (!old.length) { console.log("No old articles to delete"); return 0; }
 
-    if (!selectResponse.ok) return 0;
-    const oldArticles = await selectResponse.json();
-
-    if (oldArticles.length === 0) {
-      console.log("No old articles to delete");
-      return 0;
+    for (const a of old) {
+      await fetch(`${CONFIG.supabaseStorageUrl}/storage/v1/object/blog-images/covers/${a.slug}.png`, {
+        method: "DELETE", headers: { Authorization: `Bearer ${CONFIG.supabaseKey}` }
+      });
     }
 
-    // Delete images from storage
-    for (const article of oldArticles) {
-      const filePath = `covers/${article.slug}.png`;
-      await fetch(
-        `${CONFIG.supabaseStorageUrl}/storage/v1/object/blog-images/${filePath}`,
-        { method: "DELETE", headers: { Authorization: `Bearer ${CONFIG.supabaseKey}` } }
-      );
-    }
+    const ids = old.map((a: any) => a.id).join(",");
+    await fetch(`${CONFIG.supabaseUrl}/rest/v1/posts?id=in.(${ids})`, {
+      method: "DELETE",
+      headers: { apikey: CONFIG.supabaseKey, Authorization: `Bearer ${CONFIG.supabaseKey}` }
+    });
 
-    // Delete articles from DB
-    const ids = oldArticles.map((a: any) => a.id).join(",");
-    await fetch(
-      `${CONFIG.supabaseUrl}/rest/v1/posts?id=in.(${ids})`,
-      {
-        method: "DELETE",
-        headers: {
-          apikey: CONFIG.supabaseKey,
-          Authorization: `Bearer ${CONFIG.supabaseKey}`,
-        },
-      }
-    );
-
-    console.log(`Deleted ${oldArticles.length} old articles`);
-    return oldArticles.length;
-  } catch (error) {
-    console.error("Delete error:", error);
+    console.log(`Deleted ${old.length} old articles`);
+    return old.length;
+  } catch (e) {
+    console.error("Cleanup error:", e);
     return 0;
   }
 }
 
 // ============================================================
-// ĐẾM SỐ BÀI
+// COUNT ARTICLES
 // ============================================================
 async function countArticles(): Promise<number> {
   try {
-    const response = await fetch(
-      `${CONFIG.supabaseUrl}/rest/v1/posts?status=eq.published&select=id`,
-      {
-        headers: {
-          apikey: CONFIG.supabaseKey,
-          Authorization: `Bearer ${CONFIG.supabaseKey}`,
-        },
-      }
-    );
-    if (!response.ok) return 0;
-    const data = await response.json();
-    return data.length;
-  } catch {
-    return 0;
-  }
+    const res = await fetch(`${CONFIG.supabaseUrl}/rest/v1/posts?status=eq.published&select=id`, {
+      headers: { apikey: CONFIG.supabaseKey, Authorization: `Bearer ${CONFIG.supabaseKey}` }
+    });
+    if (!res.ok) return 0;
+    return (await res.json()).length;
+  } catch { return 0; }
 }
 
 // ============================================================
@@ -453,73 +360,56 @@ async function countArticles(): Promise<number> {
 // ============================================================
 async function main() {
   console.log("====================================================");
-  console.log("DAILY SEO + AI HORDE IMAGE PIPELINE");
+  console.log("DAILY SEO PIPELINE");
   console.log(`Time: ${new Date().toLocaleString("vi-VN")}`);
   console.log("====================================================");
-  console.log(`Groq Key: ${groqApiKey.substring(0, 10)}...`);
-  console.log(`Supabase: ${CONFIG.supabaseUrl}`);
-  console.log(`AI Horde: ${CONFIG.aihordeApiKey === "0000000000" ? "Anonymous" : "Has Key"}`);
 
-  const currentCount = await countArticles();
-  console.log(`Current articles: ${currentCount}`);
+  const before = await countArticles();
+  console.log(`Articles before: ${before}`);
 
-  const deals = await fetchAccessTradeDeals();
-  if (deals.length === 0) {
-    console.error("No deals to process");
-    process.exit(1);
-  }
+  const deals = await fetchDeals();
+  if (!deals.length) { console.error("No deals!"); process.exit(1); }
 
-  let successCount = 0;
-  const results: { title: string; imageUrl: string | null }[] = [];
+  let ok = 0;
+  const results: { title: string; img: string | null }[] = [];
 
   for (let i = 0; i < CONFIG.articlesPerDay; i++) {
-    console.log(`\n--- ARTICLE ${i + 1}/${CONFIG.articlesPerDay} ---`);
+    console.log(`\n--- Article ${i + 1}/${CONFIG.articlesPerDay} ---`);
+    const article = await writeArticle(deals, i);
+    if (!article) { console.error("Failed to write article"); continue; }
 
-    const article = await generateSEOArticle(deals, i);
-    if (!article) continue;
-
-    let imageUrl: string | null = null;
+    let imgUrl: string | null = null;
     if (article.featured_image_prompt) {
-      imageUrl = await generateCoverImage(article.featured_image_prompt, article.slug);
+      imgUrl = await generateImage(article.featured_image_prompt, article.slug);
     }
 
-    if (imageUrl) {
-      imageUrl = await uploadImageToSupabase(imageUrl, article.slug);
+    if (imgUrl) {
+      imgUrl = await uploadImage(imgUrl, article.slug);
     }
 
-    const saved = await saveArticle(article, imageUrl);
-    if (saved) {
-      successCount++;
-      results.push({ title: article.title, imageUrl });
-    }
+    const saved = await saveArticle(article, imgUrl);
+    if (saved) { ok++; results.push({ title: article.title, img: imgUrl }); }
 
     if (i < CONFIG.articlesPerDay - 1) {
-      console.log("Waiting 20 seconds...");
-      await new Promise(resolve => setTimeout(resolve, 20000));
+      console.log("Waiting 15s...");
+      await new Promise(r => setTimeout(r, 15000));
     }
   }
 
-  const deletedCount = await deleteOldArticles();
-  const finalCount = await countArticles();
+  const deleted = await cleanupOld();
+  const after = await countArticles();
 
   console.log("\n====================================================");
   console.log("REPORT");
-  console.log("====================================================");
-  console.log(`New articles: ${successCount}/${CONFIG.articlesPerDay}`);
-  console.log(`Images: ${results.filter(r => r.imageUrl).length}/${successCount}`);
-  console.log(`Deleted: ${deletedCount}`);
-  console.log(`Total articles: ${finalCount}`);
-  console.log("====================================================");
-
-  results.forEach((r, i) => {
-    console.log(` ${i + 1}. ${r.title}`);
-    if (r.imageUrl) console.log(`    Image: ${r.imageUrl}`);
-  });
-
+  console.log(`New articles: ${ok}/${CONFIG.articlesPerDay}`);
+  console.log(`Images: ${results.filter(r => r.img).length}/${ok}`);
+  console.log(`Deleted: ${deleted}`);
+  console.log(`Articles after: ${after}`);
+  results.forEach((r, i) => console.log(` ${i + 1}. "${r.title}"${r.img ? `\n    Image: ${r.img}` : ""}`));
   console.log("====================================================");
 
-  if (successCount === CONFIG.articlesPerDay) {
-    console.log("SUCCESS! Pipeline completed.");
+  if (ok === CONFIG.articlesPerDay) {
+    console.log("SUCCESS!");
   } else {
     process.exit(1);
   }
