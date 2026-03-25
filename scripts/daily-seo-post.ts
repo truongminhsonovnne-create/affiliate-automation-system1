@@ -7,9 +7,21 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 import Groq from "groq-sdk";
 import { jsonrepair as repair } from "jsonrepair";
 
+// Force reload env
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
+const AIHORDE_API_KEY = process.env.AIHORDE_API_KEY || "0000000000";
+
+if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+  console.error("FATAL: SUPABASE_URL or SUPABASE_SERVICE_KEY not set!");
+  console.error("SUPABASE_URL:", SUPABASE_URL ? "OK" : "MISSING");
+  console.error("SUPABASE_SERVICE_KEY:", SUPABASE_SERVICE_KEY ? "OK" : "MISSING");
+  process.exit(1);
+}
+
 const groqApiKey = process.env.GROQ_API_KEY;
 if (!groqApiKey) {
-  console.error("ERROR: GROQ_API_KEY not set!");
+  console.error("FATAL: GROQ_API_KEY not set!");
   process.exit(1);
 }
 
@@ -18,11 +30,17 @@ const groq = new Groq({ apiKey: groqApiKey });
 const CONFIG = {
   articlesPerDay: parseInt(process.env.ARTICLES_PER_DAY || "2"),
   deleteAfterDays: parseInt(process.env.DELETE_AFTER_DAYS || "30"),
-  supabaseUrl: process.env.SUPABASE_URL!,
-  supabaseKey: process.env.SUPABASE_SERVICE_KEY!,
-  aihordeApiKey: process.env.AIHORDE_API_KEY || "0000000000",
-  supabaseStorageUrl: process.env.SUPABASE_URL!,
+  supabaseUrl: SUPABASE_URL,
+  supabaseKey: SUPABASE_SERVICE_KEY,
+  aihordeApiKey: AIHORDE_API_KEY,
+  supabaseStorageUrl: SUPABASE_URL,
 };
+
+console.log("Config loaded:");
+console.log("  Supabase:", CONFIG.supabaseUrl);
+console.log("  Supabase Key:", CONFIG.supabaseKey.substring(0, 8) + "...");
+console.log("  Groq Key:", groqApiKey.substring(0, 8) + "...");
+console.log("  AI Horde:", CONFIG.aihordeApiKey === "0000000000" ? "Anonymous" : "Has key");
 
 // ============================================================
 // MOCK DEALS
@@ -32,10 +50,8 @@ const MOCK_DEALS = [
   { name: "Freeship Shopee 0đ", merchant: "Shopee", discount: "Freeship", code: "FREESHIP0", expires: "2026-03-31" },
   { name: "Mã 30% Tiki", merchant: "Tiki", discount: "30%", code: "TIKI30", expires: "2026-04-15" },
   { name: "Giảm 100k Lazada", merchant: "Lazada", discount: "100k", code: "LAZADA100", expires: "2026-03-31" },
-  { name: "Sale 70% Điện thoại Shopee", merchant: "Shopee", discount: "70%", code: "PHONE70", expires: "2026-04-01" },
+  { name: "Sale 70% Điện thoại", merchant: "Shopee", discount: "70%", code: "PHONE70", expires: "2026-04-01" },
   { name: "Giảm 25% Tiki Sách", merchant: "Tiki", discount: "25%", code: "SAH25", expires: "2026-04-10" },
-  { name: "Freeship 0đ Lazada", merchant: "Lazada", discount: "Freeship", code: "LAZFS", expires: "2026-03-31" },
-  { name: "Giảm 200k cho đơn 1 triệu", merchant: "Shopee", discount: "200k", code: "SHOP200", expires: "2026-04-05" },
 ];
 
 // ============================================================
@@ -53,8 +69,8 @@ YÊU CẦU:
 - VIẾT BẰNG TIẾNG VIỆT TỰ NHIÊN
 - Content viết LIỀN TRÊN 1 DÒNG trong JSON
 
-Định dạng trả về (JSON 1 dòng duy nhất):
-{"title":"Tiêu đề","meta_description":"Mô tả","slug":"duong-dan","content":"Nội dung HTML viết liền, không xuống dòng trong chuỗi","keywords":["kw1","kw2"],"category":"voucher","featured_image_prompt":"English prompt 1-2 sentences for AI image generation, vibrant colorful blog cover style"}
+Định dạng trả về (JSON 1 dòng):
+{"title":"Tiêu đề","meta_description":"Mô tả","slug":"duong-dan","content":"Nội dung HTML viết liền không xuống dòng trong chuỗi","keywords":["kw1","kw2"],"category":"voucher","featured_image_prompt":"English prompt 1-2 sentences for AI image, vibrant colorful blog cover style"}
 
 Dữ liệu deals:
 {DEALS_DATA}
@@ -72,7 +88,7 @@ YÊU CẦU:
 - VIẾT BẰNG TIẾNG VIỆT TỰ NHIÊN
 - Content viết LIỀN TRÊN 1 DÒNG trong JSON
 
-Định dạng trả về (JSON 1 dòng duy nhất):
+Định dạng trả về (JSON 1 dòng):
 {"title":"Tiêu đề","meta_description":"Mô tả","slug":"duong-dan","content":"Nội dung HTML viết liền không xuống dòng trong chuỗi","keywords":["kw1","kw2"],"category":"review","featured_image_prompt":"English prompt 1-2 sentences for AI image, vibrant colorful blog cover style"}
 
 Dữ liệu deals:
@@ -90,49 +106,37 @@ function extractArticle(raw: string): any | null {
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
   if (start === -1 || end === -1) return null;
-  const jsonStr = cleaned.substring(start, end + 1);
   try {
-    return JSON.parse(repair(jsonStr));
+    return JSON.parse(repair(cleaned.substring(start, end + 1)));
   } catch {
     return null;
   }
 }
 
 // ============================================================
-// 1. FETCH DEALS / CAMPAIGNS TỪ ACCESSTRADE
+// 1. FETCH DEALS
 // ============================================================
 async function fetchDeals(): Promise<any[]> {
   const apiKey = process.env.ACCESSTRADE_API_KEY;
-
-  // Try AccessTrade API
-  if (apiKey) {
-    try {
-      // Try /v1/campaigns endpoint (confirmed working)
-      const res = await fetch("https://api.accesstrade.vn/v1/campaigns?status=active&limit=50", {
-        headers: { Authorization: `Token ${apiKey}`, "Content-Type": "application/json" },
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.data && data.data.length > 0) {
-          const campaigns = data.data.slice(0, 10).map((c: any) => ({
-            name: c.name || c.title || "Campaign",
-            merchant: c.advertiser_name || c.advertiser || "Unknown",
-            discount: c.description?.substring(0, 50) || "",
-            code: c.code || "",
-            expires: c.end_date || "2026-12-31",
-          }));
-          console.log(`Fetched ${campaigns.length} campaigns from AccessTrade`);
-          return campaigns;
-        }
-      }
-    } catch (e) {
-      console.log("AccessTrade API error, using mock data:", e);
+  if (!apiKey) return MOCK_DEALS;
+  try {
+    const res = await fetch("https://api.accesstrade.vn/v1/campaigns?status=active&limit=50", {
+      headers: { Authorization: `Token ${apiKey}`, "Content-Type": "application/json" },
+    });
+    if (!res.ok) return MOCK_DEALS;
+    const data = await res.json();
+    if (data.data && data.data.length > 0) {
+      const campaigns = data.data.slice(0, 10).map((c: any) => ({
+        name: c.name || "Campaign",
+        merchant: c.advertiser_name || "Unknown",
+        discount: typeof c.description === "string" ? c.description.substring(0, 80) : "",
+        code: c.code || "",
+        expires: c.end_date || "2026-12-31",
+      }));
+      console.log(`Fetched ${campaigns.length} campaigns from AccessTrade`);
+      return campaigns;
     }
-  }
-
-  // Fallback to mock data
-  console.log("Using mock deals data (5 deals available)");
+  } catch { /* use mock */ }
   return MOCK_DEALS;
 }
 
@@ -149,14 +153,13 @@ async function writeArticle(deals: any[], idx: number): Promise<any | null> {
       temperature: 0.7,
       max_tokens: 4096,
     });
-    const raw = result.choices[0]?.message?.content || "";
-    const article = extractArticle(raw);
-    if (!article || !article.title || !article.content || !article.slug) {
-      console.error("Invalid article from AI:", article);
+    const article = extractArticle(result.choices[0]?.message?.content || "");
+    if (!article?.title || !article?.content || !article?.slug) {
+      console.error("Invalid article:", article);
       return null;
     }
     article.slug = `${article.slug}-${Date.now()}`;
-    console.log(`Article ready: "${article.title}"`);
+    console.log(`Ready: "${article.title}"`);
     return article;
   } catch (e) {
     console.error("Groq error:", e);
@@ -165,76 +168,62 @@ async function writeArticle(deals: any[], idx: number): Promise<any | null> {
 }
 
 // ============================================================
-// 3. AI HORDE TẠO ẢNH
+// 3. AI HORDE TẠO ẢNH (skip nếu anonymous quá chậm)
 // ============================================================
 async function generateImage(prompt: string, slug: string): Promise<string | null> {
-  const isAnon = CONFIG.aihordeApiKey === "0000000000";
-  console.log(`AI Horde ${isAnon ? "(anonymous)" : "(API key)"} generating image...`);
+  if (CONFIG.aihordeApiKey === "0000000000") {
+    console.log("Skipping image (anonymous - AI Horde queue is slow)");
+    return null;
+  }
 
-  const genConfig = async (w: number, h: number, steps: number) => {
+  console.log(`AI Horde generating image...`);
+  try {
     const res = await fetch("https://aihorde.net/api/v2/generate/async", {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: CONFIG.aihordeApiKey },
       body: JSON.stringify({
-        prompt: prompt,
-        params: { sampler_name: "k_euler", steps, width: w, height: h, cfg_scale: 7.5 },
+        prompt,
+        params: { sampler_name: "k_euler", steps: 25, width: 512, height: 512, cfg_scale: 7.5 },
         models: ["Flux1.1"],
         nsfw: false,
         trusted_workers: false,
       }),
     });
-    return res;
-  };
 
-  let res: Response;
-  try {
-    res = await genConfig(512, 512, 25);
     if (!res.ok) {
-      const err = await res.text();
-      if (err.includes("kudos")) {
-        console.log("Kudos required, trying smaller...");
-        res = await genConfig(384, 384, 20);
-      }
-      if (!res.ok) {
-        const err2 = await res.text();
-        console.error("Image gen failed:", err2.substring(0, 200));
-        return null;
-      }
+      console.error("AI Horde error:", (await res.text()).substring(0, 200));
+      return null;
     }
+
+    const { id: reqId } = await res.json();
+    console.log(`Horde ID: ${reqId}, polling...`);
+
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      try {
+        const stat = await fetch(`https://aihorde.net/api/v2/generate/status/${reqId}`, {
+          headers: { apikey: CONFIG.aihordeApiKey }
+        });
+        if (!stat.ok) continue;
+        const data = await stat.json();
+        const state = data.state || "";
+        console.log(`State: ${state} (${i + 1}/30)`);
+        if (state === "completed") {
+          const img = data.generations?.[0]?.img;
+          if (img) {
+            console.log(`Image ready (${img.length} chars)`);
+            return `data:image/png;base64,${img}`;
+          }
+        }
+        if (state === "failed" || state === "cancelled") break;
+      } catch { /* continue */ }
+    }
+    console.log("Image timeout");
+    return null;
   } catch (e) {
-    console.error("Image gen error:", e);
+    console.error("Image error:", e);
     return null;
   }
-
-  const { id: reqId } = await res.json();
-  console.log(`Horde request: ${reqId}, polling...`);
-
-  for (let i = 0; i < 60; i++) {
-    await new Promise(r => setTimeout(r, 3000));
-    try {
-      const stat = await fetch(`https://aihorde.net/api/v2/generate/status/${reqId}`, {
-        headers: { apikey: CONFIG.aihordeApiKey }
-      });
-      if (!stat.ok) continue;
-
-      const data = await stat.json();
-      const state = data.state || data.status || "";
-      console.log(`State: ${state} (${i + 1}/60)`);
-
-      if (state === "completed") {
-        const gen = data.generations?.[0];
-        const img = gen?.img || gen?.base64;
-        if (img) {
-          console.log(`Image ready (${img.length} chars)`);
-          return `data:image/png;base64,${img}`;
-        }
-      }
-      if (state === "failed" || state === "cancelled") break;
-    } catch { /* continue polling */ }
-  }
-
-  console.log("Image timeout");
-  return null;
 }
 
 // ============================================================
@@ -253,7 +242,7 @@ async function uploadImage(dataUrl: string, slug: string): Promise<string | null
       body: buf,
     });
     if (!res.ok) {
-      console.error("Upload failed:", await res.text());
+      console.error("Upload failed:", (await res.text()).substring(0, 200));
       return null;
     }
     const url = `${CONFIG.supabaseStorageUrl}/storage/v1/object/public/blog-images/${fp}`;
@@ -270,6 +259,21 @@ async function uploadImage(dataUrl: string, slug: string): Promise<string | null
 // ============================================================
 async function saveArticle(article: any, imgUrl: string | null): Promise<boolean> {
   console.log(`Saving: "${article.title}"...`);
+  const body = {
+    title: article.title,
+    slug: article.slug,
+    content: article.content,
+    meta_description: article.meta_description || "",
+    keywords: article.keywords || [],
+    category: article.category || "voucher",
+    featured_image_url: imgUrl,
+    featured_image_prompt: article.featured_image_prompt || "",
+    status: "published",
+    source: "auto-generated",
+    published_at: new Date().toISOString(),
+    created_at: new Date().toISOString(),
+  };
+
   try {
     const res = await fetch(`${CONFIG.supabaseUrl}/rest/v1/posts`, {
       method: "POST",
@@ -279,26 +283,15 @@ async function saveArticle(article: any, imgUrl: string | null): Promise<boolean
         Authorization: `Bearer ${CONFIG.supabaseKey}`,
         Prefer: "return=representation",
       },
-      body: JSON.stringify({
-        title: article.title,
-        slug: article.slug,
-        content: article.content,
-        meta_description: article.meta_description || "",
-        keywords: article.keywords || [],
-        category: article.category || "voucher",
-        featured_image_url: imgUrl,
-        featured_image_prompt: article.featured_image_prompt || "",
-        status: "published",
-        source: "auto-generated",
-        published_at: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-      }),
+      body: JSON.stringify(body),
     });
+
     if (!res.ok) {
       const err = await res.text();
-      console.error("Save failed:", res.status, err.substring(0, 200));
+      console.error("Save failed:", res.status, err.substring(0, 300));
       return false;
     }
+
     const data = await res.json();
     console.log(`Saved! ID: ${data[0]?.id}`);
     return true;
@@ -321,7 +314,7 @@ async function cleanupOld(): Promise<number> {
     );
     if (!sel.ok) return 0;
     const old = await sel.json();
-    if (!old.length) { console.log("No old articles"); return 0; }
+    if (!old.length) return 0;
     for (const a of old) {
       await fetch(`${CONFIG.supabaseStorageUrl}/storage/v1/object/blog-images/covers/${a.slug}.png`, {
         method: "DELETE", headers: { Authorization: `Bearer ${CONFIG.supabaseKey}` }
@@ -362,7 +355,7 @@ async function main() {
   console.log(`Articles before: ${before}`);
 
   const deals = await fetchDeals();
-  if (!deals.length) { console.error("No deals!"); process.exit(1); }
+  console.log(`Deals: ${deals.length}`);
 
   let ok = 0;
   const results: { title: string; img: string | null }[] = [];
@@ -376,9 +369,7 @@ async function main() {
     if (article.featured_image_prompt) {
       imgUrl = await generateImage(article.featured_image_prompt, article.slug);
     }
-    if (imgUrl) {
-      imgUrl = await uploadImage(imgUrl, article.slug);
-    }
+    if (imgUrl) imgUrl = await uploadImage(imgUrl, article.slug);
 
     if (await saveArticle(article, imgUrl)) {
       ok++;
