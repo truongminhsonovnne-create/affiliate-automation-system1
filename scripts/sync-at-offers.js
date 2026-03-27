@@ -282,8 +282,9 @@ async function main() {
     const bar = '█'.repeat(Math.min(offers.length, 50));
     log(`Page ${page.toString().padStart(2)} | ${offers.length.toString().padStart(3)} offers | +${r.inserted} ins | ~${r.updated} upd | ${r.skipped} skip | ${bar}`);
 
-    if (offers.length < PAGE_SIZE) {
-      log('Last page reached.');
+    // Stop early when last page or all offers are already in DB
+    if (offers.length < PAGE_SIZE || (r.inserted === 0 && r.updated === 0)) {
+      log(`No new data on page ${page} → stopping.`);
       break;
     }
   }
