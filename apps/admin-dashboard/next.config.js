@@ -17,6 +17,21 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['lucide-react'],
 
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '*.supabase.co',
+        pathname: '/storage/v1/object/public/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.supabase.in',
+        pathname: '/storage/v1/object/public/**',
+      },
+    ],
+  },
+
   // Security headers for all public responses
   async headers() {
     return [

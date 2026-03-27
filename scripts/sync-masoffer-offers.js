@@ -46,7 +46,7 @@ const API_TOKEN = process.env.MASOFFER_API_TOKEN;
 const PUBLISHER_ID = process.env.MASOFFER_PUBLISHER_ID;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const BASE_URL = process.env.MASOFFER_API_URL ?? 'https://publisher-api.masoffer.net';
+const BASE_URL = process.env.MASOFFER_API_URL ?? 'https://api.masoffer.com';
 const DRY_RUN = process.argv.includes('--dry-run');
 const MAX_PAGES = 50;
 
@@ -327,18 +327,25 @@ async function main() {
   console.log(`  Supabase: ${SUPABASE_URL}`);
   console.log('='.repeat(60));
 
-  // Test connection
+  // Test connection — use /v1/coupons (deals returns 404 for some accounts)
   log('Testing MasOffer API connection...');
   try {
-    await fetchMasOffer('/v1/deals', 1, 1);
+    const res = await fetchMasOffer('/v1/coupons', 1, 1);
+    // Accept 429 (rate limit) as OK — means token is valid, server is up
     log('✓ MasOffer API connection OK');
   } catch (err) {
-    logErr(`MasOffer API unreachable: ${err.message}`);
-    logErr('  Possible causes:');
-    logErr('  1. API key expired — renew at publisher.masoffer.net');
-    logErr('  2. Publisher account suspended');
-    logErr('  3. Endpoint changed — check docs at publisher-api.masoffer.net');
-    process.exit(1);
+    // 429 = rate limit is OK (token valid). 401/403 = bad token. 404 = bad endpoint.
+    if (err.message.includes('HTTP 401') || err.message.includes('HTTP 403')) {
+      logErr(`MasOffer token rejected: ${err.message}`);
+      process.exit(1);
+    }
+    if (err.message.includes('HTTP 404')) {
+      logErr(`MasOffer endpoint not found: ${err.message}`);
+      logErr('  API base URL may have changed — check publisher.masoffer.net');
+      process.exit(1);
+    }
+    // 429 or other — proceed anyway (individual endpoints handle their own errors)
+    log(`⚠ MasOffer test: ${err.message} — proceeding anyway`);
   }
 
   // Fetch all endpoints

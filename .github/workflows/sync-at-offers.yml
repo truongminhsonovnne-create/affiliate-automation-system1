@@ -104,7 +104,7 @@ jobs:
           echo "================================================================"
 
       - name: Sync MasOffer
-        if: env.MASOFFER_API_TOKEN != ''
+        if: false  # DISABLED — MasOffer API (publisher-api.masoffer.net) has been shut down. Migrate to AnyMind platform.
         run: |
           EXTRA=""
           DRY="${{ inputs.dry_run || 'false' }}"
@@ -120,9 +120,7 @@ jobs:
           if [ -z "$ACCESSTRADE_API_KEY" ]; then
             echo "⚠  AccessTrade skipped — ACCESSTRADE_API_KEY not configured"
           fi
-          if [ -z "$MASOFFER_API_TOKEN" ]; then
-            echo "⚠  MasOffer skipped — MASOFFER_API_TOKEN not configured"
-          fi
+          echo "⚠  MasOffer skipped — MasOffer API shut down, migrated to AnyMind"
 
       - name: Step summary
         if: always()
@@ -132,6 +130,6 @@ jobs:
           echo "| Source | Configured |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|------------|" >> $GITHUB_STEP_SUMMARY
           echo "| AccessTrade | $([ -n "$ACCESSTRADE_API_KEY" ] && echo '✅' || echo '❌') |" >> $GITHUB_STEP_SUMMARY
-          echo "| MasOffer | $([ -n "$MASOFFER_API_TOKEN" ] && echo '✅' || echo '❌') |" >> $GITHUB_STEP_SUMMARY
+          echo "| MasOffer | ❌ (API shut down — migrated to AnyMind) |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Trigger:** ${{ github.event_name }} | **Mode:** ${{ inputs.mode || 'incremental' }} | **Dry run:** ${{ inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
