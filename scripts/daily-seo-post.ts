@@ -362,43 +362,48 @@ async function generateImageAIHorde(prompt: string, slug: string): Promise<strin
 // 3b. POLLINATIONS AI (fallback — luôn online)
 // ============================================================
 async function generateImagePollinations(prompt: string, slug: string): Promise<string | null> {
-  console.log(`Pollinations generating image...`);
+  console.log(`Pollinations generating image URL...`);
 
-  // Encode prompt cho Pollinations: spaces → %20, special chars escape
-  const encodedPrompt = encodeURIComponent(prompt).replace(/%20/g, "+");
-  const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512&seed=${Date.now() % 9999}&nologo=true`;
+  // Clean prompt: remove Vietnamese diacritics for better English model support
+  const cleanPrompt = prompt
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9\s,.-]/g, '')
+    .trim()
+    .substring(0, 500);
 
-  console.log(`Pollinations URL: ${imageUrl.substring(0, 80)}...`);
+  // Build Pollinations URL — returns direct image, no API key needed
+  const encodedPrompt = encodeURIComponent(cleanPrompt).replace(/%20/g, '+');
+  const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=768&height=512&seed=${Date.now() % 9999}&nologo=true`;
 
-  // Download ảnh từ Pollinations
+  console.log(`Pollinations URL: ${imageUrl.substring(0, 90)}...`);
+
+  // Verify URL is accessible with quick HEAD check
   try {
-    const imgRes = await fetch(imageUrl, {
-      signal: AbortSignal.timeout(30_000),
-    });
-
-    if (!imgRes.ok) {
-      console.error(`Pollinations fetch failed: ${imgRes.status}`);
-      return null;
+    const headRes = await fetch(imageUrl, { method: "HEAD", signal: AbortSignal.timeout(5000) });
+    if (headRes.ok) {
+      console.log(`Pollinations image ready: ${imageUrl.substring(0, 80)}...`);
+      return imageUrl; // Return URL directly — Next.js loads from Pollinations CDN
     }
-
-    // Convert sang base64 để upload lên Supabase Storage
-    const imgBuffer = await imgRes.arrayBuffer();
-    const base64 = Buffer.from(imgBuffer).toString("base64");
-    const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
-    const dataUrl = `data:${mimeType};base64,${base64}`;
-
-    console.log(`Image downloaded (${(imgBuffer.byteLength / 1024).toFixed(1)} KB)`);
-    return dataUrl;
-  } catch (e) {
-    console.error("Pollinations download error:", e);
-    return null;
+  } catch {
+    // HEAD failed — try direct (some CDN configs don't support HEAD)
   }
+
+  // Fallback: return URL anyway, browser will load it
+  console.log(`Pollinations URL created (will load on client)`);
+  return imageUrl;
 }
 
 // ============================================================
 // 4. UPLOAD ẢNH
 // ============================================================
 async function uploadImage(dataUrl: string, slug: string): Promise<string | null> {
+  // Nếu là direct URL (Pollinations) → return URL trực tiếp, không cần upload
+  if (dataUrl.startsWith("http")) {
+    console.log(`Direct URL: ${dataUrl.substring(0, 80)}...`);
+    return dataUrl;
+  }
+
   console.log("Uploading image...");
   try {
     const m = dataUrl.match(/^data:(.+);base64,(.+)$/);
