@@ -85,16 +85,24 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Validate Supabase
+      - name: Validate Secrets
         run: |
+          echo "=== Secret Validation ==="
+          echo "ACCESSTRADE_API_KEY: ${ACCESSTRADE_API_KEY:+SET (length=${#ACCESSTRADE_API_KEY})}"
+          echo "SUPABASE_URL:         ${SUPABASE_URL:+SET}"
+          echo "SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:+SET (length=${#SUPABASE_SERVICE_KEY})}"
           if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_KEY" ]; then
             echo "ERROR: SUPABASE_URL or SUPABASE_SERVICE_KEY not set in GitHub Secrets"
             exit 1
           fi
+          echo "All required secrets are present."
 
       - name: Sync AccessTrade
-        if: env.ACCESSTRADE_API_KEY != ''
         run: |
+          if [ -z "$ACCESSTRADE_API_KEY" ]; then
+            echo "⚠  AccessTrade skipped — ACCESSTRADE_API_KEY not configured in GitHub Secrets"
+            exit 0
+          fi
           EXTRA=""
           DRY="${{ inputs.dry_run || 'false' }}"
           [ "$DRY" = "true" ] && EXTRA="--dry-run"
