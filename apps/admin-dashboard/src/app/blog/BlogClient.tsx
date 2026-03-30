@@ -156,13 +156,29 @@ export function BlogPageContent() {
                     fill
                     className="object-cover hover:scale-105 transition-transform duration-300"
                     sizes="(max-width: 768px) 100vw, 896px"
+                    unoptimized
                   />
                 </div>
               </Link>
             ) : (
-              <div className="w-full h-48 bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
-                <span className="text-6xl">🎨</span>
-              </div>
+              <Link href={`/blog/${post.slug}`}>
+                <div
+                  className="w-full h-48 flex flex-col items-center justify-center text-white relative overflow-hidden"
+                  style={{
+                    background: `linear-gradient(135deg,
+                      hsl(${(post.title?.charCodeAt(0) ?? 0) * 7 % 360}, 70%, 45%) 0%,
+                      hsl(${(post.title?.charCodeAt(0) ?? 0) * 13 % 360}, 80%, 55%) 50%,
+                      hsl(${(post.title?.charCodeAt(0) ?? 0) * 19 % 360}, 65%, 40%) 100%)`
+                  }}
+                >
+                  <div className="absolute inset-0 opacity-20">
+                    <div className="absolute top-4 left-6 w-32 h-32 rounded-full bg-white blur-2xl" />
+                    <div className="absolute bottom-4 right-6 w-24 h-24 rounded-full bg-white blur-xl" />
+                  </div>
+                  <span className="relative z-10 text-5xl mb-1">🎉</span>
+                  <span className="relative z-10 text-xs font-medium opacity-80">Cover image</span>
+                </div>
+              </Link>
             )}
 
             {/* Content */}

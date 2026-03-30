@@ -137,7 +137,7 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
       {/* Article */}
       <article className="max-w-3xl mx-auto px-4 py-8">
         {/* Cover Image */}
-        {post.featured_image_url && (
+        {post.featured_image_url ? (
           <div className="relative w-full h-64 md:h-96 rounded-lg overflow-hidden mb-8">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -145,6 +145,23 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
               alt={post.title}
               className="w-full h-full object-cover"
             />
+          </div>
+        ) : (
+          <div
+            className="w-full h-64 md:h-96 rounded-lg overflow-hidden mb-8 flex flex-col items-center justify-center text-white relative"
+            style={{
+              background: `linear-gradient(135deg,
+                hsl(${(post.title?.charCodeAt(0) ?? 0) * 7 % 360}, 70%, 45%) 0%,
+                hsl(${(post.title?.charCodeAt(0) ?? 0) * 13 % 360}, 80%, 55%) 50%,
+                hsl(${(post.title?.charCodeAt(0) ?? 0) * 19 % 360}, 65%, 40%) 100%)`
+            }}
+          >
+            <div className="absolute inset-0 opacity-20">
+              <div className="absolute top-8 left-10 w-40 h-40 rounded-full bg-white blur-3xl" />
+              <div className="absolute bottom-8 right-10 w-32 h-32 rounded-full bg-white blur-2xl" />
+            </div>
+            <span className="relative z-10 text-7xl mb-2">🎉</span>
+            <span className="relative z-10 text-sm font-medium opacity-80">AI-generated cover</span>
           </div>
         )}
 
@@ -242,12 +259,21 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
                   href={`/blog/${p.slug}`}
                   className="border rounded-lg p-4 hover:shadow-md transition-all hover:border-blue-300"
                 >
-                  {p.featured_image_url && (
+                  {p.featured_image_url ? (
                     <img
                       src={p.featured_image_url}
                       alt={p.title}
                       className="w-full h-32 object-cover rounded mb-3"
                     />
+                  ) : (
+                    <div
+                      className="w-full h-32 rounded mb-3 flex items-center justify-center text-white text-3xl relative overflow-hidden"
+                      style={{
+                        background: `linear-gradient(135deg, hsl(${(p.title?.charCodeAt(0) ?? 0) * 7 % 360}, 70%, 45%), hsl(${(p.title?.charCodeAt(0) ?? 0) * 13 % 360}, 80%, 55%))`
+                      }}
+                    >
+                      🎉
+                    </div>
                   )}
                   <h3 className="font-semibold text-gray-900 text-sm line-clamp-2">{p.title}</h3>
                   <p className="text-gray-500 text-xs mt-1 line-clamp-2">{p.meta_description}</p>
