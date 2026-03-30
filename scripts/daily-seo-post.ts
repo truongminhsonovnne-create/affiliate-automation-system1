@@ -57,47 +57,150 @@ const MOCK_DEALS = [
 ];
 
 // ============================================================
-// PROMPTS
+// IMAGE PROMPT SYSTEM — Prompt Engineering cho AI Horde / Flux
 // ============================================================
-const PROMPTS = [
-  {
-    prompt: `Bạn là chuyên gia SEO Việt Nam. Viết bài SEO tổng hợp deals khuyến mãi.
+// Nguyên tắc:
+// 1. Prompt phải MÔ TẢ CỤ THỂ nội dung bài viết (merchant, deal, context)
+// 2. Style phải PHÙ HỢP với category & nội dung
+// 3. Gồm: subject + scene + lighting + style + composition + negative
+// 4. Dùng tiếng Anh rõ ràng, tránh ambiguous words
+// ============================================================
 
-YÊU CẦU:
-- Tiêu đề dưới 60 ký tự, có từ khóa chính
-- Meta description dưới 160 ký tự, hấp dẫn
-- Nội dung 800-1200 từ, viết tự nhiên
-- Có H2, H3, bullet points, danh sách mã giảm giá, CTA
-- VIẾT BẰNG TIẾNG VIỆT TỰ NHIÊN
-- Content viết LIỀN TRÊN 1 DÒNG trong JSON
-
-Định dạng trả về (JSON 1 dòng):
-{"title":"Tiêu đề","meta_description":"Mô tả","slug":"duong-dan","content":"Nội dung HTML viết liền không xuống dòng trong chuỗi","keywords":["kw1","kw2"],"category":"voucher","featured_image_prompt":"English prompt 1-2 sentences for AI image, vibrant colorful blog cover style"}
-
-Dữ liệu deals:
-{DEALS_DATA}
-
-CHỈ TRẢ VỀ JSON, không giải thích.`
+const IMAGE_STYLES: Record<string, {
+  base: string;
+  negative: string;
+  lighting: string;
+}> = {
+  voucher: {
+    base: "flat lay product photography, discount tags, voucher coupons scattered on marble surface, shopping bags, smartphone with shopping apps, credit card",
+    negative: "ugly, blurry, low quality, distorted face, watermark, text, logo, brand name, people, cartoon, anime",
+    lighting: "bright natural window light, clean white background, soft shadows"
   },
-  {
-    prompt: `Bạn là chuyên gia SEO Việt Nam. Viết bài so sánh/hướng dẫn từ deals.
+  review: {
+    base: "side-by-side product comparison, two shopping carts with wrapped gifts, price tags, rating stars, smooth gradient background",
+    negative: "ugly, blurry, low quality, distorted face, watermark, text overlay, logo, cartoon, anime",
+    lighting: "studio lighting, gradient backdrop, professional e-commerce style"
+  },
+  news: {
+    base: "breaking news graphic, bold headline text implied in scene, trending shopping scene, viral product viral moment, festive sale atmosphere",
+    negative: "ugly, blurry, low quality, watermark, distorted face, cartoon, anime, busy cluttered background",
+    lighting: "editorial magazine lighting, dramatic but clean"
+  },
+  tutorial: {
+    base: "step-by-step illustrated guide, phone screen showing mobile app, hand holding phone, how-to shopping tutorial scene, checklist clipboard",
+    negative: "ugly, blurry, low quality, watermark, distorted face, cartoon, anime, clutter",
+    lighting: "bright flat lay, top-down or 45-degree angle, clean workspace"
+  },
+};
+
+const MERCHANT_VISUALS: Record<string, string> = {
+  shopee: "Shopee orange branding elements, orange shopping bag,虾皮标志颜色",
+  lazada: "red and orange Lazada theme, Lazada box delivery, red delivery bag",
+  tiki: "Tiki blue theme, Tiki logo blue, blue delivery packaging",
+  tiktok: "black and white TikTok shop aesthetic, TikTok phone screen, trending product",
+  default: "colorful Southeast Asian e-commerce lifestyle, multiple shopping platforms"
+};
+
+function buildImagePrompt(
+  articleTitle: string,
+  category: string,
+  merchants: string[]
+): string {
+  const style = IMAGE_STYLES[category] ?? IMAGE_STYLES["voucher"];
+
+  // Map merchant names to visual keywords
+  const merchantKeywords = merchants
+    .map(m => {
+      const lower = m.toLowerCase();
+      if (lower.includes("shopee")) return MERCHANT_VISUALS["shopee"];
+      if (lower.includes("lazada")) return MERCHANT_VISUALS["lazada"];
+      if (lower.includes("tiki")) return MERCHANT_VISUALS["tiki"];
+      if (lower.includes("tiktok")) return MERCHANT_VISUALS["tiktok"];
+      return MERCHANT_VISUALS["default"];
+    })
+    .filter(Boolean);
+
+  // Extract key topic from title
+  const titleKeywords = articleTitle
+    .toLowerCase()
+    .replace(/[^\w\s]/g, "")
+    .split(" ")
+    .filter(w => w.length > 3)
+    .slice(0, 5)
+    .join(" ");
+
+  // Build final prompt following Flux SDXL best practices
+  // Flux works best with: subject + environment + style + lighting + quality tags
+  const parts = [
+    // Subject: specific to this article
+    `${titleKeywords}, ${merchantKeywords[0] ?? "e-commerce shopping"}`,
+
+    // Action/scene
+    "Vietnamese e-commerce lifestyle, shopping online on smartphone, discount promotion",
+
+    // Composition
+    "centered composition, clean layout, blog cover dimensions, 512x512 or 1024x1024",
+
+    // Style
+    style.base,
+
+    // Quality tags for Flux
+    "4k, high quality, sharp focus, professional photography, masterpiece",
+
+    // Lighting
+    style.lighting,
+  ];
+
+  return parts.join(", ");
+}
+
+// ============================================================
+// ARTICLE PROMPTS
+// ============================================================
+const VOUCHER_PROMPT = `Bạn là chuyên gia SEO Việt Nam. Viết bài SEO tổng hợp deals khuyến mãi.
 
 YÊU CẦU:
-- Tiêu đề dưới 60 ký tự
-- Meta description dưới 160 ký tự
-- Nội dung 800-1200 từ
-- Cấu trúc: Giới thiệu → So sánh → Hướng dẫn → Kết luận → CTA
+- Tiêu đề dưới 60 ký tự, có từ khóa chính (chứa tên merchant hoặc deal nổi bật)
+- Meta description dưới 160 ký tự, hấp dẫn, có CTA
+- Nội dung 800-1200 từ, viết tự nhiên bằng tiếng Việt
+- Cấu trúc: H2 tiêu đề chính, H3 phụ, bullet points, danh sách mã giảm giá cụ thể, CTA cuối bài
+- Trích xuất DANH SÁCH MÃ từ deals (code + merchant + giá trị) để đưa vào content
 - VIẾT BẰNG TIẾNG VIỆT TỰ NHIÊN
 - Content viết LIỀN TRÊN 1 DÒNG trong JSON
 
 Định dạng trả về (JSON 1 dòng):
-{"title":"Tiêu đề","meta_description":"Mô tả","slug":"duong-dan","content":"Nội dung HTML viết liền không xuống dòng trong chuỗi","keywords":["kw1","kw2"],"category":"review","featured_image_prompt":"English prompt 1-2 sentences for AI image, vibrant colorful blog cover style"}
+{"title":"Tiêu đề dưới 60 ký tự với keyword chính","meta_description":"Mô tả dưới 160 ký tự","slug":"duong-dan-cho-seo","content":"Nội dung HTML bằng tiếng Việt, viết liền 1 dòng trong JSON","keywords":["kw1","kw2","kw3"],"category":"voucher","merchants":["Merchant1","Merchant2"]}
+
+Dữ liệu deals thực tế:
+{DEALS_DATA}
+
+QUAN TRỌNG:
+- merchants: array tên merchants thực tế từ deals data
+- Chỉ trả về JSON thuần, không có markdown code block`;
+
+const REVIEW_PROMPT = `Bạn là chuyên gia SEO Việt Nam. Viết bài so sánh/savec/hướng dẫn từ deals.
+
+YÊU CẦU:
+- Tiêu đề dưới 60 ký tự, dạng so sánh hoặc hướng dẫn
+- Meta description dưới 160 ký tự, hấp dẫn
+- Nội dung 800-1200 từ, VIẾT BẰNG TIẾNG VIỆT TỰ NHIÊN
+- Cấu trúc: Giới thiệu → So sánh/Đánh giá → Hướng dẫn → Kết luận → CTA
+- Liệt kê các deals nổi bật trong bài
+- Content viết LIỀN TRÊN 1 DÒNG trong JSON
+
+Định dạng trả về (JSON 1 dòng):
+{"title":"Tiêu đề so sánh/hướng dẫn","meta_description":"Mô tả dưới 160 ký tự","slug":"duong-dan-cho-seo","content":"Nội dung HTML bằng tiếng Việt, viết liền 1 dòng","keywords":["kw1","kw2","kw3"],"category":"review","merchants":["Merchant1","Merchant2"]}
 
 Dữ liệu deals:
 {DEALS_DATA}
 
-CHỈ TRẢ VỀ JSON, không giải thích.`
-  }
+QUAN TRỌNG:
+- merchants: array tên merchants thực tế từ deals data
+- Chỉ trả về JSON thuần, không markdown`;
+
+const PROMPTS = [
+  { category: "voucher", prompt: VOUCHER_PROMPT, generateImagePrompt: buildImagePrompt },
+  { category: "review",  prompt: REVIEW_PROMPT,  generateImagePrompt: buildImagePrompt },
 ];
 
 // ============================================================
@@ -146,8 +249,9 @@ async function fetchDeals(): Promise<any[]> {
 // 2. GROQ VIẾT BÀI
 // ============================================================
 async function writeArticle(deals: any[], idx: number): Promise<any | null> {
-  const prompt = PROMPTS[idx].prompt.replace("{DEALS_DATA}", JSON.stringify(deals));
-  console.log(`Groq writing article #${idx + 1}...`);
+  const template = PROMPTS[idx];
+  const prompt = template.prompt.replace("{DEALS_DATA}", JSON.stringify(deals));
+  console.log(`Groq writing article #${idx + 1} [${template.category}]...`);
   try {
     const result = await groq.chat.completions.create({
       messages: [{ role: "user", content: prompt }],
@@ -160,8 +264,24 @@ async function writeArticle(deals: any[], idx: number): Promise<any | null> {
       console.error("Invalid article:", article);
       return null;
     }
+
+    // Tạo slug unique + timestamp
     article.slug = `${article.slug}-${Date.now()}`;
+
+    // Extract merchants từ deals để build image prompt
+    const merchants = deals.map((d: any) => d.merchant).filter(Boolean).slice(0, 5);
+    article._category = template.category;
+    article._merchants = merchants;
+
+    // Build specific image prompt cho bài này
+    article.featured_image_prompt = template.generateImagePrompt(
+      article.title,
+      template.category,
+      merchants
+    );
+
     console.log(`Ready: "${article.title}"`);
+    console.log(`Image prompt: "${article.featured_image_prompt.substring(0, 80)}..."`);
     return article;
   } catch (e) {
     console.error("Groq error:", e);
