@@ -293,11 +293,21 @@ async function writeArticle(deals: any[], idx: number): Promise<any | null> {
 // 3. AI HORDE TẠO ẢNH (skip nếu anonymous quá chậm)
 // ============================================================
 async function generateImage(prompt: string, slug: string): Promise<string | null> {
-  if (CONFIG.aihordeApiKey === "0000000000") {
-    console.log("Skipping image (anonymous - AI Horde queue is slow)");
-    return null;
+  // 1. Thử AI Horde trước (nếu có key và không phải anonymous)
+  if (CONFIG.aihordeApiKey && CONFIG.aihordeApiKey !== "0000000000") {
+    const img = await generateImageAIHorde(prompt, slug);
+    if (img) return img;
   }
 
+  // 2. Fallback: Pollinations AI (luôn online, miễn phí)
+  console.log("AI Horde timeout → falling back to Pollinations AI...");
+  return await generateImagePollinations(prompt, slug);
+}
+
+// ============================================================
+// 3a. AI HORDE (thử trước)
+// ============================================================
+async function generateImageAIHorde(prompt: string, slug: string): Promise<string | null> {
   console.log(`AI Horde generating image...`);
   try {
     const res = await fetch("https://aihorde.net/api/v2/generate/async", {
@@ -340,10 +350,47 @@ async function generateImage(prompt: string, slug: string): Promise<string | nul
         if (state === "failed" || state === "cancelled") break;
       } catch { /* continue */ }
     }
-    console.log("Image timeout");
+    console.log("AI Horde timeout");
     return null;
   } catch (e) {
-    console.error("Image error:", e);
+    console.error("AI Horde error:", e);
+    return null;
+  }
+}
+
+// ============================================================
+// 3b. POLLINATIONS AI (fallback — luôn online)
+// ============================================================
+async function generateImagePollinations(prompt: string, slug: string): Promise<string | null> {
+  console.log(`Pollinations generating image...`);
+
+  // Encode prompt cho Pollinations: spaces → %20, special chars escape
+  const encodedPrompt = encodeURIComponent(prompt).replace(/%20/g, "+");
+  const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512&seed=${Date.now() % 9999}&nologo=true`;
+
+  console.log(`Pollinations URL: ${imageUrl.substring(0, 80)}...`);
+
+  // Download ảnh từ Pollinations
+  try {
+    const imgRes = await fetch(imageUrl, {
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!imgRes.ok) {
+      console.error(`Pollinations fetch failed: ${imgRes.status}`);
+      return null;
+    }
+
+    // Convert sang base64 để upload lên Supabase Storage
+    const imgBuffer = await imgRes.arrayBuffer();
+    const base64 = Buffer.from(imgBuffer).toString("base64");
+    const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+
+    console.log(`Image downloaded (${(imgBuffer.byteLength / 1024).toFixed(1)} KB)`);
+    return dataUrl;
+  } catch (e) {
+    console.error("Pollinations download error:", e);
     return null;
   }
 }
