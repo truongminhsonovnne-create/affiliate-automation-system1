@@ -28,14 +28,9 @@ import type { NextRequest } from 'next/server';
 // =============================================================================
 
 const SESSION_COOKIE_NAME = 'admin_session_v2';
-const SESSION_VERSION = parseInt(
-  (globalThis as { process?: { env?: Record<string, string> } })
-    .process?.env?.SESSION_VERSION ?? '1',
-  10
-);
+const SESSION_VERSION = parseInt(process.env.SESSION_VERSION ?? '1', 10);
 
-const SESSION_SECRET = (globalThis as { process?: { env?: Record<string, string> } })
-  .process?.env?.SESSION_SECRET ?? '';
+const SESSION_SECRET = process.env.SESSION_SECRET ?? '';
 
 // =============================================================================
 // Role Constants (must match rbac.ts)
