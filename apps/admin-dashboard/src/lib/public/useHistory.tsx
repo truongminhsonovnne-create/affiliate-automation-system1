@@ -87,15 +87,20 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<LookupHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Initialize storage adapter inside useState initializer (client-side only).
-  // React always runs useState initializers on the client during hydration,
-  // so this class instance never crosses the RSC server→client boundary.
-  const [storage] = useState<HistoryStorageAdapter>(
-    () => new LocalStorageHistoryAdapter()
-  );
+  // Use useRef for lazy client-only initialization.
+  // NEVER instantiate LocalStorageHistoryAdapter during SSR — class instances
+  // cannot cross the RSC Server→Client boundary (they're not serializable).
+  // The storage ref is initialized inside useEffect (client-only), so it
+  // is always null on the server and created on the client.
+  const storageRef = useRef<HistoryStorageAdapter | null>(null);
 
-  // Load from storage on mount
+  // Load from storage on mount (client-only)
   useEffect(() => {
+    // Initialize adapter here — guaranteed client-side only
+    if (!storageRef.current) {
+      storageRef.current = new LocalStorageHistoryAdapter();
+    }
+    const storage = storageRef.current;
     let cancelled = false;
 
     storage.load().then((loaded) => {
@@ -108,13 +113,13 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [storage]);
+  }, []);
 
   // Add a new entry
   const addEntry = useCallback(
     async (inputUrl: string, state: ResolutionState) => {
       const entry = buildHistoryEntry(inputUrl, state);
-      await storage.save(entry);
+      await storageRef.current.save(entry);
 
       setEntries((prev) => {
         const pinned = prev.filter((e) => e.pinned);
@@ -130,7 +135,7 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
         });
       });
     },
-    [storage]
+    [storageRef]
   );
 
   // Toggle pin
@@ -140,7 +145,7 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
       if (!entry) return;
 
       const newPinned = !entry.pinned;
-      await storage.update(id, { pinned: newPinned });
+      await storageRef.current.update(id, { pinned: newPinned });
 
       setEntries((prev) =>
         prev
@@ -153,31 +158,31 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
           })
       );
     },
-    [entries, storage]
+    [entries, storageRef]
   );
 
   // Delete single entry
   const deleteEntry = useCallback(
     async (id: string) => {
-      await storage.delete(id);
+      await storageRef.current.delete(id);
       setEntries((prev) => prev.filter((e) => e.id !== id));
     },
-    [storage]
+    [storageRef]
   );
 
   // Delete multiple entries
   const deleteEntries = useCallback(
     async (ids: string[]) => {
-      await storage.deleteMany(ids);
+      await storageRef.current.deleteMany(ids);
       const idSet = new Set(ids);
       setEntries((prev) => prev.filter((e) => !idSet.has(e.id)));
     },
-    [storage]
+    [storageRef]
   );
 
   // Clear all
   const clearAll = useCallback(async () => {
-    await storage.clear();
+    await storageRef.current.clear();
     setEntries([]);
   }, [storage]);
 

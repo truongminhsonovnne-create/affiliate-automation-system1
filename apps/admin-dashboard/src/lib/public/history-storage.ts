@@ -94,7 +94,7 @@ export class LocalStorageHistoryAdapter implements HistoryStorageAdapter {
   private write(data: HistoryStorageData): void {
     if (typeof window === 'undefined') return;
     try {
-      window.localStorage.setItem(this.key, JSON.stringify(data));
+      window.localStorage.setItem(this.key, JSON.stringify(data));;
     } catch {
       // Storage full — silently skip write
     }
@@ -175,6 +175,18 @@ export class LocalStorageHistoryAdapter implements HistoryStorageAdapter {
   async clear(): Promise<void> {
     this.write({ version: 1, entries: [], lastCleanupAt: new Date().toISOString() });
   }
+}
+
+/**
+ * Factory — creates a plain-object storage adapter.
+ *
+ * IMPORTANT: Classes cannot cross the RSC Server→Client boundary in Next.js.
+ * Always use this factory instead of `new LocalStorageHistoryAdapter()`.
+ */
+export function createLocalStorageAdapter(
+  storageKey = HISTORY_CONFIG.STORAGE_KEY
+): HistoryStorageAdapter {
+  return new LocalStorageHistoryAdapter(storageKey);
 }
 
 // =============================================================================
