@@ -59,9 +59,9 @@ async function hmacSha256(key: Uint8Array, data: string): Promise<Uint8Array> {
   return new Uint8Array(signature);
 }
 
-async function deriveKey(secret: string): Promise<Uint8Array> {
+async function deriveKey(secret: string): Promise<Uint8Array | null> {
   if (!secret) {
-    throw new Error('SESSION_SECRET is not set');
+    return null;
   }
   const encoder = new TextEncoder();
   const keyData = encoder.encode(secret + '-session-signing-v1');
@@ -116,7 +116,7 @@ async function verifyAndDecodeToken(token: string): Promise<SessionPayload | nul
   const [payloadB64, signatureB64] = parts;
   const key = await deriveKey(SESSION_SECRET);
 
-  if (!(await verifySignature(payloadB64, signatureB64, key))) return null;
+  if (!key || !(await verifySignature(payloadB64, signatureB64, key))) return null;
 
   try {
     let base64 = payloadB64.replaceAll('-', '+').replaceAll('_', '/');
