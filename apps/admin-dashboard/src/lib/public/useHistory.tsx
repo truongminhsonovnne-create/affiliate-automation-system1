@@ -70,9 +70,6 @@ export interface HistoryContextValue {
 
   /** Rehydrate from a selected history entry (load result into parent state) */
   restoreEntry: (entry: LookupHistoryEntry) => RestoreResult;
-
-  /** Storage adapter — replace this to switch to backend */
-  storage: HistoryStorageAdapter;
 }
 
 export interface RestoreResult {
@@ -90,11 +87,12 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<LookupHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Use a ref for the storage adapter so it survives re-renders
-  const storageRef = useRef<HistoryStorageAdapter>(
-    new LocalStorageHistoryAdapter()
+  // Initialize storage adapter inside useState initializer (client-side only).
+  // React always runs useState initializers on the client during hydration,
+  // so this class instance never crosses the RSC server→client boundary.
+  const [storage] = useState<HistoryStorageAdapter>(
+    () => new LocalStorageHistoryAdapter()
   );
-  const storage = storageRef.current;
 
   // Load from storage on mount
   useEffect(() => {
@@ -224,7 +222,6 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
     deleteEntries,
     clearAll,
     restoreEntry,
-    storage,
   };
 
   return (
