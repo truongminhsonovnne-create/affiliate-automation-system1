@@ -182,66 +182,70 @@ const ADMIN_PREFIX = '/admin';
 // =============================================================================
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  try {
+    const { pathname } = request.nextUrl;
 
-  // Public paths — pass through without auth check
-  if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-    return NextResponse.next();
-  }
+    // Public paths — pass through without auth check
+    if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+      return NextResponse.next();
+    }
 
-  // /api/auth/session — return JSON {authenticated:false} instead of redirecting
-  // This prevents the /admin/login → /api/auth/session → redirect → /admin/login loop
-  if (pathname === '/api/auth/session') {
+    // /api/auth/session — return JSON {authenticated:false} instead of redirecting
+    if (pathname === '/api/auth/session') {
+      const token = request.cookies.get(SESSION_COOKIE_NAME)?.value ?? '';
+      if (!token) {
+        return NextResponse.json({ authenticated: false, user: null }, { status: 200 });
+      }
+      const payload = await verifyAndDecodeToken(token);
+      if (!payload) {
+        return NextResponse.json({ authenticated: false, user: null }, { status: 200 });
+      }
+      return NextResponse.json({
+        authenticated: true,
+        user: { id: payload.actorId, role: payload.role },
+      });
+    }
+
+    // All other admin paths — require auth
+    if (!pathname.startsWith(ADMIN_PREFIX)) {
+      return NextResponse.next();
+    }
+
+    // SEO headers
+    const adminResponse = NextResponse.next();
+    adminResponse.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    adminResponse.headers.set('X-Content-Type-Options', 'nosniff');
+
+    // Auth check
     const token = request.cookies.get(SESSION_COOKIE_NAME)?.value ?? '';
     if (!token) {
-      return NextResponse.json({ authenticated: false, user: null }, { status: 200 });
+      return NextResponse.redirect(new URL('/admin/login', request.url));
     }
+
     const payload = await verifyAndDecodeToken(token);
     if (!payload) {
-      return NextResponse.json({ authenticated: false, user: null }, { status: 200 });
+      return NextResponse.redirect(new URL('/admin/login', request.url));
     }
-    return NextResponse.json({
-      authenticated: true,
-      user: { id: payload.actorId, role: payload.role },
-    });
-  }
 
-  // All other admin paths — require auth
-  if (!pathname.startsWith(ADMIN_PREFIX)) {
+    // Super admin RBAC
+    if (SUPER_ADMIN_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+      if (!hasMinimumRoleLevel(payload.role, ROLE_LEVEL['super_admin'])) {
+        return NextResponse.redirect(new URL('/admin/dashboard', request.url));
+      }
+    }
+
+    return adminResponse;
+  } catch (err) {
+    // Graceful degradation: on any unexpected error, pass through to the page
+    // instead of crashing the entire Edge runtime
+    console.error('[Middleware] Unexpected error:', err);
     return NextResponse.next();
   }
-
-  // SEO headers
-  const adminResponse = NextResponse.next();
-  adminResponse.headers.set('X-Robots-Tag', 'noindex, nofollow');
-  adminResponse.headers.set('X-Content-Type-Options', 'nosniff');
-
-  // Auth check
-  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value ?? '';
-  if (!token) {
-    return NextResponse.redirect(new URL('/admin/login', request.url));
-  }
-
-  const payload = await verifyAndDecodeToken(token);
-  if (!payload) {
-    return NextResponse.redirect(new URL('/admin/login', request.url));
-  }
-
-  // Super admin RBAC
-  if (SUPER_ADMIN_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-    if (!hasMinimumRoleLevel(payload.role, ROLE_LEVEL['super_admin'])) {
-      return NextResponse.redirect(new URL('/admin/dashboard', request.url));
-    }
-  }
-
-  return adminResponse;
 }
 
 export const config = {
   matcher: [
-    // All /admin/* routes EXCEPT /admin/login are protected by middleware.
-    // (?!admin/login$) is a negative lookahead — if path is /admin/login, skip it.
-    '/((?!admin/login$).*)',
+    '/admin/:path*',
     '/api/auth/:path*',
   ],
 };
