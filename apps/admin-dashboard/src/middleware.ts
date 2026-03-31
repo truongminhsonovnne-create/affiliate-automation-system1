@@ -181,63 +181,59 @@ const ADMIN_PREFIX = '/admin';
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // ---- 1. Public path check ----
+  // Public paths — pass through without auth check
   if (PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return NextResponse.next();
   }
 
-  // ---- 2. Non-admin paths — no auth needed; pass through ----
+  // /api/auth/session — return JSON {authenticated:false} instead of redirecting
+  // This prevents the /admin/login → /api/auth/session → redirect → /admin/login loop
+  if (pathname === '/api/auth/session') {
+    const token = request.cookies.get(SESSION_COOKIE_NAME)?.value ?? '';
+    if (!token) {
+      return NextResponse.json({ authenticated: false, user: null }, { status: 200 });
+    }
+    const payload = await verifyAndDecodeToken(token);
+    if (!payload) {
+      return NextResponse.json({ authenticated: false, user: null }, { status: 200 });
+    }
+    return NextResponse.json({
+      authenticated: true,
+      user: { id: payload.actorId, role: payload.role },
+    });
+  }
+
+  // All other admin paths — require auth
   if (!pathname.startsWith(ADMIN_PREFIX)) {
     return NextResponse.next();
   }
 
-  // ---- 3. SEO: X-Robots-Tag noindex for all admin routes (defense-in-depth) ----
-  // Even if a page somehow renders without auth, crawlers won't index it.
-  // This complements the metadata export { robots: { index: false } } in layouts.
+  // SEO headers
   const adminResponse = NextResponse.next();
   adminResponse.headers.set('X-Robots-Tag', 'noindex, nofollow');
   adminResponse.headers.set('X-Content-Type-Options', 'nosniff');
 
-  // ---- 4. Verify session (authentication) ----
+  // Auth check
   const token = request.cookies.get(SESSION_COOKIE_NAME)?.value ?? '';
-
   if (!token) {
-    return redirectToLogin(request);
+    return NextResponse.redirect(new URL('/admin/login', request.url));
   }
 
   const payload = await verifyAndDecodeToken(token);
-
   if (!payload) {
-    return redirectToLogin(request);
+    return NextResponse.redirect(new URL('/admin/login', request.url));
   }
 
-  // ---- 5. RBAC: Super Admin route check ----
+  // Super admin RBAC
   if (SUPER_ADMIN_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     if (!hasMinimumRoleLevel(payload.role, ROLE_LEVEL['super_admin'])) {
-      // User is authenticated but not a super_admin — redirect to dashboard
-      const dashboardUrl = new URL('/admin/dashboard', request.url);
-      return NextResponse.redirect(dashboardUrl);
+      return NextResponse.redirect(new URL('/admin/dashboard', request.url));
     }
   }
 
-  // ---- 6. Proceed to route ----
   return adminResponse;
 }
 
-function redirectToLogin(request: NextRequest): NextResponse {
-  // If already on the login page, return 401 JSON instead of redirecting
-  // (prevents infinite redirect loop when unauthenticated user visits /admin/login)
-  if (request.nextUrl.pathname === '/admin/login') {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const loginUrl = new URL('/admin/login', request.url);
-  loginUrl.searchParams.set('redirect', request.nextUrl.pathname);
-  return NextResponse.redirect(loginUrl);
-}
-
 export const config = {
-  matcher: [
-    '/admin/:path*',
-    '/api/auth/:path*',
-  ],
+  matcher: ['/admin/:path*', '/api/auth/:path*'],
 };

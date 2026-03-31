@@ -154,8 +154,11 @@ export async function AdminRouteGuard({
   const session = await getSession();
 
   if (!session) {
-    // Session invalid or expired (middleware should have caught this,
-    // but we check again as defense-in-depth)
+    // Session invalid or expired.
+    // If already on /admin/login, render the page normally (don't redirect — that would loop)
+    if (pathname === '/admin/login') {
+      return <>{children}</>;
+    }
     redirect('/admin/login');
   }
 
