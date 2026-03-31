@@ -238,5 +238,10 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/api/auth/:path*'],
+  matcher: [
+    // All /admin/* routes EXCEPT /admin/login are protected by middleware.
+    // (?!admin/login$) is a negative lookahead — if path is /admin/login, skip it.
+    '/((?!admin/login$).*)',
+    '/api/auth/:path*',
+  ],
 };
