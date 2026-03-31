@@ -321,7 +321,8 @@ export function HistoryPanel({ onRestoreEntry, className }: HistoryPanelProps) {
   } = useHistory();
   const { track } = useAnalytics();
   const [expanded, setExpanded] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Use string[] instead of Set<string> — Set is a class and cannot cross RSC boundary
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -349,16 +350,14 @@ export function HistoryPanel({ onRestoreEntry, className }: HistoryPanelProps) {
 
   const handleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      return [...prev, id];
     });
   }, []);
 
   const handleBulkDelete = useCallback(() => {
-    deleteEntries(Array.from(selectedIds));
-    setSelectedIds(new Set());
+    deleteEntries(selectedIds);
+    setSelectedIds([]);
   }, [selectedIds, deleteEntries]);
 
   const handleTogglePin = useCallback((id: string) => {
@@ -371,14 +370,14 @@ export function HistoryPanel({ onRestoreEntry, className }: HistoryPanelProps) {
 
   const handleClearAll = useCallback(() => {
     clearAll();
-    setSelectedIds(new Set());
+    setSelectedIds([]);
     setShowClearConfirm(false);
     setExpanded(false);
   }, [clearAll]);
 
   const pinnedEntries = entries.filter((e) => e.pinned);
   const recentEntries = entries.filter((e) => !e.pinned);
-  const hasSelection = selectedIds.size > 0;
+  const hasSelection = selectedIds.length > 0;
 
   return (
     <div ref={panelRef} className={clsx('relative', className)}>
@@ -456,7 +455,7 @@ export function HistoryPanel({ onRestoreEntry, className }: HistoryPanelProps) {
                 className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 active:scale-95"
               >
                 <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                Xóa ({selectedIds.size})
+                Xóa ({selectedIds.length})
               </button>
             )}
 
@@ -518,7 +517,7 @@ export function HistoryPanel({ onRestoreEntry, className }: HistoryPanelProps) {
                         onRestore={onRestoreEntry}
                         onTogglePin={handleTogglePin}
                         onDelete={deleteEntry}
-                        isSelected={selectedIds.has(entry.id)}
+                        isSelected={selectedIds.includes(entry.id)}
                       />
                     ))}
                   </div>
@@ -542,7 +541,7 @@ export function HistoryPanel({ onRestoreEntry, className }: HistoryPanelProps) {
                         onRestore={onRestoreEntry}
                         onTogglePin={handleTogglePin}
                         onDelete={deleteEntry}
-                        isSelected={selectedIds.has(entry.id)}
+                        isSelected={selectedIds.includes(entry.id)}
                       />
                     ))}
                   </div>

@@ -1,8 +1,7 @@
 import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
-import { AnalyticsProvider } from '@/lib/public/analytics-context';
-import { QueryProvider } from '@/lib/query/queryClient';
+import { ClientProviders } from '@/lib/providers';
 
 const inter = Inter({
   subsets: ['latin', 'latin-ext', 'vietnamese'],
@@ -128,11 +127,9 @@ export default function RootLayout({
       </head>
       <body className={`${inter.className} antialiased`}>
         <a href="#main-content" className="skip-link">Bỏ qua đến nội dung chính</a>
-        <QueryProvider>
-          <AnalyticsProvider>
-            {children}
-          </AnalyticsProvider>
-        </QueryProvider>
+        <ClientProviders>
+          {children}
+        </ClientProviders>
       </body>
     </html>
   );

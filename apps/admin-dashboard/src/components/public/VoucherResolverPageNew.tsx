@@ -278,7 +278,9 @@ export function VoucherResolverPageNew() {
   const [lastResult, setLastResult] = useState<AnalysisResult | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | undefined>(undefined);
 
-  const abortRef = useRef<AbortController | null>(null);
+  // AbortController is a class and cannot cross RSC boundary.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const abortRef = useRef<any>(null);
   const inputRef = useRef('');
 
   // ── Derived states ─────────────────────────────────────────────────────

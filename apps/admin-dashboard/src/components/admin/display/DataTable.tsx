@@ -311,29 +311,26 @@ export function DataTable<T>({
   const tableAriaLabel = ariaLabel ?? emptyMessage;
 
   // ---- Row selection state ----
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const selectedItems = data.filter((item) => selected.has(keyExtractor(item)));
+  // Use string[] instead of Set<string> — Set is a class and cannot cross RSC boundary
+  const [selected, setSelected] = useState<string[]>([]);
+  const selectedItems = data.filter((item) => selected.includes(keyExtractor(item)));
 
   const handleToggleAll = useCallback(() => {
     setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.size === data.length) {
-        next.clear();
+      if (prev.length === data.length) {
+        return [];
       } else {
-        data.forEach((item) => next.add(keyExtractor(item)));
+        return data.map((item) => keyExtractor(item));
       }
-      return next;
     });
   }, [data, keyExtractor]);
 
   const handleToggleRow = useCallback(
     (item: T) => {
       setSelected((prev) => {
-        const next = new Set(prev);
         const key = keyExtractor(item);
-        if (next.has(key)) next.delete(key);
-        else next.add(key);
-        return next;
+        if (prev.includes(key)) return prev.filter((x) => x !== key);
+        return [...prev, key];
       });
     },
     [keyExtractor]
@@ -345,7 +342,7 @@ export function DataTable<T>({
   }, [selectedItems, onSelectionChange]);
 
   const checkState: CheckState =
-    selected.size === 0 ? 'none' : selected.size === data.length ? 'all' : 'some';
+    selected.length === 0 ? 'none' : selected.length === data.length ? 'all' : 'some';
 
   const displayColumns = selectable
     ? [
@@ -362,20 +359,20 @@ export function DataTable<T>({
   return (
     <div className={clsx('bg-white rounded-xl border border-gray-200 overflow-hidden shadow-card', className)}>
       {/* Bulk actions bar — shown when rows selected */}
-      {selectable && selected.size > 0 && (
+      {selectable && selected.length > 0 && (
         <div
           role="toolbar"
           aria-label="Hành động hàng loạt"
           className="flex items-center gap-3 px-4 py-2.5 bg-brand-50 border-b border-brand-100 animate-in slide-in-from-top-1 fade-in duration-150"
         >
           <span className="text-sm font-medium text-brand-700" aria-live="polite">
-            {selected.size} đã chọn
+            {selected.length} đã chọn
           </span>
           <div className="h-4 w-px bg-brand-200" aria-hidden="true" />
           <div className="flex items-center gap-2">{bulkActions}</div>
           <button
             type="button"
-            onClick={() => setSelected(new Set())}
+            onClick={() => setSelected([])}
             className="ml-auto text-xs text-brand-600 hover:text-brand-800 underline underline-offset-2"
           >
             Bỏ chọn
@@ -508,7 +505,7 @@ export function DataTable<T>({
               // Data rows
               data.map((item) => {
                 const rowKey = keyExtractor(item);
-                const isSelected = selected.has(rowKey);
+                const isSelected = selected.includes(rowKey);
                 const isClickable = Boolean(onRowClick);
 
                 return (
