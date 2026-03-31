@@ -150,15 +150,19 @@ export async function AdminRouteGuard({
   requiredPermission,
   pathname,
 }: AdminRouteGuardProps) {
+  // /admin/login page handles auth client-side — skip server-side guard entirely.
+  // Without this check, if pathname === '/admin' (not '/admin/login'), the guard
+  // would redirect to /admin/login, and the login page's layout would re-trigger
+  // the same redirect → infinite loop → white screen.
+  if (pathname?.startsWith('/admin/login')) {
+    return <>{children}</>;
+  }
+
   // ---- Step 1: Verify session server-side ----
   const session = await getSession();
 
   if (!session) {
     // Session invalid or expired.
-    // If already on /admin/login, render the page normally (don't redirect — that would loop)
-    if (pathname === '/admin/login') {
-      return <>{children}</>;
-    }
     redirect('/admin/login');
   }
 
