@@ -587,6 +587,9 @@ function resolveRequestId(clientRequestId: unknown, xClientRequestId: string | n
 
 // ── POST ──────────────────────────────────────────────────────────────────────
 
+/** Hard ceiling — never let a request exceed this on Vercel (10s limit for Serverless). */
+const REQUEST_TIMEOUT_MS = 7000;
+
 export async function POST(request: NextRequest) {
   const totalStart = Date.now();
   const phases: PhaseTimings = {
@@ -601,79 +604,148 @@ export async function POST(request: NextRequest) {
 
   const xClientRequestId = request.headers.get('X-Client-Request-Id') ?? null;
 
-  // ── 1. Parse body ─────────────────────────────────────────────────────────
-  let body: unknown;
+  // ── 0. Hard timeout wrapper — ensures we always return a response ─────────
+  const timeoutController = new AbortController();
+  const timeoutTimer = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS);
+  timeoutController.signal.addEventListener('abort', () => {
+    log('warn', 'REQUEST_TIMEOUT', { totalMs: Date.now() - totalStart });
+  });
+
+  const abortCleanup = () => clearTimeout(timeoutTimer);
+
   try {
-    body = await request.json();
-  } catch {
-    phases.total = Date.now() - totalStart;
-    const rid = resolveRequestId(undefined, xClientRequestId);
-    log('error', 'INVALID_JSON', { requestId: rid, totalMs: phases.total });
-    return NextResponse.json(
-      { requestId: rid, status: 'invalid_input', code: 'INVALID_JSON', warnings: [{ code: 'INVALID_JSON', message: 'Yêu cầu không hợp lệ.', severity: 'warning' }] },
-      { status: 400 }
-    );
-  }
+    // ── 1. Parse body ─────────────────────────────────────────────────────────
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      phases.total = Date.now() - totalStart;
+      abortCleanup();
+      const rid = resolveRequestId(undefined, xClientRequestId);
+      log('error', 'INVALID_JSON', { requestId: rid, totalMs: phases.total });
+      return NextResponse.json(
+        { requestId: rid, status: 'invalid_input', code: 'INVALID_JSON', warnings: [{ code: 'INVALID_JSON', message: 'Yêu cầu không hợp lệ.', severity: 'warning' }] },
+        { status: 400 }
+      );
+    }
 
-  const { input: rawInput, requestId: bodyRequestId } = body as { input?: unknown; requestId?: unknown };
-  const requestId = resolveRequestId(bodyRequestId, xClientRequestId);
-  log('info', 'RESOLVE_START', { requestId, totalMs: 0 });
+    const { input: rawInput, requestId: bodyRequestId } = body as { input?: unknown; requestId?: unknown };
+    const requestId = resolveRequestId(bodyRequestId, xClientRequestId);
+    log('info', 'RESOLVE_START', { requestId, totalMs: 0 });
 
-  // ── 2. Expand short URLs (shope.ee, etc.) ────────────────────────────────
-  const normalizeStart = Date.now();
-  const expandedInput = typeof rawInput === 'string' ? await expandShortUrl(rawInput) : rawInput;
+    // ── 2. Expand short URLs (shope.ee, etc.) ────────────────────────────────
+    const normalizeStart = Date.now();
+    const expandedInput = typeof rawInput === 'string' ? await expandShortUrl(rawInput) : rawInput;
 
-  // ── 3. Normalize input ────────────────────────────────────────────────────
-  const validation = validateInput(expandedInput);
-  phases.normalize = Date.now() - normalizeStart;
+    // ── 3. Normalize input ────────────────────────────────────────────────────
+    const validation = validateInput(expandedInput);
+    phases.normalize = Date.now() - normalizeStart;
 
-  if (!validation.valid) {
-    phases.total = Date.now() - totalStart;
-    log('warn', 'INVALID_INPUT', { requestId, code: validation.code, message: validation.message, totalMs: phases.total });
-    return NextResponse.json(
-      {
+    if (!validation.valid) {
+      phases.total = Date.now() - totalStart;
+      log('warn', 'INVALID_INPUT', { requestId, code: validation.code, message: validation.message, totalMs: phases.total });
+      return NextResponse.json(
+        {
+          requestId,
+          status: 'invalid_input',
+          bestMatch: null,
+          candidates: [],
+          performance: { totalLatencyMs: phases.total, phaseTimings: phases, servedFromCache: false, resolvedAt: new Date().toISOString() },
+          explanation: { summary: 'Link không hợp lệ.', tips: ['Vui lòng nhập link sản phẩm Shopee, Lazada, Tiki, TikTok hợp lệ.'] },
+          warnings: [{ code: validation.code, message: validation.message, severity: 'warning' }],
+        },
+        { status: 400 }
+      );
+    }
+
+    const normalized = validation.normalized;
+
+    // ── 3. Persist pending request — graceful degradation if DB is down ──────
+    const persistStart = Date.now();
+    let persistSucceeded = false;
+    try {
+      await createResolveRequest({
         requestId,
-        status: 'invalid_input',
-        bestMatch: null,
-        candidates: [],
-        performance: { totalLatencyMs: phases.total, phaseTimings: phases, servedFromCache: false, resolvedAt: new Date().toISOString() },
-        explanation: { summary: 'Link không hợp lệ.', tips: ['Vui lòng nhập link sản phẩm Shopee, Lazada, Tiki, TikTok hợp lệ.'] },
-        warnings: [{ code: validation.code, message: validation.message, severity: 'warning' }],
-      },
-      { status: 400 }
-    );
-  }
+        platform: normalized.platform,
+        rawUrl: typeof rawInput === 'string' ? rawInput : normalized.originalUrl,
+        normalizedUrl: normalized.cleanUrl,
+      });
+      persistSucceeded = true;
+      phases.persist = Date.now() - persistStart;
+    } catch (persistErr) {
+      phases.total = Date.now() - totalStart;
+      phases.persist = Date.now() - persistStart;
+      const errMsg = persistErr instanceof Error ? persistErr.message : String(persistErr);
+      const isMissingEnv = errMsg.includes('MISSING_SUPABASE_ENV');
 
-  const normalized = validation.normalized;
+      log('error', 'PERSISTENCE_FAILED', {
+        requestId,
+        error: errMsg,
+        isMissingEnv,
+        persistMs: phases.persist,
+        totalMs: phases.total,
+      });
 
-  // ── 3. Persist pending request — graceful degradation if DB is down ──────
-  const persistStart = Date.now();
-  let persistSucceeded = false;
-  try {
-    await createResolveRequest({
-      requestId,
-      platform: normalized.platform,
-      rawUrl: typeof rawInput === 'string' ? rawInput : normalized.originalUrl,
-      normalizedUrl: normalized.cleanUrl,
-    });
-    persistSucceeded = true;
-    phases.persist = Date.now() - persistStart;
-  } catch (persistErr) {
-    phases.total = Date.now() - totalStart;
-    phases.persist = Date.now() - persistStart;
-    const errMsg = persistErr instanceof Error ? persistErr.message : String(persistErr);
-    const isMissingEnv = errMsg.includes('MISSING_SUPABASE_ENV');
+      if (isMissingEnv) {
+        return NextResponse.json(
+          {
+            requestId,
+            status: 'error',
+            bestMatch: null,
+            candidates: [],
+            performance: { totalLatencyMs: phases.total, phaseTimings: phases, servedFromCache: false, resolvedAt: new Date().toISOString() },
+            explanation: { summary: 'Cấu hình dịch vụ chưa hoàn chỉnh.', tips: ['Vui lòng liên hệ quản trị viên để cấu hình Supabase.'] },
+            warnings: [{ code: 'CONFIGURATION_ERROR', message: 'Dịch vụ chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.', severity: 'warning' }],
+          },
+          { status: 503 }
+        );
+      }
 
-    // Log with more context so the operator can diagnose
-    log('error', 'PERSISTENCE_FAILED', {
-      requestId,
-      error: errMsg,
-      isMissingEnv,
-      persistMs: phases.persist,
-      totalMs: phases.total,
-    });
+      log('warn', 'PERSISTENCE_SKIPPED_GRACEFUL', { requestId, error: errMsg });
+    }
+    if (persistSucceeded) {
+      log('info', 'REQUEST_PERSISTED', { requestId, persistMs: phases.persist });
+    }
 
-    if (isMissingEnv) {
+    // ── 4. Cache lookup ────────────────────────────────────────────────────────
+    const cacheStart = Date.now();
+    const cacheKey = buildCacheKey(normalized);
+    const cached = getFromCache(cacheKey);
+    phases.cacheHit = Date.now() - cacheStart;
+
+    if (cached) {
+      phases.total = Date.now() - totalStart;
+      log('info', 'CACHE_HIT', { requestId, cacheKey, totalMs: phases.total });
+      const cachedData = cached.result as Record<string, unknown>;
+      const cachedResponse = {
+        ...cachedData,
+        requestId: cachedData.requestId || requestId,
+        performance: {
+          ...(cachedData.performance as Record<string, unknown>),
+          totalLatencyMs: phases.total,
+          servedFromCache: true,
+          resolvedAt: new Date().toISOString(),
+        },
+      };
+      const cachedStatus = cachedData.status === 'success' ? 'succeeded' : 'no_match';
+      const topMatch = cachedData.bestMatch as Record<string, unknown> | null;
+      await updateResolveRequest(requestId, cachedStatus, {
+        hasMatch: cachedStatus === 'succeeded',
+        bestVoucherId: topMatch?.id as string | undefined,
+        bestVoucherCode: topMatch?.code as string | undefined,
+        durationMs: phases.total,
+      });
+      return NextResponse.json(cachedResponse, { status: 200 });
+    }
+
+    // ── 5. Supabase query ─────────────────────────────────────────────────────
+    const supabaseStart = Date.now();
+    const dbResult = await querySupabase(normalized, supabaseStart, requestId);
+    phases.supabaseQuery = Date.now() - supabaseStart;
+
+    if (dbResult.error && !dbResult.found) {
+      phases.total = Date.now() - totalStart;
+      log('error', 'FULL_RESOLVE_UNAVAILABLE', { requestId, supabaseError: dbResult.error, totalMs: phases.total });
       return NextResponse.json(
         {
           requestId,
@@ -681,150 +753,127 @@ export async function POST(request: NextRequest) {
           bestMatch: null,
           candidates: [],
           performance: { totalLatencyMs: phases.total, phaseTimings: phases, servedFromCache: false, resolvedAt: new Date().toISOString() },
-          explanation: { summary: 'Cấu hình dịch vụ chưa hoàn chỉnh.', tips: ['Vui lòng liên hệ quản trị viên để cấu hình Supabase.'] },
-          warnings: [{ code: 'CONFIGURATION_ERROR', message: 'Dịch vụ chưa được cấu hình đầy đủ. Vui lòng liên hệ quản trị viên.', severity: 'warning' }],
+          explanation: { summary: 'Dịch vụ tạm thời gián đoạn.', tips: ['Vui lòng thử lại trong giây lát.'] },
+          warnings: [{ code: 'FULL_RESOLVE_UNAVAILABLE', message: 'Không thể truy vấn dữ liệu. Vui lòng thử lại sau.', severity: 'warning' }],
         },
         { status: 503 }
       );
     }
 
-    // Non-fatal persistence failure: continue the resolution without DB persistence.
-    // The response is returned directly without a polling contract.
-    // Supabase query still runs, so results are still available.
-    log('warn', 'PERSISTENCE_SKIPPED_GRACEFUL', {
-      requestId,
-      error: errMsg,
-    });
-  }
-  if (persistSucceeded) {
-    log('info', 'REQUEST_PERSISTED', { requestId, persistMs: phases.persist });
-  }
+    // ── 6. Rank candidates ─────────────────────────────────────────────────────
+    const rankingStart = Date.now();
+    const ranked = rankOffers(dbResult.offers, { shopId: normalized.shopId, itemId: normalized.itemId });
+    phases.ranking = Date.now() - rankingStart;
 
-  // ── 4. Cache lookup ────────────────────────────────────────────────────────
-  const cacheStart = Date.now();
-  const cacheKey = buildCacheKey(normalized);
-  const cached = getFromCache(cacheKey);
-  phases.cacheHit = Date.now() - cacheStart;
+    const assessment = assessCandidates(ranked);
+    let resolveMode: string;
 
-  if (cached) {
+    if (assessment === 'sufficient') {
+      resolveMode = 'supabase_only';
+    } else if (assessment === 'enrich_recommended' && INTERNAL_API_URL) {
+      resolveMode = 'supabase_plus_enrich';
+    } else if (assessment === 'no_result' && INTERNAL_API_URL) {
+      resolveMode = 'enrich_only_fallback';
+    } else {
+      resolveMode = assessment === 'no_result' ? 'no_match' : 'supabase_only';
+    }
+
+    // ── 7. Optional enrich ────────────────────────────────────────────────────
+    const enrichStart = Date.now();
+    let enrichResult: EnrichResult = { enriched: false, latencyMs: 0 };
+
+    if ((assessment === 'enrich_recommended' || assessment === 'no_result') && INTERNAL_API_URL) {
+      enrichResult = await tryEnrich(normalized, ranked, enrichStart, requestId);
+    }
+    phases.enrich = Date.now() - enrichStart;
     phases.total = Date.now() - totalStart;
-    log('info', 'CACHE_HIT', { requestId, cacheKey, totalMs: phases.total });
-    const cachedData = cached.result as Record<string, unknown>;
-    const cachedResponse = {
-      ...cachedData,
-      requestId: cachedData.requestId || requestId,
-      performance: {
-        ...(cachedData.performance as Record<string, unknown>),
-        totalLatencyMs: phases.total,
-        servedFromCache: true,
-        resolvedAt: new Date().toISOString(),
-      },
-    };
-    const cachedStatus = cachedData.status === 'success' ? 'succeeded' : 'no_match';
-    const topMatch = cachedData.bestMatch as Record<string, unknown> | null;
-    await updateResolveRequest(requestId, cachedStatus, {
-      hasMatch: cachedStatus === 'succeeded',
+
+    // ── 8. Build response ─────────────────────────────────────────────────────
+    let response: Record<string, unknown>;
+
+    if (ranked.length === 0 && !enrichResult.enriched) {
+      response = buildNoMatchResponse(phases, enrichResult, requestId);
+    } else {
+      if (enrichResult.enriched && enrichResult.confidenceBoost) {
+        const merged = ranked.map((r, i) =>
+          i === 0 ? { ...r, score: r.score + enrichResult.confidenceBoost! * 50 } : r
+        );
+        response = buildSuccessResponse(merged, enrichResult, phases, resolveMode, requestId);
+      } else {
+        response = buildSuccessResponse(ranked, enrichResult, phases, resolveMode, requestId);
+      }
+    }
+
+    // ── 9. Cache the result ──────────────────────────────────────────────────
+    setCache(cacheKey, response, resolveMode, ranked.length);
+
+    // ── 10. Update persistent record with final status ───────────────────────
+    const hasMatch = (response.status === 'success');
+    const topMatch = response.bestMatch as Record<string, unknown> | null;
+    await updateResolveRequest(requestId, hasMatch ? 'succeeded' : 'no_match', {
+      hasMatch,
       bestVoucherId: topMatch?.id as string | undefined,
       bestVoucherCode: topMatch?.code as string | undefined,
       durationMs: phases.total,
     });
-    return NextResponse.json(cachedResponse, { status: 200 });
-  }
 
-  // ── 5. Supabase query ─────────────────────────────────────────────────────
-  const supabaseStart = Date.now();
-  const dbResult = await querySupabase(normalized, supabaseStart, requestId);
-  phases.supabaseQuery = Date.now() - supabaseStart;
+    // ── 11. Log completion ──────────────────────────────────────────────────
+    log('info', 'RESOLVE_COMPLETE', {
+      requestId,
+      resolveMode,
+      totalMs: phases.total,
+      supabaseMs: phases.supabaseQuery,
+      enrichMs: phases.enrich,
+      rankedCount: ranked.length,
+      confidenceScore: response.confidenceScore,
+      enriched: enrichResult.enriched,
+      platform: normalized.platform,
+      shopId: normalized.shopId,
+    });
 
-  if (dbResult.error && !dbResult.found) {
-    phases.total = Date.now() - totalStart;
-    log('error', 'FULL_RESOLVE_UNAVAILABLE', { requestId, supabaseError: dbResult.error, totalMs: phases.total });
+    return NextResponse.json(response, { status: 200 });
+
+  } catch (err: unknown) {
+    // AbortException = hard timeout exceeded — return 504 immediately
+    if (err instanceof DOMException && err.name === 'AbortException') {
+      abortCleanup();
+      const elapsed = Date.now() - totalStart;
+      log('warn', 'REQUEST_TIMEOUT_CAUGHT', { totalMs: elapsed });
+      return NextResponse.json(
+        {
+          requestId: 'unknown',
+          status: 'error',
+          code: 'TIMEOUT',
+          bestMatch: null,
+          candidates: [],
+          performance: { totalLatencyMs: elapsed, phaseTimings: phases, servedFromCache: false, resolvedAt: new Date().toISOString() },
+          explanation: { summary: 'Yêu cầu hết thời gian xử lý.', tips: ['Vui lòng thử lại — thường do kết nối mạng chậm.'] },
+          warnings: [{ code: 'TIMEOUT', message: 'Request exceeded maximum allowed processing time.', severity: 'warning' }],
+        },
+        { status: 504 }
+      );
+    }
+    // Other errors
+    abortCleanup();
+    const elapsed = Date.now() - totalStart;
+    const msg = err instanceof Error ? err.message : String(err);
+    log('error', 'POST_UNHANDLED_ERROR', { error: msg, totalMs: elapsed });
     return NextResponse.json(
       {
-        requestId,
+        requestId: 'unknown',
         status: 'error',
+        code: 'INTERNAL_ERROR',
         bestMatch: null,
         candidates: [],
-        performance: { totalLatencyMs: phases.total, phaseTimings: phases, servedFromCache: false, resolvedAt: new Date().toISOString() },
-        explanation: { summary: 'Dịch vụ tạm thời gián đoạn.', tips: ['Vui lòng thử lại trong giây lát.'] },
-        warnings: [{ code: 'FULL_RESOLVE_UNAVAILABLE', message: 'Không thể truy vấn dữ liệu. Vui lòng thử lại sau.', severity: 'warning' }],
+        performance: { totalLatencyMs: elapsed, phaseTimings: phases, servedFromCache: false, resolvedAt: new Date().toISOString() },
+        explanation: { summary: 'Đã xảy ra lỗi không mong muốn.', tips: ['Vui lòng thử lại.'] },
+        warnings: [{ code: 'INTERNAL_ERROR', message: msg, severity: 'warning' }],
       },
-      { status: 503 }
+      { status: 500 }
     );
+  } finally {
+    abortCleanup();
   }
-
-  // ── 6. Rank candidates ─────────────────────────────────────────────────────
-  const rankingStart = Date.now();
-  const ranked = rankOffers(dbResult.offers, { shopId: normalized.shopId, itemId: normalized.itemId });
-  phases.ranking = Date.now() - rankingStart;
-
-  const assessment = assessCandidates(ranked);
-  let resolveMode: string;
-
-  if (assessment === 'sufficient') {
-    resolveMode = 'supabase_only';
-  } else if (assessment === 'enrich_recommended' && INTERNAL_API_URL) {
-    resolveMode = 'supabase_plus_enrich';
-  } else if (assessment === 'no_result' && INTERNAL_API_URL) {
-    resolveMode = 'enrich_only_fallback';
-  } else {
-    resolveMode = assessment === 'no_result' ? 'no_match' : 'supabase_only';
-  }
-
-  // ── 7. Optional enrich ────────────────────────────────────────────────────
-  const enrichStart = Date.now();
-  let enrichResult: EnrichResult = { enriched: false, latencyMs: 0 };
-
-  if ((assessment === 'enrich_recommended' || assessment === 'no_result') && INTERNAL_API_URL) {
-    enrichResult = await tryEnrich(normalized, ranked, enrichStart, requestId);
-  }
-  phases.enrich = Date.now() - enrichStart;
-  phases.total = Date.now() - totalStart;
-
-  // ── 8. Build response ─────────────────────────────────────────────────────
-  let response: Record<string, unknown>;
-
-  if (ranked.length === 0 && !enrichResult.enriched) {
-    response = buildNoMatchResponse(phases, enrichResult, requestId);
-  } else {
-    if (enrichResult.enriched && enrichResult.confidenceBoost) {
-      const merged = ranked.map((r, i) =>
-        i === 0 ? { ...r, score: r.score + enrichResult.confidenceBoost! * 50 } : r
-      );
-      response = buildSuccessResponse(merged, enrichResult, phases, resolveMode, requestId);
-    } else {
-      response = buildSuccessResponse(ranked, enrichResult, phases, resolveMode, requestId);
-    }
-  }
-
-  // ── 9. Cache the result ──────────────────────────────────────────────────
-  setCache(cacheKey, response, resolveMode, ranked.length);
-
-  // ── 10. Update persistent record with final status ───────────────────────
-  const hasMatch = (response.status === 'success');
-  const topMatch = response.bestMatch as Record<string, unknown> | null;
-  await updateResolveRequest(requestId, hasMatch ? 'succeeded' : 'no_match', {
-    hasMatch,
-    bestVoucherId: topMatch?.id as string | undefined,
-    bestVoucherCode: topMatch?.code as string | undefined,
-    durationMs: phases.total,
-  });
-
-  // ── 11. Log completion ──────────────────────────────────────────────────
-  log('info', 'RESOLVE_COMPLETE', {
-    requestId,
-    resolveMode,
-    totalMs: phases.total,
-    supabaseMs: phases.supabaseQuery,
-    enrichMs: phases.enrich,
-    rankedCount: ranked.length,
-    confidenceScore: response.confidenceScore,
-    enriched: enrichResult.enriched,
-    platform: normalized.platform,
-    shopId: normalized.shopId,
-  });
-
-  return NextResponse.json(response, { status: 200 });
 }
 
 // ── GET ───────────────────────────────────────────────────────────────────────

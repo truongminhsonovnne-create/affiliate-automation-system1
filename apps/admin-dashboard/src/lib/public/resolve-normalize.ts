@@ -41,7 +41,8 @@ export async function expandShortUrl(raw: string): Promise<string> {
 
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3000);
+    // 1.5s max — shope.ee redirects are instant; 3s is too generous
+    const timer = setTimeout(() => controller.abort(), 1500);
     const res = await fetch(raw, {
       method: 'HEAD',
       redirect: 'follow',
