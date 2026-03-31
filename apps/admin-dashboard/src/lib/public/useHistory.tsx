@@ -118,6 +118,7 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
   // Add a new entry
   const addEntry = useCallback(
     async (inputUrl: string, state: ResolutionState) => {
+      if (!storageRef.current) return;
       const entry = buildHistoryEntry(inputUrl, state);
       await storageRef.current.save(entry);
 
@@ -141,6 +142,7 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
   // Toggle pin
   const togglePin = useCallback(
     async (id: string) => {
+      if (!storageRef.current) return;
       const entry = entries.find((e) => e.id === id);
       if (!entry) return;
 
@@ -164,6 +166,7 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
   // Delete single entry
   const deleteEntry = useCallback(
     async (id: string) => {
+      if (!storageRef.current) return;
       await storageRef.current.delete(id);
       setEntries((prev) => prev.filter((e) => e.id !== id));
     },
@@ -173,6 +176,7 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
   // Delete multiple entries
   const deleteEntries = useCallback(
     async (ids: string[]) => {
+      if (!storageRef.current) return;
       await storageRef.current.deleteMany(ids);
       const idSet = new Set(ids);
       setEntries((prev) => prev.filter((e) => !idSet.has(e.id)));
@@ -182,9 +186,10 @@ export function HistoryProvider({ children }: { children: ReactNode }) {
 
   // Clear all
   const clearAll = useCallback(async () => {
+    if (!storageRef.current) return;
     await storageRef.current.clear();
     setEntries([]);
-  }, [storage]);
+  }, [storageRef]);
 
   // Restore entry → ResolutionState
   const restoreEntry = useCallback(
