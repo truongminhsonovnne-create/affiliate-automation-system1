@@ -30,7 +30,7 @@ import type { NextRequest } from 'next/server';
 const SESSION_COOKIE_NAME = 'admin_session_v2';
 const SESSION_VERSION = parseInt(process.env.SESSION_VERSION ?? '1', 10);
 
-const SESSION_SECRET = process.env.SESSION_SECRET ?? '';
+const SESSION_SECRET = process.env.SESSION_SECRET;
 
 // =============================================================================
 // Role Constants (must match rbac.ts)
@@ -60,6 +60,9 @@ async function hmacSha256(key: Uint8Array, data: string): Promise<Uint8Array> {
 }
 
 async function deriveKey(secret: string): Promise<Uint8Array> {
+  if (!secret) {
+    throw new Error('SESSION_SECRET is not set');
+  }
   const encoder = new TextEncoder();
   const keyData = encoder.encode(secret + '-session-signing-v1');
   const hashBuffer = await crypto.subtle.digest('SHA-256', keyData);
