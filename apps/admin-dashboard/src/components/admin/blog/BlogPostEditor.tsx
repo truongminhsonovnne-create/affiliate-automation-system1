@@ -33,6 +33,7 @@ import {
   ExternalLink,
   Trash2,
   Sparkles,
+  RotateCcw,
 } from 'lucide-react';
 import { Modal, ModalFooter } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
@@ -81,6 +82,11 @@ const EMPTY_FORM: FormState = {
   status: 'draft',
   publishNow: false,
 };
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const DEFAULT_FORMAT_INSTRUCTION =
+  'chia lại heading, tách đoạn ngắn hơn, đổi sang HTML sạch, thêm danh sách bullet points';
 
 // ── Options ─────────────────────────────────────────────────────────────────
 
@@ -179,7 +185,7 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
   // ── AI format state ─────────────────────────────────────────────────────
   const [formatting, setFormatting] = useState(false);
   const [formatError, setFormatError] = useState<string | null>(null);
-  const [formatInstruction, setFormatInstruction] = useState('');
+  const [formatInstruction, setFormatInstruction] = useState(DEFAULT_FORMAT_INSTRUCTION);
 
   // ── Populate form when editing ─────────────────────────────────────────
   useEffect(() => {
@@ -203,7 +209,7 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
       setSuccess(false);
       setImageUploadError(null);
       setFormatError(null);
-      setFormatInstruction('');
+      setFormatInstruction(DEFAULT_FORMAT_INSTRUCTION);
     }
   }, [open, post]);
 
@@ -617,28 +623,40 @@ Bạn có thể dùng HTML đơn giản:
               </label>
 
               <textarea
-                placeholder="VD: chia lại heading, tách đoạn ngắn hơn, đổi sang HTML sạch, thêm danh sách bullet points..."
                 value={formatInstruction}
                 onChange={(e) => setFormatInstruction(e.target.value)}
                 rows={2}
                 disabled={formatting || isSaving}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-white placeholder:text-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 disabled:opacity-50"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-white resize-none focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 disabled:opacity-50"
               />
 
               {formatError && (
                 <p className="text-xs text-red-600">{formatError}</p>
               )}
 
-              <Button
-                variant="secondary"
-                size="sm"
-                icon={<Sparkles className="h-3.5 w-3.5" />}
-                loading={formatting}
-                disabled={formatting || isSaving || !formatInstruction.trim() || !form.content.trim()}
-                onClick={handleFormatContent}
-              >
-                Làm đẹp nội dung bằng AI
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<Sparkles className="h-3.5 w-3.5" />}
+                  loading={formatting}
+                  disabled={formatting || isSaving || !formatInstruction.trim() || !form.content.trim()}
+                  onClick={handleFormatContent}
+                >
+                  Làm đẹp nội dung bằng AI
+                </Button>
+
+                <button
+                  type="button"
+                  onClick={() => setFormatInstruction(DEFAULT_FORMAT_INSTRUCTION)}
+                  disabled={formatting || isSaving}
+                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+                  title="Khôi phục prompt mặc định"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Khôi phục mặc định
+                </button>
+              </div>
 
               <p className="text-xs text-gray-400">
                 AI định dạng lại nội dung: tách heading hợp lý, chia đoạn ngắn, chuyển sang HTML sạch. Không dùng chung với prompt tạo ảnh cover.
