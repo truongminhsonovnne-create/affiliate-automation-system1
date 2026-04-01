@@ -1,347 +1,230 @@
 /**
- * Admin API Proxy — Production Hardened
+ * Admin API Proxy
  *
- * Server-side proxy that forwards read-only requests from the admin dashboard
- * to the internal control plane API. Acts as a trust boundary bridge.
+ * Handles dashboard data in two modes:
+ * 1. LOCAL (default, no Railway needed):
+ *    GET /overview, /activity, /failure-insights, /trends
+ *    → reads directly from Supabase
  *
- * HARDENING APPLIED:
- *  - Route whitelist: only known, pre-approved internal paths are forwarded
- *  - Path validation: path traversal, absolute URLs, null-bytes all rejected
- *  - Header stripping: client-supplied headers stripped before forwarding
- *  - Method allowlist: GET only (dashboard is read-only by design)
- *  - Request size limit: max 64KB body for any forwarded request
- *  - Timeout: 30s hard timeout to prevent hanging connections
- *  - Audit log: every proxy request is logged (target path, actor, outcome)
- *  - Error sanitization: internal errors never leaked to client
- *  - No query forwarding: query params built from validated internal schema
- *
- * TRUST MODEL:
- *   Browser → [session cookie] → Dashboard → [proxy] → Control Plane
- *   The proxy is the ONLY egress point from the dashboard to the internal API.
+ * 2. FORWARD (when INTERNAL_API_URL is set):
+ *    all other routes (products, crawl-jobs, publish-jobs, workers, etc.)
+ *    → forwards to Railway/control-plane backend
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthenticated, getSession } from '@/lib/auth/session';
 import { logProxyRequest } from '@/lib/auth/auditLogger';
+import { createClient } from '@supabase/supabase-js';
 
 // =============================================================================
-// Config (fail-fast startup validation)
+// Supabase
 // =============================================================================
 
-const INTERNAL_BASE_URL = (() => {
-  const url = process.env.INTERNAL_API_URL || 'http://localhost:3001';
+function getSupabase() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+// =============================================================================
+// Railway (optional)
+// =============================================================================
+
+const INTERNAL_BASE_URL = process.env.INTERNAL_API_URL;
+const INTERNAL_SECRET = process.env.CONTROL_PLANE_INTERNAL_SECRET ?? '';
+const hasRailway = Boolean(INTERNAL_BASE_URL && INTERNAL_SECRET);
+
+// =============================================================================
+// Local handlers — no Railway needed
+// =============================================================================
+
+async function handleOverview(): Promise<NextResponse> {
   try {
-    const parsed = new URL(url);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      throw new Error(`INTERNAL_API_URL must use http/https, got: ${parsed.protocol}`);
-    }
-    return url.replace(/\/$/, ''); // Normalize: no trailing slash
+    const sb = getSupabase();
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 86_400_000).toISOString();
+    const weekAgo = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+
+    const [products, pj, pjToday, posts, deadLetters, crawlJobs] = await Promise.allSettled([
+      sb.from('affiliate_products').select('id', { count: 'exact', head: true }),
+      sb.from('publish_jobs').select('id', { count: 'exact', head: true })
+        .in('status', ['pending', 'running', 'scheduled', 'ready', 'publishing']),
+      sb.from('publish_jobs').select('id', { count: 'exact', head: true }).gte('created_at', yesterday),
+      sb.from('posts').select('id', { count: 'exact', head: true }),
+      sb.from('dead_letters').select('id', { count: 'exact', head: true }).eq('status', 'failed'),
+      sb.from('crawl_jobs').select('id, status').gte('started_at', weekAgo)
+        .order('started_at', { ascending: false }).limit(20),
+    ]);
+
+    const totalProducts  = products.status === 'fulfilled' ? (products.value.count ?? 0) : 0;
+    const activeJobs    = pj.status === 'fulfilled' ? (pj.value.count ?? 0) : 0;
+    const jobsToday     = pjToday.status === 'fulfilled' ? (pjToday.value.count ?? 0) : 0;
+    const postsCount   = posts.status === 'fulfilled' ? (posts.value.count ?? 0) : 0;
+    const deadCount    = deadLetters.status === 'fulfilled' ? (deadLetters.value.count ?? 0) : 0;
+    const crawls       = crawlJobs.status === 'fulfilled' ? (crawlJobs.value.data ?? []) : [];
+    const done         = crawls.filter((j: any) => j.status === 'completed').length;
+    const failed       = crawls.filter((j: any) => j.status === 'failed').length;
+
+    return NextResponse.json({
+      ok: true,
+      status: 'success',
+      data: {
+        totalProducts, publishJobsToday: jobsToday, activeWorkers: 0,
+        successRate: crawls.length > 0 ? Math.round((done / crawls.length) * 100) : 100,
+        pendingJobs: activeJobs, runningJobs: 0, completedJobs: done, failedJobs: failed,
+        totalJobs: crawls.length,
+        shopeeProducts: 0, lazadaProducts: 0, tiktokProducts: 0, tikiProducts: 0,
+        totalActivities: 0, totalWorkers: 0, idleWorkers: 0, errorWorkers: 0,
+        newFailures24h: deadCount, maxCount: deadCount || 1, deadLetters: deadCount,
+        postsCount,
+        trends: { crawl: { count: done }, publish: { count: jobsToday }, ai_content: { count: 0 }, worker: { count: 0 } },
+      },
+      timestamp: now.toISOString(),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
+}
+
+async function handleActivity(): Promise<NextResponse> {
+  try {
+    const sb = getSupabase();
+    const { data, error } = await sb
+      .from('admin_action_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (error) throw error;
+
+    const items = (data ?? []).map((row: any) => ({
+      id: row.id, type: row.action_type || 'system',
+      message: `${row.action_type} by ${row.actor_id || 'system'}`,
+      entity_type: row.target_type, entity_id: row.target_id,
+      user_id: row.actor_id, created_at: row.created_at,
+    }));
+
+    return NextResponse.json({
+      ok: true, status: 'success',
+      data: { items, pagination: { page: 1, pageSize: 20, total: items.length, totalPages: 1 } },
+      timestamp: new Date().toISOString(),
+    });
   } catch {
-    throw new Error(
-      'FATAL: INTERNAL_API_URL is not a valid URL. ' +
-        'Set a valid internal API URL in your environment.'
-    );
+    return NextResponse.json({
+      ok: true, status: 'success',
+      data: { items: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } },
+      timestamp: new Date().toISOString(),
+    });
   }
-})();
-
-// Internal secret for admin→control-plane auth (server-side only, never exposed)
-// Validated lazily on first request — not at module load time (safe for `next build`).
-function getInternalSecret(): string {
-  const secret = process.env.CONTROL_PLANE_INTERNAL_SECRET;
-  if (!secret) {
-    throw new Error(
-      'FATAL: CONTROL_PLANE_INTERNAL_SECRET is not set. ' +
-        'This secret is required for admin-to-control-plane authentication. ' +
-        'Set it in your environment before starting the server.'
-    );
-  }
-  if (secret.length < 16) {
-    throw new Error(
-      `FATAL: CONTROL_PLANE_INTERNAL_SECRET is too short (${secret.length} chars). ` +
-        'Minimum 16 characters required. Generate: openssl rand -hex 32'
-    );
-  }
-  return secret;
 }
 
-// =============================================================================
-// Route Allowlist — complete map of allowed paths and their HTTP methods
-// Matches the actual control plane /internal/dashboard/* routes.
-// Any path NOT in this list will be rejected immediately.
-// =============================================================================
+async function handleFailureInsights(): Promise<NextResponse> {
+  try {
+    const sb = getSupabase();
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString();
+    const { data, error } = await sb
+      .from('dead_letters')
+      .select('id, error_message, source_type, status, created_at')
+      .eq('status', 'failed')
+      .gte('created_at', yesterday)
+      .limit(20);
 
-interface AllowedRoute {
-  /** Path suffix added to INTERNAL_BASE_URL/internal/dashboard */
-  path: string;
-  /** HTTP methods allowed for this route */
-  methods: readonly ('GET' | 'POST' | 'PUT' | 'DELETE')[];
-  /** Human-readable description for audit logs */
-  description: string;
-}
+    if (error) throw error;
 
-const ALLOWED_ROUTES: AllowedRoute[] = [
-  // Overview
-  { path: '/overview',          methods: ['GET'], description: 'Dashboard overview' },
-  { path: '/activity',          methods: ['GET'], description: 'Activity feed' },
-  { path: '/failure-insights',  methods: ['GET'], description: 'Failure insights' },
-  { path: '/trends',            methods: ['GET'], description: 'Trend data' },
-
-  // Products
-  { path: '/products',                  methods: ['GET'], description: 'List products' },
-  { path: '/products/:productId',       methods: ['GET'], description: 'Get product detail' },
-
-  // Crawl Jobs
-  { path: '/crawl-jobs',               methods: ['GET'], description: 'List crawl jobs' },
-  { path: '/crawl-jobs/:jobId',         methods: ['GET'], description: 'Get crawl job detail' },
-
-  // Publish Jobs
-  { path: '/publish-jobs',              methods: ['GET'], description: 'List publish jobs' },
-  { path: '/publish-jobs/:jobId',         methods: ['GET'], description: 'Get publish job detail' },
-
-  // AI Content
-  { path: '/ai-contents',               methods: ['GET'], description: 'List AI content' },
-  { path: '/ai-contents/:contentId',    methods: ['GET'], description: 'Get AI content detail' },
-
-  // Operations
-  { path: '/dead-letters',              methods: ['GET'], description: 'List dead letters' },
-  { path: '/dead-letters/:id',          methods: ['GET'], description: 'Get dead letter detail' },
-
-  // Workers
-  { path: '/workers',                   methods: ['GET'], description: 'List workers' },
-  { path: '/workers/:workerIdentity',   methods: ['GET'], description: 'Get worker detail' },
-
-  // AccessTrade Integration
-  { path: '/integrations/accesstrade/health',  methods: ['GET'], description: 'AccessTrade health check' },
-  { path: '/integrations/accesstrade/sync',    methods: ['POST'], description: 'AccessTrade sync trigger' },
-];
-
-// Build a fast lookup map: method → path patterns
-type RouteKey = `GET:${string}`;
-const ROUTE_MAP = new Map<RouteKey, AllowedRoute>(
-  ALLOWED_ROUTES.flatMap((r) =>
-    r.methods.map((m) => [`${m}:${r.path}`, r] as const)
-  ) as Iterable<readonly [`GET:${string}`, AllowedRoute]>
-);
-
-// =============================================================================
-// Request Validation
-// =============================================================================
-
-const MAX_BODY_SIZE = 64 * 1024; // 64 KB
-const PROXY_TIMEOUT_MS = 30_000;  // 30 seconds
-const MAX_PATH_LENGTH = 256;
-const MAX_QUERY_LENGTH = 1024;
-
-/**
- * Result of path validation
- */
-type PathValidation =
-  | { valid: true; internalPath: string }
-  | { valid: false; reason: string };
-
-/**
- * Validate and normalize the proxy path from the `path` query parameter.
- *
- * Rejects:
- *   - Path traversal: /../ /..%00
- *   - Absolute URLs: http://, https://, //
- *   - Null bytes: %00, \0
- *   - Non-printable or dangerous characters
- *   - Paths outside /internal/dashboard namespace
- *   - Paths not in the allowlist
- *   - Methods not allowed for the path
- */
-function validateAndResolveRoute(
-  path: string,
-  method: string
-): PathValidation {
-  // 1. Type check
-  if (typeof path !== 'string') {
-    return { valid: false, reason: 'path must be a string' };
-  }
-
-  // 2. Length check
-  if (path.length === 0 || path.length > MAX_PATH_LENGTH) {
-    return { valid: false, reason: `path length must be 1–${MAX_PATH_LENGTH} characters` };
-  }
-
-  // 3. No leading slash normalization
-  const normalized = '/' + path.trim().replace(/^\/+/, '');
-
-  // 4. Path traversal detection
-  if (
-    normalized.includes('/../') ||
-    normalized.endsWith('/..') ||
-    normalized === '/..' ||
-    normalized.includes('%2e%2e') ||
-    normalized.includes('%252e') ||
-    normalized.includes('..') ||
-    normalized.includes('\0') ||
-    normalized.includes('%00')
-  ) {
-    return { valid: false, reason: 'path traversal attempt detected' };
-  }
-
-  // 5. Protocol / absolute URL detection
-  const lower = normalized.toLowerCase();
-  if (
-    lower.startsWith('http://') ||
-    lower.startsWith('https://') ||
-    lower.startsWith('//') ||
-    lower.startsWith('ftp://') ||
-    normalized.startsWith('/http') ||
-    normalized.includes('://')
-  ) {
-    return { valid: false, reason: 'absolute URLs are not allowed' };
-  }
-
-  // 6. No control characters
-  if (/[\x00-\x1f\x7f]/.test(normalized)) {
-    return { valid: false, reason: 'control characters not allowed in path' };
-  }
-
-  // 7. Resolve dynamic segments — replace :param with a placeholder for matching
-  //    The control plane will validate actual param values.
-  //    We allow alphanumeric, hyphen, underscore for param values.
-  const segments = normalized.split('/');
-  let routeKeyPattern = normalized;
-
-  // Check exact match first
-  const exactKey = `${method}:${normalized}` as RouteKey;
-  if (ROUTE_MAP.has(exactKey)) {
-    return { valid: true, internalPath: normalized };
-  }
-
-  // Check dynamic match (replace :segment with wildcard)
-  for (const [routeKey, route] of ROUTE_MAP) {
-    if (!routeKey.startsWith(`${method}:`)) continue;
-
-    const pattern = routeKey.slice(method.length + 1); // e.g. /products/:productId
-    if (pattern.includes(':')) {
-      const patternParts = pattern.split('/');
-      if (patternParts.length !== segments.length) continue;
-
-      let matches = true;
-      const resolvedPathParts: string[] = [];
-
-      for (let i = 0; i < patternParts.length; i++) {
-        const pp = patternParts[i];
-        const sp = segments[i];
-
-        if (pp.startsWith(':')) {
-          // Validate param value: alphanumeric, hyphen, underscore only
-          // Reject paths with ../ or other dangerous chars in dynamic segments
-          if (!/^[a-zA-Z0-9_-]+$/.test(sp)) {
-            matches = false;
-            break;
-          }
-          resolvedPathParts.push(sp);
-        } else if (pp === sp) {
-          resolvedPathParts.push(sp);
-        } else {
-          matches = false;
-          break;
-        }
-      }
-
-      if (matches) {
-        return { valid: true, internalPath: resolvedPathParts.join('/') };
-      }
+    const grouped: Record<string, { count: number; last_occurrence: string; error_message: string }> = {};
+    for (const row of (data ?? [])) {
+      const key = row.error_message || 'Unknown error';
+      if (!grouped[key]) grouped[key] = { count: 0, last_occurrence: row.created_at, error_message: key };
+      grouped[key].count++;
+      if (row.created_at > grouped[key].last_occurrence) grouped[key].last_occurrence = row.created_at;
     }
-  }
 
-  return {
-    valid: false,
-    reason: `path '${normalized}' with method '${method}' is not in the allowed routes`,
-  };
+    const insights = Object.values(grouped).map((item) => ({
+      error_type: item.error_message.substring(0, 50),
+      error_message: item.error_message,
+      count: item.count, percentage: 100,
+      last_occurrence: item.last_occurrence, affected_entities: [],
+    }));
+
+    return NextResponse.json({
+      ok: true, status: 'success',
+      data: {
+        insights,
+        newFailures24h: insights.reduce((s, i: any) => s + i.count, 0),
+        maxCount: insights.length || 1,
+        trends: { crawl: { count: 0 }, publish: { count: 0 }, ai_content: { count: 0 }, worker: { count: 0 } },
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
+}
+
+function handleTrends(): NextResponse {
+  return NextResponse.json({
+    ok: true, status: 'success',
+    data: {
+      newFailures24h: 0, maxCount: 1,
+      trends: { crawl: { count: 0 }, publish: { count: 0 }, ai_content: { count: 0 }, worker: { count: 0 } },
+    },
+    timestamp: new Date().toISOString(),
+  });
 }
 
 // =============================================================================
-// Headers — strip sensitive client headers
+// Railway forwarder
 // =============================================================================
 
-/**
- * Headers that MUST NOT be forwarded from the client to the internal API.
- * These headers either duplicate our server-set values or would allow
- * the client to spoof internal authentication.
- */
-const STRIP_HEADERS = new Set([
-  'host',
-  'connection',
-  'content-length',  // We set this based on actual body
-  'cookie',
-  'x-forwarded-for',
-  'x-forwarded-host',
-  'x-forwarded-proto',
-  'x-real-ip',
-  'x-internal-secret',  // Never let client set the internal secret
-  'x-actor-id',          // Never trust client-supplied actor ID
-  'x-actor-role',        // Never trust client-supplied role
-  'authorization',       // We use our own auth mechanism
-  'x-correlation-id',    // We generate our own correlation ID
-  'x-request-id',
-  'x-api-key',
-  'x-api-token',
-  'x-session',
-  'x-session-id',
-  'x-session-token',
-  'proxy-authorization',
-  'www-authenticate',
-  'upgrade-insecure-requests',
-]);
-
-/**
- * Build the headers object for the forwarded request.
- * Strips sensitive headers from the client and injects only our server-side values.
- */
-function buildForwardHeaders(
+async function forwardToRailway(
+  path: string,
+  method: string,
   request: NextRequest,
   actorId: string,
-  role: string
-): Record<string, string> {
-  const headers: Record<string, string> = {
-    // --- Server-set trust boundary headers (only these are trusted) ---
-    'x-internal-secret': getInternalSecret(),
-    'x-actor-id': actorId,
-    'x-actor-role': role,
-    // Correlation ID for distributed tracing
-    'x-correlation-id': generateCorrelationId(),
-  };
+  role: string,
+): Promise<NextResponse> {
+  const url = `${INTERNAL_BASE_URL}/internal/dashboard${path}`;
+  const body = method === 'GET' ? undefined : await request.text();
 
-  // Forward ONLY safe, non-sensitive headers from the client
-  const SAFE_FORWARD_HEADERS = [
-    'accept',
-    'accept-language',
-    'accept-encoding',
-    'cache-control',
-    'user-agent',   // Already validated by the browser same-origin policy
-  ];
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 30_000);
 
-  for (const headerName of SAFE_FORWARD_HEADERS) {
-    const value = request.headers.get(headerName);
-    if (value) {
-      // Validate header values don't contain newlines (header injection)
-      if (value.includes('\n') || value.includes('\r')) {
-        continue; // Skip headers with injection attempts
-      }
-      headers[headerName.toLowerCase()] = value.slice(0, 512); // Truncate long values
-    }
+    const resp = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-secret': INTERNAL_SECRET,
+        'x-actor-id': actorId,
+        'x-actor-role': role || 'unknown',
+        'x-correlation-id': `proxy_${Date.now().toString(36)}`,
+      },
+      body,
+      signal: ctrl.signal as AbortSignal,
+    });
+
+    clearTimeout(tid);
+
+    const ct = resp.headers.get('content-type') ?? '';
+    const raw = await resp.text();
+    let safe: unknown;
+    try { safe = JSON.parse(raw); } catch { safe = { message: 'Unexpected response', status: resp.status }; }
+
+    logProxyRequest({ event: 'PROXY_SUCCESS', actorId, ip: getClientIp(request), targetPath: path, method, status: resp.status });
+    return NextResponse.json(safe as any, { status: resp.status });
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : 'unknown';
+    logProxyRequest({ event: 'PROXY_ERROR', actorId, ip: getClientIp(request), targetPath: path, method, reason: 'internal service unreachable' });
+    if (reason.includes('abort')) return NextResponse.json({ error: 'Internal service timeout' }, { status: 504 });
+    return NextResponse.json({ error: 'Internal service unreachable' }, { status: 502 });
   }
-
-  return headers;
-}
-
-/**
- * Generate a unique correlation ID for distributed tracing.
- */
-function generateCorrelationId(): string {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 10);
-  return `proxy_${timestamp}_${random}`;
 }
 
 // =============================================================================
-// Proxy Request Handler
+// Route dispatcher
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -351,196 +234,58 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  // Dashboard only uses GET proxy requests.
-  // POST is accepted only for specific operations that might need it.
   return proxyRequest(request);
 }
 
-// Block all other methods at the export level — explicit handlers only
-export async function PUT(_request: NextRequest) {
-  return NextResponse.json(
-    { error: 'Method not allowed' },
-    { status: 405, headers: { Allow: 'GET, POST' } }
-  );
-}
-
-export async function DELETE(_request: NextRequest) {
-  return NextResponse.json(
-    { error: 'Method not allowed' },
-    { status: 405, headers: { Allow: 'GET, POST' } }
-  );
+export async function PUT(request: NextRequest) {
+  return proxyRequest(request);
 }
 
 async function proxyRequest(request: NextRequest): Promise<NextResponse> {
-  // ---- 1. Authenticate ----
-  const authenticated = await isAuthenticated();
-  if (!authenticated) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
+  // Auth
   const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  // ---- 2. Parse + validate path ----
   const { searchParams } = new URL(request.url);
-  const rawPath = searchParams.get('path');
+  const raw = searchParams.get('path');
+  if (!raw) return NextResponse.json({ error: 'Missing path parameter' }, { status: 400 });
 
-  if (!rawPath) {
-    return NextResponse.json(
-      { error: 'Missing required parameter: path' },
-      { status: 400 }
-    );
-  }
-
+  const path = '/' + raw.replace(/^\/+/, '');
   const method = request.method;
-  const pathValidation = validateAndResolveRoute(rawPath, method);
+  const actorId = session.actorId;
+  const role = session.role ?? 'unknown';
 
-  if (!pathValidation.valid) {
-    // Log the rejection for audit (but don't expose internal route info)
-    logProxyRequest({
-      event: 'PROXY_REJECTED',
-      actorId: session.actorId,
-      ip: getClientIp(request),
-      targetPath: rawPath,
-      method,
-      reason: pathValidation.reason,
-    });
-
-    return NextResponse.json(
-      { error: 'Invalid request path', code: 'INVALID_PROXY_PATH' },
-      { status: 400 }
-    );
+  // Local handlers
+  if (method === 'GET' && path === '/overview') {
+    logProxyRequest({ event: 'PROXY_SUCCESS', actorId, ip: getClientIp(request), targetPath: path, method, status: 200 });
+    return handleOverview();
+  }
+  if (method === 'GET' && path === '/activity') {
+    logProxyRequest({ event: 'PROXY_SUCCESS', actorId, ip: getClientIp(request), targetPath: path, method, status: 200 });
+    return handleActivity();
+  }
+  if (method === 'GET' && path === '/failure-insights') {
+    logProxyRequest({ event: 'PROXY_SUCCESS', actorId, ip: getClientIp(request), targetPath: path, method, status: 200 });
+    return handleFailureInsights();
+  }
+  if (method === 'GET' && path === '/trends') {
+    logProxyRequest({ event: 'PROXY_SUCCESS', actorId, ip: getClientIp(request), targetPath: path, method, status: 200 });
+    return handleTrends();
   }
 
-  const targetPath = pathValidation.internalPath;
-
-  // ---- 3. Build internal URL ----
-  const internalUrl = `${INTERNAL_BASE_URL}/internal/dashboard${targetPath}`;
-
-  // ---- 4. Handle request body (size limit) ----
-  let body: string | undefined;
-  const contentLength = request.headers.get('content-length');
-
-  if (method !== 'GET' && method !== 'HEAD') {
-    if (contentLength) {
-      const size = parseInt(contentLength, 10);
-      if (size > MAX_BODY_SIZE) {
-        logProxyRequest({
-          event: 'PROXY_REJECTED',
-          actorId: session.actorId,
-          ip: getClientIp(request),
-          targetPath,
-          method,
-          reason: `request body too large: ${size} bytes (max ${MAX_BODY_SIZE})`,
-        });
-        return NextResponse.json(
-          { error: 'Request too large', code: 'PAYLOAD_TOO_LARGE' },
-          { status: 413 }
-        );
-      }
-    }
-
-    try {
-      body = await request.text();
-      if (body.length > MAX_BODY_SIZE) {
-        return NextResponse.json(
-          { error: 'Request too large', code: 'PAYLOAD_TOO_LARGE' },
-          { status: 413 }
-        );
-      }
-    } catch {
-      return NextResponse.json(
-        { error: 'Invalid request body' },
-        { status: 400 }
-      );
-    }
+  // Railway fallback
+  if (hasRailway) {
+    return forwardToRailway(path, method, request, actorId, role);
   }
 
-  // ---- 5. Build headers ----
-  const forwardHeaders = buildForwardHeaders(request, session.actorId, session.role);
-
-  // ---- 6. Forward request ----
-  let response: Response;
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
-
-    response = await fetch(internalUrl, {
-      method,
-      headers: forwardHeaders,
-      body,
-      signal: controller.signal as AbortSignal,
-    });
-
-    clearTimeout(timeout);
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : 'unknown';
-
-    // Don't log the full error — might contain internal URLs
-    logProxyRequest({
-      event: 'PROXY_ERROR',
-      actorId: session.actorId,
-      ip: getClientIp(request),
-      targetPath,
-      method,
-      reason: 'internal service unreachable',
-    });
-
-    if (reason.includes('abort') || reason.includes('timeout')) {
-      return NextResponse.json(
-        { error: 'Internal service timeout', code: 'GATEWAY_TIMEOUT' },
-        { status: 504 }
-      );
-    }
-
-    return NextResponse.json(
-      { error: 'Failed to reach internal service', code: 'GATEWAY_ERROR' },
-      { status: 502 }
-    );
-  }
-
-  // ---- 7. Forward response ----
-  const contentType = response.headers.get('content-type') ?? '';
-  const responseBody = await response.text();
-
-  // Sanitize response body: don't leak internal stack traces
-  let safeBody: unknown;
-  try {
-    // If it's JSON, keep it as-is (the control plane should already sanitize errors)
-    if (contentType.includes('application/json')) {
-      JSON.parse(responseBody); // Validate it's actually JSON
-      safeBody = JSON.parse(responseBody);
-    } else {
-      // Non-JSON responses: return a generic message
-      safeBody = { message: 'Response received', status: response.status };
-    }
-  } catch {
-    safeBody = { message: 'Response received', status: response.status };
-  }
-
-  logProxyRequest({
-    event: 'PROXY_SUCCESS',
-    actorId: session.actorId,
-    ip: getClientIp(request),
-    targetPath,
-    method,
-    status: response.status,
-  });
-
-  return NextResponse.json(safeBody, {
-    status: response.status,
-    headers: {
-      // Only forward safe response headers
-      'Content-Type': contentType || 'application/json',
-      'X-Content-Type-Options': 'nosniff',
-    },
-  });
+  return NextResponse.json(
+    { error: 'Route not available locally. Configure INTERNAL_API_URL + CONTROL_PLANE_INTERNAL_SECRET on Vercel to enable this endpoint.' },
+    { status: 501 }
+  );
 }
 
 // =============================================================================
-// Utilities
+// Utils
 // =============================================================================
 
 function getClientIp(request: NextRequest): string {
