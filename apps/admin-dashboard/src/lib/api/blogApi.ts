@@ -2,6 +2,10 @@
  * Blog API Client — Browser-safe helpers for admin blog management.
  *
  * All calls go to /api/admin/blog and /api/admin/blog/upload (server-side routes).
+ *
+ * Image upload uses Supabase Storage signed URL to bypass Vercel's 4.5MB body limit:
+ *   Browser → POST /api/admin/blog/upload (metadata only, <1KB)
+ *   Browser → PUT {signedUrl} (file directly to Supabase Storage, up to 50MB)
  */
 
 import type {
