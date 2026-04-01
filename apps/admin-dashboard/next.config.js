@@ -17,7 +17,7 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['lucide-react'],
 
-  // Increase body limit for file uploads (blog images up to 5MB)
+  // Increase body limit for blog image uploads (up to 10MB)
   serverBodyLimit: 10 * 1024 * 1024, // 10MB
 
   images: {
