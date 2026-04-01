@@ -3,8 +3,7 @@
  *
  * All calls go to /api/admin/blog and /api/admin/blog/upload (server-side routes).
  *
- * Image upload: browser → Vercel GET (get signed URL) → Supabase PUT (upload file).
- *   File goes browser → Supabase directly via signed URL (bypasses Vercel's 4.5MB limit).
+ * Image upload: browser sends FormData to Vercel, Vercel uploads to Supabase via SDK.
  *   Server-side limit: 10MB.
  */
 
@@ -115,41 +114,31 @@ export async function deleteBlogPost(id: string): Promise<void> {
   });
 }
 
-// ── Upload image via server proxy (avoids Vercel 4.5MB body limit) ──
+// ── Upload image via server proxy (FormData → Supabase SDK) ──
 
 export async function uploadBlogImage(
   file: File
 ): Promise<ImageUploadResult> {
-  // Step 1: Get signed upload URL from our server
-  const getRes = await fetch(
-    `/api/admin/blog/upload?path=${encodeURIComponent(`blog/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60)}`)}&fileName=${encodeURIComponent(file.name)}&fileType=${encodeURIComponent(file.type)}&fileSize=${file.size}`
-  );
+  // Send file via FormData to our server — server uploads to Supabase via SDK
+  const formData = new FormData();
+  formData.append('file', file);
 
-  const getJson = await getRes.json() as Record<string, unknown>;
-
-  if (!getRes.ok) {
-    throw new Error((getJson.error as string) || `Upload failed: HTTP ${getRes.status}`);
-  }
-
-  const { uploadUrl } = getJson as { uploadUrl: string; path: string };
-
-  // Step 2: Upload file to signed URL (Supabase)
-  const uploadRes = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': file.type },
-    body: file,
+  const res = await fetch('/api/admin/blog/upload', {
+    method: 'POST',
+    body: formData,
   });
 
-  if (!uploadRes.ok) {
-    throw new Error(`Upload to storage failed: HTTP ${uploadRes.status}`);
+  const json = await res.json() as Record<string, unknown>;
+
+  if (!res.ok) {
+    throw new Error((json.error as string) || `Upload failed: HTTP ${res.status}`);
   }
 
-  // Step 3: Return public URL
-  const publicUrl = (getJson as { publicUrl: string }).publicUrl;
+  const data = json as { url: string; path: string };
 
   return {
-    url: publicUrl,
-    path: (getJson as { path: string }).path ?? '',
+    url: data.url,
+    path: data.path,
     fileName: file.name,
     size: file.size,
     type: file.type,
