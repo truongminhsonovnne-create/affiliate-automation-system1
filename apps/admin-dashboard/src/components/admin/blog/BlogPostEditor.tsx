@@ -185,6 +185,7 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
   // ── AI format state ─────────────────────────────────────────────────────
   const [formatting, setFormatting] = useState(false);
   const [formatError, setFormatError] = useState<string | null>(null);
+  const [formatSuccess, setFormatSuccess] = useState(false);
   const [formatInstruction, setFormatInstruction] = useState(DEFAULT_FORMAT_INSTRUCTION);
 
   // ── Populate form when editing ─────────────────────────────────────────
@@ -209,6 +210,7 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
       setSuccess(false);
       setImageUploadError(null);
       setFormatError(null);
+      setFormatSuccess(false);
       setFormatInstruction(DEFAULT_FORMAT_INSTRUCTION);
     }
   }, [open, post]);
@@ -295,9 +297,12 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
 
       // Replace content in editor with formatted result
       setForm((f) => ({ ...f, content: result.formatted }));
-      setFormatInstruction('');
+      setFormatInstruction(DEFAULT_FORMAT_INSTRUCTION);
+      setFormatSuccess(true);
+      setTimeout(() => setFormatSuccess(false), 3000);
     } catch (err) {
-      setFormatError(err instanceof Error ? err.message : 'Lỗi khi định dạng nội dung');
+      const msg = err instanceof Error ? err.message : 'Lỗi khi định dạng nội dung';
+      setFormatError(msg);
     } finally {
       setFormatting(false);
     }
@@ -631,7 +636,17 @@ Bạn có thể dùng HTML đơn giản:
               />
 
               {formatError && (
-                <p className="text-xs text-red-600">{formatError}</p>
+                <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-md px-3 py-2 text-xs text-red-700">
+                  <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                  <span>{formatError}</span>
+                </div>
+              )}
+
+              {formatSuccess && (
+                <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-md px-3 py-2 text-xs text-green-700">
+                  <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>Nội dung đã được định dạng. Bấm <strong>Cập nhật</strong> để lưu.</span>
+                </div>
               )}
 
               <div className="flex items-center gap-2">
