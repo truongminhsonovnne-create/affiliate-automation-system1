@@ -29,7 +29,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 interface FormatRequest {
   content: string;
-  instruction: string;
+  instruction?: string;
 }
 
 interface FormatResponse {
@@ -38,26 +38,28 @@ interface FormatResponse {
   tokensUsed?: number;
 }
 
+const DEFAULT_FORMAT_INSTRUCTION = `Hãy biên tập lại nội dung dưới đây để đăng trực tiếp lên blog.
+- Chỉ trả về HTML sạch
+- Dùng: <h2>, <h3>, <p>, <ul>, <li>, <strong>
+- Chia lại heading rõ ràng
+- Mỗi đoạn 2 đến 3 câu
+- Tách đoạn dài
+- Chuyển ý liệt kê thành bullet list
+- Bỏ hashtag khỏi thân bài
+- Giữ nguyên ý chính, không bịa thêm
+- Viết dễ đọc trên mobile
+- Kết thúc bằng phần Kết luận`;
+
 async function callAI(content: string, instruction: string): Promise<FormatResponse> {
   if (!GROQ_API_KEY) {
     throw new Error('GROQ_API_KEY is not configured on the server.');
   }
 
-  const systemPrompt = `Bạn là một biên tập viên nội dung blog chuyên nghiệp tiếng Việt.
-Nhiệm vụ của bạn: chỉnh sửa và định dạng nội dung blog theo yêu cầu.
+  const effectiveInstruction = instruction.trim() || DEFAULT_FORMAT_INSTRUCTION;
 
-QUY TẮC NGHIÊM NGẶT:
-1. CHỈ trả về nội dung đã chỉnh sửa, KHÔNG kèm giải thích hay bình luận
-2. Dùng HTML sạch: <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <em>, <br>
-3. KHÔNG dùng Markdown thô (##, **, -, ###, v.v.)
-4. KHÔNG nhét hashtag (#...) vào body bài viết
-5. Heading phải tách hợp lý: 1 <h2> chính, có <h3> sub-heading nếu cần
-6. Đoạn văn ngắn gọn, mỗi đoạn <p> không quá 3-4 câu
-7. Giữ nguyên ý nghĩa và thông tin gốc, chỉ cải thiện cấu trúc và định dạng
-8. Nếu nội dung đã tốt, vẫn trả về bản đã định dạng HTML sạch
-9. Trả lời bằng tiếng Việt, giữ nguyên giọng điệu của bài viết gốc`;
+  const systemPrompt = `Bạn là biên tập viên blog tiếng Việt chuyên nghiệp.`;
 
-  const userPrompt = `YÊU CẦU CHỈNH SỬA: ${instruction}
+  const userPrompt = `${effectiveInstruction}
 
 NỘI DUNG GỐC:
 ${content}`;
@@ -148,16 +150,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!instruction || typeof instruction !== 'string' || instruction.trim().length < 5) {
-    return NextResponse.json(
-      { error: 'Vui lòng nhập hướng dẫn chỉnh sửa (ít nhất 5 ký tự).' },
-      { status: 400 }
-    );
-  }
-
-  // Call AI
+  // instruction is optional — defaults to DEFAULT_FORMAT_INSTRUCTION on empty
   try {
-    const result = await callAI(content.trim(), instruction.trim());
+    const result = await callAI(
+      content.trim(),
+      typeof instruction === 'string' ? instruction.trim() : ''
+    );
 
     return NextResponse.json(
       {

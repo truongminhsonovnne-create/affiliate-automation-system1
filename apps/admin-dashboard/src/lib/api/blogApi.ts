@@ -120,7 +120,7 @@ export async function deleteBlogPost(id: string): Promise<void> {
 
 export interface FormatContentPayload {
   content: string;
-  instruction: string;
+  instruction?: string;
 }
 
 export interface FormatContentResult {

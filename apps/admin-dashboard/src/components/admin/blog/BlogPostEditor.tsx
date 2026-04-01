@@ -85,8 +85,17 @@ const EMPTY_FORM: FormState = {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_FORMAT_INSTRUCTION =
-  'chia lại heading, tách đoạn ngắn hơn, đổi sang HTML sạch, thêm danh sách bullet points';
+const DEFAULT_FORMAT_INSTRUCTION = `Hãy biên tập lại nội dung dưới đây để đăng trực tiếp lên blog.
+- Chỉ trả về HTML sạch
+- Dùng: <h2>, <h3>, <p>, <ul>, <li>, <strong>
+- Chia lại heading rõ ràng
+- Mỗi đoạn 2 đến 3 câu
+- Tách đoạn dài
+- Chuyển ý liệt kê thành bullet list
+- Bỏ hashtag khỏi thân bài
+- Giữ nguyên ý chính, không bịa thêm
+- Viết dễ đọc trên mobile
+- Kết thúc bằng phần Kết luận`;
 
 // ── Options ─────────────────────────────────────────────────────────────────
 
@@ -284,15 +293,13 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
 
   // ── AI content format ───────────────────────────────────────────────────
   const handleFormatContent = async () => {
-    if (!formatInstruction.trim()) return;
-
     setFormatError(null);
     setFormatting(true);
 
     try {
       const result = await formatBlogContent({
         content: form.content,
-        instruction: formatInstruction.trim(),
+        instruction: formatInstruction.trim() || DEFAULT_FORMAT_INSTRUCTION,
       });
 
       // Replace content in editor with formatted result
@@ -655,7 +662,7 @@ Bạn có thể dùng HTML đơn giản:
                   size="sm"
                   icon={<Sparkles className="h-3.5 w-3.5" />}
                   loading={formatting}
-                  disabled={formatting || isSaving || !formatInstruction.trim() || !form.content.trim()}
+                  disabled={formatting || isSaving || !form.content.trim()}
                   onClick={handleFormatContent}
                 >
                   Làm đẹp nội dung bằng AI
