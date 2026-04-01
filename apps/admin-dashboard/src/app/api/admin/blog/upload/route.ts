@@ -84,11 +84,13 @@ export async function POST(request: NextRequest) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const buffer = Buffer.from(await file.arrayBuffer());
+    // Upload using ArrayBuffer (Buffer is not available in Vercel Edge runtime)
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
 
-    const { data, error } = await supabase.storage
+    const { data: uploadData, error } = await supabase.storage
       .from('blog-images')
-      .upload(storagePath, buffer, {
+      .upload(storagePath, uint8Array, {
         contentType: file.type,
         upsert: false,
       });
@@ -100,14 +102,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Supabase Storage v2 returns data as a string path
+    const uploadedPath = typeof uploadData === 'string' ? uploadData : (uploadData as any)?.path;
+
     // Get public URL
     const { data: urlData } = supabase.storage
       .from('blog-images')
-      .getPublicUrl(data.path);
+      .getPublicUrl(uploadedPath as string);
 
     return NextResponse.json({
       url: urlData.publicUrl,
-      path: data.path,
+      path: uploadedPath,
       fileName: file.name,
       size: file.size,
       type: file.type,
