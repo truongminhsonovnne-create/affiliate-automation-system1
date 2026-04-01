@@ -1,8 +1,8 @@
 /**
- * Admin Blog Image Upload
+ * Admin Blog Image Upload — POST /api/admin/blog/upload
  *
- * Uses Supabase JS SDK to upload files to Supabase Storage.
- * File is sent from browser → Vercel → Supabase (no signed URL needed).
+ * Luồng đúng: chỉ nhận metadata nhỏ (JSON) → trả về signed URL
+ * → Browser upload trực tiếp lên Supabase Storage (không qua Vercel)
  *
  * Auth: admin session + edit_blog_posts permission
  * Limits: 10MB, JPEG/PNG/WebP/GIF only
@@ -13,7 +13,7 @@ import { getSession } from '@/lib/auth/session';
 import { hasPermission } from '@/lib/auth/rbac';
 import type { Role } from '@/lib/auth/rbac';
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB — Supabase Storage bucket default is 50MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
 export async function POST(request: NextRequest) {
@@ -29,41 +29,47 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── Read multipart form data ────────────────────────────────────────────────
-  let formData: FormData;
+  // ── Parse body (metadata only — no file data) ─────────────────────────────────
+  let body: { fileName: string; fileType: string; fileSize: number } | null = null;
   try {
-    formData = await request.formData();
+    body = await request.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid form data' }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  const file = formData.get('file');
-  if (!file || !(file instanceof File)) {
-    return NextResponse.json({ error: 'Không có file nào được gửi lên' }, { status: 400 });
-  }
+  const fileName: string = (body?.fileName as string | undefined) ?? '';
+  const fileType: string = (body?.fileType as string | undefined) ?? '';
+  const fileSize: number = (body?.fileSize as number | undefined) ?? 0;
 
-  // ── Validate file ─────────────────────────────────────────────────────────
-  if (!ALLOWED_TYPES.includes(file.type)) {
+  if (!fileName || !fileType) {
     return NextResponse.json(
-      { error: `Định dạng không hỗ trợ: ${file.type}. Chỉ JPEG, PNG, WebP, GIF.` },
+      { error: 'Missing required fields: fileName, fileType' },
       { status: 400 }
     );
   }
-  if (file.size > MAX_FILE_SIZE) {
+
+  // ── Validate ─────────────────────────────────────────────────────────────
+  if (!ALLOWED_TYPES.includes(fileType)) {
     return NextResponse.json(
-      { error: `File quá lớn (${(file.size / 1024 / 1024).toFixed(1)}MB). Tối đa 10MB.` },
+      { error: `Định dạng không hỗ trợ: ${fileType}. Chỉ JPEG, PNG, WebP, GIF.` },
+      { status: 400 }
+    );
+  }
+  if (fileSize > MAX_FILE_SIZE) {
+    return NextResponse.json(
+      { error: `File quá lớn (${(fileSize / 1024 / 1024).toFixed(1)}MB). Tối đa 10MB.` },
       { status: 400 }
     );
   }
 
   // ── Build storage path ────────────────────────────────────────────────────
-  const safeName = file.name
+  const safeName = fileName
     .replace(/[^a-zA-Z0-9._-]/g, '_')
     .replace(/__+/g, '_')
     .slice(0, 60);
   const path = `blog/${Date.now()}-${safeName}`;
 
-  // ── Upload via Supabase SDK ────────────────────────────────────────────────
+  // ── Get signed upload URL from Supabase ─────────────────────────────────
   try {
     const { createClient } = await import('@supabase/supabase-js');
     const url = process.env.SUPABASE_URL;
@@ -77,36 +83,22 @@ export async function POST(request: NextRequest) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    // Upload using ArrayBuffer (Buffer not available in Vercel Node runtime)
-    const arrayBuffer = await file.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-
+    // createSignedUploadUrl returns: { signedUrl, token, path }
     const { data, error } = await supabase.storage
       .from('blog-images')
-      .upload(path, uint8Array, {
-        contentType: file.type,
-        upsert: true,
-      });
+      .createSignedUploadUrl(path);
 
     if (error) {
       return NextResponse.json(
-        { error: `Upload thất bại: ${error.message}` },
-        { status: 500 }
+        { error: `Supabase error: ${error.message}` },
+        { status: 502 }
       );
     }
 
-    // Get public URL
-    const uploadedPath = typeof data === 'string' ? data : (data as { path?: string })?.path;
-    const { data: urlData } = supabase.storage
-      .from('blog-images')
-      .getPublicUrl(uploadedPath as string);
-
     return NextResponse.json({
-      url: urlData.publicUrl,
-      path: uploadedPath,
-      fileName: file.name,
-      size: file.size,
-      type: file.type,
+      uploadUrl: (data as { signedUrl: string }).signedUrl,
+      path,
+      publicUrl: `${url}/storage/v1/object/public/${path}`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Upload failed';

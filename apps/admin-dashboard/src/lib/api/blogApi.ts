@@ -3,7 +3,9 @@
  *
  * All calls go to /api/admin/blog and /api/admin/blog/upload (server-side routes).
  *
- * Image upload: browser sends FormData to Vercel, Vercel uploads to Supabase via SDK.
+ * Image upload (two-step):
+ *   1. Browser → POST /api/admin/blog/upload (metadata JSON, <1KB) → returns signed URL
+ *   2. Browser → PUT {signedUrl} directly to Supabase Storage (file never touches Vercel)
  *   Server-side limit: 10MB.
  */
 
@@ -114,31 +116,48 @@ export async function deleteBlogPost(id: string): Promise<void> {
   });
 }
 
-// ── Upload image via server proxy (FormData → Supabase SDK) ──
+// ── Upload image (two-step signed URL flow) ──
 
 export async function uploadBlogImage(
   file: File
 ): Promise<ImageUploadResult> {
-  // Send file via FormData to our server — server uploads to Supabase via SDK
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const res = await fetch('/api/admin/blog/upload', {
+  // Step 1: Get signed upload URL from server (metadata only, <1KB)
+  const step1Res = await fetch('/api/admin/blog/upload', {
     method: 'POST',
-    body: formData,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+    }),
   });
 
-  const json = await res.json() as Record<string, unknown>;
+  const step1Json = await step1Res.json() as Record<string, unknown>;
 
-  if (!res.ok) {
-    throw new Error((json.error as string) || `Upload failed: HTTP ${res.status}`);
+  if (!step1Res.ok) {
+    throw new Error((step1Json.error as string) || `Step 1 failed: HTTP ${step1Res.status}`);
   }
 
-  const data = json as { url: string; path: string };
+  const { uploadUrl, publicUrl, path } = step1Json as {
+    uploadUrl: string;
+    publicUrl: string;
+    path: string;
+  };
+
+  // Step 2: Upload file directly to Supabase via signed URL (bypasses Vercel entirely)
+  const step2Res = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  });
+
+  if (!step2Res.ok) {
+    throw new Error(`Upload to Supabase failed: HTTP ${step2Res.status}`);
+  }
 
   return {
-    url: data.url,
-    path: data.path,
+    url: publicUrl,
+    path,
     fileName: file.name,
     size: file.size,
     type: file.type,
