@@ -17,7 +17,6 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import Image from 'next/image';
-import imageCompression from 'browser-image-compression';
 import {
   X,
   Upload,
@@ -98,6 +97,63 @@ const STATUS_OPTIONS = [
   { value: 'archived',  label: 'Lưu trữ' },
 ];
 
+// ── Client-side image compression helper (no npm package needed) ──────────────────
+
+/**
+ * Compress an image file using Canvas API and return a compressed Blob.
+ * Falls back to original file if compression fails.
+ */
+async function compressImageWithCanvas(
+  file: File,
+  maxDim: number,
+  quality: number
+): Promise<Blob> {
+  return new Promise((resolve) => {
+    const imgEl = new HTMLImageElement();
+    imgEl.onload = () => {
+      // Scale down to maxDim while preserving aspect ratio
+      let { width, height } = imgEl;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { resolve(file); return; }
+
+      ctx.drawImage(imgEl, 0, 0, width, height);
+
+      // Try WebP first (smaller), fallback to JPEG
+      canvas.toBlob(
+        (blob) => {
+          if (blob && blob.size < file.size) {
+            resolve(blob);
+          } else {
+            // JPEG fallback if WebP didn't help
+            canvas.toBlob(
+              (jpegBlob) => resolve(jpegBlob ?? file),
+              'image/jpeg',
+              0.85
+            );
+          }
+        },
+        'image/webp',
+        quality
+      );
+    };
+    imgEl.onerror = () => resolve(file);
+    imgEl.src = URL.createObjectURL(file);
+  });
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorProps) {
@@ -171,14 +227,10 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
     setUploadingImage(true);
 
     try {
-      // Compress image to ≤ 2MB before upload (Vercel 4.5MB body limit)
-      const compressed = await imageCompression(file, {
-        maxSizeMB: 2,
-        maxWidthOrHeight: 1920,
-        useWebWorker: true,
-      });
+      // Compress image using Canvas API (no npm package needed)
+      const compressed = await compressImageWithCanvas(file, 1920, 2);
 
-      // Use original filename but .webp extension for smaller size
+      // Use original filename with .webp extension for smaller size
       const originalName = file.name.replace(/\.[^.]+$/, '');
       const outputFileName = `${originalName}.webp`;
       const outputFile = new File([compressed], outputFileName, { type: 'image/webp' });
