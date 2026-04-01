@@ -116,50 +116,34 @@ export async function deleteBlogPost(id: string): Promise<void> {
   });
 }
 
-// ── Upload image (two-step signed URL flow) ──
+// ── Upload image (server-side FormData → Supabase SDK) ──
 
 export async function uploadBlogImage(
   file: File
 ): Promise<ImageUploadResult> {
-  // Step 1: Get signed upload URL from server (metadata only, <1KB)
-  const step1Res = await fetch('/api/admin/blog/upload', {
+  // File is pre-compressed to ~1-2MB client-side before this call.
+  // Vercel accepts it as multipart form data without 4.5MB issues.
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch('/api/admin/blog/upload', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      fileName: file.name,
-      fileType: file.type,
-      fileSize: file.size,
-    }),
+    body: formData,
   });
 
-  const step1Json = await step1Res.json() as Record<string, unknown>;
+  const json = await res.json() as Record<string, unknown>;
 
-  if (!step1Res.ok) {
-    throw new Error((step1Json.error as string) || `Step 1 failed: HTTP ${step1Res.status}`);
+  if (!res.ok) {
+    throw new Error((json.error as string) || `Upload failed: HTTP ${res.status}`);
   }
 
-  const { uploadUrl, publicUrl, path } = step1Json as {
-    uploadUrl: string;
-    publicUrl: string;
-    path: string;
-  };
-
-  // Step 2: Upload file directly to Supabase via signed URL (bypasses Vercel entirely)
-  const step2Res = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': file.type },
-    body: file,
-  });
-
-  if (!step2Res.ok) {
-    throw new Error(`Upload to Supabase failed: HTTP ${step2Res.status}`);
-  }
+  const data = json as { url: string; path: string; fileName?: string; size?: number; type?: string };
 
   return {
-    url: publicUrl,
-    path,
-    fileName: file.name,
-    size: file.size,
-    type: file.type,
+    url: data.url,
+    path: data.path,
+    fileName: data.fileName ?? file.name,
+    size: data.size ?? file.size,
+    type: data.type ?? file.type,
   };
 }

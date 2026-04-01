@@ -1,8 +1,8 @@
 /**
  * Admin Blog Image Upload — POST /api/admin/blog/upload
  *
- * Luồng đúng: chỉ nhận metadata nhỏ (JSON) → trả về signed URL
- * → Browser upload trực tiếp lên Supabase Storage (không qua Vercel)
+ * Server receives the compressed image file and uploads it to Supabase Storage directly.
+ * Image is pre-compressed client-side to ~1-2MB, so Vercel body limit is not an issue.
  *
  * Auth: admin session + edit_blog_posts permission
  * Limits: 10MB, JPEG/PNG/WebP/GIF only
@@ -29,47 +29,41 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── Parse body (metadata only — no file data) ─────────────────────────────────
-  let body: { fileName: string; fileType: string; fileSize: number } | null = null;
+  // ── Parse multipart form data ────────────────────────────────────────────
+  let formData: FormData;
   try {
-    body = await request.json();
+    formData = await request.formData();
   } catch {
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid form data' }, { status: 400 });
   }
 
-  const fileName: string = (body?.fileName as string | undefined) ?? '';
-  const fileType: string = (body?.fileType as string | undefined) ?? '';
-  const fileSize: number = (body?.fileSize as number | undefined) ?? 0;
-
-  if (!fileName || !fileType) {
-    return NextResponse.json(
-      { error: 'Missing required fields: fileName, fileType' },
-      { status: 400 }
-    );
+  const file = formData.get('file');
+  if (!file || !(file instanceof File)) {
+    return NextResponse.json({ error: 'Không có file nào được gửi lên' }, { status: 400 });
   }
 
   // ── Validate ─────────────────────────────────────────────────────────────
-  if (!ALLOWED_TYPES.includes(fileType)) {
+  if (!ALLOWED_TYPES.includes(file.type)) {
     return NextResponse.json(
-      { error: `Định dạng không hỗ trợ: ${fileType}. Chỉ JPEG, PNG, WebP, GIF.` },
+      { error: `Định dạng không hỗ trợ: ${file.type}. Chỉ JPEG, PNG, WebP, GIF.` },
       { status: 400 }
     );
   }
-  if (fileSize > MAX_FILE_SIZE) {
+  if (file.size > MAX_FILE_SIZE) {
     return NextResponse.json(
-      { error: `File quá lớn (${(fileSize / 1024 / 1024).toFixed(1)}MB). Tối đa 10MB.` },
+      { error: `File quá lớn (${(file.size / 1024 / 1024).toFixed(1)}MB). Tối đa 10MB.` },
       { status: 400 }
     );
   }
 
   // ── Build storage path ────────────────────────────────────────────────────
-  const safeName = fileName
+  const safeName = file.name
     .replace(/[^a-zA-Z0-9._-]/g, '_')
     .replace(/__+/g, '_')
     .slice(0, 60);
   const path = `blog/${Date.now()}-${safeName}`;
 
-  // ── Get signed upload URL from Supabase ─────────────────────────────────
+  // ── Upload to Supabase Storage ────────────────────────────────────────────
   try {
     const { createClient } = await import('@supabase/supabase-js');
     const url = process.env.SUPABASE_URL;
@@ -83,23 +77,35 @@ export async function POST(request: NextRequest) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    // createSignedUrl(download=false) → signed URL for UPLOAD (POST method)
-    // createSignedUrl(download=true)  → signed URL for DOWNLOAD (GET method)
+    // Upload file as ArrayBuffer directly to Supabase Storage
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+
     const { data, error } = await supabase.storage
       .from('blog-images')
-      .createSignedUrl(path, 3600, { download: false });
+      .upload(path, uint8Array, {
+        contentType: file.type,
+        upsert: true,
+      });
 
     if (error) {
       return NextResponse.json(
-        { error: `Supabase error: ${error.message}` },
-        { status: 502 }
+        { error: `Upload thất bại: ${error.message}` },
+        { status: 500 }
       );
     }
 
+    const uploadedPath = typeof data === 'string' ? data : (data as { path?: string })?.path;
+    const { data: urlData } = supabase.storage
+      .from('blog-images')
+      .getPublicUrl(uploadedPath as string);
+
     return NextResponse.json({
-      uploadUrl: (data as unknown as { url: string }).url,
-      path,
-      publicUrl: `${url}/storage/v1/object/public/${path}`,
+      url: urlData.publicUrl,
+      path: uploadedPath,
+      fileName: file.name,
+      size: file.size,
+      type: file.type,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Upload failed';
