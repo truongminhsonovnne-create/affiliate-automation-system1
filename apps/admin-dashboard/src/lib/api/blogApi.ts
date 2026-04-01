@@ -121,6 +121,8 @@ export async function deleteBlogPost(id: string): Promise<void> {
 export interface FormatContentPayload {
   content: string;
   instruction?: string;
+  title?: string;
+  excerpt?: string;
 }
 
 export interface FormatContentResult {

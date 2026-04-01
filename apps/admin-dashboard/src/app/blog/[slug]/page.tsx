@@ -4,6 +4,8 @@
  * Hiển thị chi tiết bài viết SEO từ Supabase.
  */
 
+import { SafeHtmlContent } from '@/components/public/SafeHtmlContent';
+
 // ============================================================
 // TYPES
 // ============================================================
@@ -206,13 +208,82 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
 
         {/* Content */}
         <div
-          className="prose prose-lg max-w-none"
-          dangerouslySetInnerHTML={{ __html: post.content }}
+          className="article-content"
           style={{
-            lineHeight: '1.8',
             fontSize: '17px',
+            lineHeight: '1.8',
+            color: '#374151',
           }}
-        />
+        >
+          <style>{`
+            .article-content p {
+              margin: 0 0 16px;
+              line-height: 1.8;
+              font-size: 17px;
+              color: #374151;
+            }
+            .article-content h2 {
+              margin: 32px 0 12px;
+              line-height: 1.3;
+              font-size: 1.5rem;
+              font-weight: 700;
+              color: #111827;
+            }
+            .article-content h3 {
+              margin: 24px 0 10px;
+              line-height: 1.4;
+              font-size: 1.2rem;
+              font-weight: 600;
+              color: #1f2937;
+            }
+            .article-content ul,
+            .article-content ol {
+              margin: 12px 0 16px 0;
+              padding-left: 24px;
+            }
+            .article-content li {
+              margin-bottom: 8px;
+              line-height: 1.7;
+              font-size: 17px;
+              color: #374151;
+            }
+            .article-content strong {
+              font-weight: 600;
+              color: #111827;
+            }
+            .article-content em {
+              font-style: italic;
+            }
+            .article-content blockquote {
+              margin: 16px 0;
+              padding: 12px 16px;
+              border-left: 4px solid #f97316;
+              background: #fff7ed;
+              border-radius: 0 6px 6px 0;
+              color: #4b5563;
+              font-style: italic;
+            }
+            .article-content blockquote p {
+              margin: 0;
+            }
+            .article-content a {
+              color: #f97316;
+              text-decoration: underline;
+            }
+            .article-content img {
+              max-width: 100%;
+              height: auto;
+              border-radius: 8px;
+              margin: 16px 0;
+            }
+            .article-content hr {
+              margin: 24px 0;
+              border: none;
+              border-top: 1px solid #e5e7eb;
+            }
+          `}</style>
+          <SafeHtmlContent html={post.content} />
+        </div>
 
         {/* Footer */}
         <footer className="mt-12 pt-8 border-t">

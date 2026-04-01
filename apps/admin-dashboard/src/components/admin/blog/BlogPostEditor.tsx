@@ -300,6 +300,8 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
       const result = await formatBlogContent({
         content: form.content,
         instruction: formatInstruction.trim() || DEFAULT_FORMAT_INSTRUCTION,
+        title: form.title,
+        excerpt: form.content.replace(/<[^>]*>/g, '').substring(0, 120),
       });
 
       // Replace content in editor with formatted result

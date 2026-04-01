@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
 import { hasPermission } from '@/lib/auth/rbac';
+import { sanitizeContent } from '@/lib/content/contentSanitizer';
 import type { Role } from '@/lib/auth/rbac';
 
 // ── OpenAI-compatible call via Groq ──────────────────────────────────────────
@@ -30,6 +31,8 @@ const REQUEST_TIMEOUT_MS = 30_000;
 interface FormatRequest {
   content: string;
   instruction?: string;
+  title?: string;
+  excerpt?: string;
 }
 
 interface FormatResponse {
@@ -40,15 +43,15 @@ interface FormatResponse {
 
 const DEFAULT_FORMAT_INSTRUCTION = `Hãy biên tập lại nội dung dưới đây để đăng trực tiếp lên blog.
 - Chỉ trả về HTML sạch
-- Dùng: <h2>, <h3>, <p>, <ul>, <li>, <strong>
+- Dùng: <h2>, <h3>, <p>, <ul>, <li>, <strong>, <em>, <blockquote>
 - Chia lại heading rõ ràng
 - Mỗi đoạn 2 đến 3 câu
-- Tách đoạn dài
-- Chuyển ý liệt kê thành bullet list
+- Tách các đoạn dài thành đoạn ngắn hơn
+- Chuyển các ý liệt kê thành bullet list khi phù hợp
 - Bỏ hashtag khỏi thân bài
 - Giữ nguyên ý chính, không bịa thêm
-- Viết dễ đọc trên mobile
-- Kết thúc bằng phần Kết luận`;
+- Viết tự nhiên, dễ đọc trên mobile
+- Cuối bài luôn có mục <h2>Kết luận</h2>`;
 
 async function callAI(content: string, instruction: string): Promise<FormatResponse> {
   if (!GROQ_API_KEY) {
@@ -57,7 +60,7 @@ async function callAI(content: string, instruction: string): Promise<FormatRespo
 
   const effectiveInstruction = instruction.trim() || DEFAULT_FORMAT_INSTRUCTION;
 
-  const systemPrompt = `Bạn là biên tập viên blog tiếng Việt chuyên nghiệp.`;
+  const systemPrompt = `Bạn là biên tập viên blog tiếng Việt chuyên nghiệp. Bạn chỉ trả về nội dung đã biên tập, không kèm giải thích hay bình luận.`;
 
   const userPrompt = `${effectiveInstruction}
 
@@ -140,7 +143,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { content, instruction } = body as FormatRequest;
+  const { content, instruction, title, excerpt } = body as FormatRequest;
 
   // Validate
   if (!content || typeof content !== 'string' || content.trim().length < 20) {
@@ -157,10 +160,17 @@ export async function POST(request: NextRequest) {
       typeof instruction === 'string' ? instruction.trim() : ''
     );
 
+    // Sanitize AI output: strip unsafe tags, remove duplicates, normalize
+    const cleanContent = sanitizeContent(result.formatted, {
+      title: typeof title === 'string' ? title : undefined,
+      excerpt: typeof excerpt === 'string' ? excerpt : undefined,
+      ensureConclusion: true,
+    });
+
     return NextResponse.json(
       {
-        data: result,
-        message: 'Nội dung đã được định dạng thành công.',
+        data: { ...result, formatted: cleanContent },
+        message: 'Nội dung đã được định dạng và làm sạch thành công.',
       },
       { status: 200 }
     );
