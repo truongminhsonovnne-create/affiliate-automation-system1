@@ -26,6 +26,9 @@ interface BlogPost {
 // ============================================================
 // FETCH DATA (SERVER COMPONENT)
 // ============================================================
+// force-dynamic: blog posts are edited by admin, must always show fresh content
+export const dynamic = 'force-dynamic';
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
@@ -42,7 +45,7 @@ async function getPost(slug: string): Promise<BlogPost | null> {
           apikey: SUPABASE_ANON_KEY,
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         },
-        next: { revalidate: 3600 },
+        cache: 'no-store',
       }
     );
 
@@ -68,7 +71,7 @@ async function getRecentPosts(limit = 5): Promise<BlogPost[]> {
           apikey: SUPABASE_ANON_KEY,
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         },
-        next: { revalidate: 3600 },
+        cache: 'no-store',
       }
     );
 
