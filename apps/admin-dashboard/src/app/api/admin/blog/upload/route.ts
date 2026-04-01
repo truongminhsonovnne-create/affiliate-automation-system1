@@ -83,10 +83,11 @@ export async function POST(request: NextRequest) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    // createSignedUploadUrl returns: { signedUrl, token, path }
+    // createSignedUrl(download=false) → signed URL for UPLOAD (POST method)
+    // createSignedUrl(download=true)  → signed URL for DOWNLOAD (GET method)
     const { data, error } = await supabase.storage
       .from('blog-images')
-      .createSignedUploadUrl(path);
+      .createSignedUrl(path, 3600, { download: false });
 
     if (error) {
       return NextResponse.json(
@@ -96,7 +97,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      uploadUrl: (data as { signedUrl: string }).signedUrl,
+      uploadUrl: (data as unknown as { url: string }).url,
       path,
       publicUrl: `${url}/storage/v1/object/public/${path}`,
     });
