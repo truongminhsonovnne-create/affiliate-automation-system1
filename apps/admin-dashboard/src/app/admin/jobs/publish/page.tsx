@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Send, RefreshCw, CheckCircle, XCircle, Clock, Loader, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/admin/layout/PageHeader';
@@ -16,7 +16,6 @@ import { usePaginationState, useSortState, useFilterState } from '@/lib/hooks/us
 import { formatRelativeTime } from '@/lib/formatters/date';
 import { formatNumber } from '@/lib/formatters/number';
 import { formatPublishJobStatus, formatPlatform } from '@/lib/formatters/status';
-import { useToast } from '@/components/ui/Toast';
 import { useAuth } from '@/lib/auth/useAuth';
 import type { PublishJobRecord } from '@/lib/types/api';
 
@@ -50,17 +49,12 @@ export default function PublishJobsPage() {
   // ── Create job modal ──────────────────────────────────────────────────────
   const [showCreateModal, setShowCreateModal] = useState(false);
   const queryClient = useQueryClient();
-  const toast = useToast();
 
-  const handleJobCreated = useCallback(
-    (_result: { jobId: string }) => {
-      toast.success('Publish Job đã được tạo thành công!');
-      // Refresh jobs list and overview
-      queryClient.invalidateQueries({ queryKey: ['publish-jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard', 'overview'] });
-    },
-    [queryClient, toast]
-  );
+  const handleJobCreated = () => {
+    // Refresh jobs list and overview after successful creation
+    queryClient.invalidateQueries({ queryKey: ['publish-jobs'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard', 'overview'] });
+  };
 
   const { fetchPublishJobs, fetchDashboardOverview } = usePublishJobs();
 
