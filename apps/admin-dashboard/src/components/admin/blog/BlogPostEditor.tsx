@@ -383,7 +383,7 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
                           Kéo thả ảnh hoặc <span className="text-brand-600 underline">chọn file</span>
                         </p>
                         <p className="text-xs text-gray-400 mt-0.5">
-                          JPEG, PNG, WebP, GIF · Tối đa 5MB · Khuyến nghị 800×400px
+                          JPEG, PNG, WebP, GIF · Tối đa 10MB · Khuyến nghị 800×400px
                         </p>
                       </div>
                     </>

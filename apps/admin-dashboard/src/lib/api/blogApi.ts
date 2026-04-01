@@ -3,9 +3,9 @@
  *
  * All calls go to /api/admin/blog and /api/admin/blog/upload (server-side routes).
  *
- * Image upload uses Supabase Storage signed URL to bypass Vercel's 4.5MB body limit:
- *   Browser → POST /api/admin/blog/upload (metadata only, <1KB)
- *   Browser → PUT {signedUrl} (file directly to Supabase Storage, up to 50MB)
+ * Image upload: browser → Vercel GET (get signed URL) → Supabase PUT (upload file).
+ *   File goes browser → Supabase directly via signed URL (bypasses Vercel's 4.5MB limit).
+ *   Server-side limit: 10MB.
  */
 
 import type {

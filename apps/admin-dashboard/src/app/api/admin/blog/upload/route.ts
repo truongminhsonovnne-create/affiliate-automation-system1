@@ -11,7 +11,7 @@
  *   → Returns { url, path } on success
  *
  * Auth: admin session + edit_blog_posts permission
- * Limits: 5MB, JPEG/PNG/WebP/GIF only
+ * Limits: 10MB, JPEG/PNG/WebP/GIF only
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -19,7 +19,7 @@ import { getSession } from '@/lib/auth/session';
 import { hasPermission } from '@/lib/auth/rbac';
 import type { Role } from '@/lib/auth/rbac';
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB — Supabase Storage bucket default is 50MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
 // ── GET: Return signed upload URL (no file data in request) ───────────────────
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: `Định dạng không hỗ trợ. Chỉ: JPEG, PNG, WebP, GIF.` }, { status: 400 });
   }
   if (fileSize > MAX_FILE_SIZE) {
-    return NextResponse.json({ error: `File quá lớn. Tối đa 5MB.` }, { status: 400 });
+    return NextResponse.json({ error: `File quá lớn. Tối đa 10MB.` }, { status: 400 });
   }
 
   try {
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
   }
   if (fileSize > MAX_FILE_SIZE) {
     return NextResponse.json(
-      { error: `File quá lớn (${(fileSize / 1024 / 1024).toFixed(1)}MB). Tối đa 5MB.` },
+      { error: `File quá lớn (${(fileSize / 1024 / 1024).toFixed(1)}MB). Tối đa 10MB.` },
       { status: 400 }
     );
   }
