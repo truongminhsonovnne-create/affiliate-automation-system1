@@ -16,7 +16,7 @@
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import Image from 'next/image';
+import NextImage from 'next/image';
 import {
   X,
   Upload,
@@ -109,7 +109,7 @@ async function compressImageWithCanvas(
   quality: number
 ): Promise<Blob> {
   return new Promise((resolve) => {
-    const imgEl = new HTMLImageElement();
+    const imgEl = new Image();
     imgEl.onload = () => {
       // Scale down to maxDim while preserving aspect ratio
       let { width, height } = imgEl;
@@ -377,7 +377,7 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
               {form.featured_image_url ? (
                 /* Image preview */
                 <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
-                  <Image
+                  <NextImage
                     src={form.featured_image_url}
                     alt="Cover"
                     width={800}
