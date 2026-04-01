@@ -313,3 +313,66 @@ export interface ListQueryFilters {
   sortBy?: string;
   sortOrder?: SortDirection;
 }
+
+// =============================================================================
+// Blog Post Types
+// =============================================================================
+
+/** Blog post status */
+export type BlogPostStatus = 'draft' | 'published' | 'archived';
+
+/** Blog post record */
+export interface BlogPostRecord {
+  id: string;
+  title: string;
+  slug: string;
+  content: string;
+  meta_description: string | null;
+  keywords: string[] | null;
+  category: string | null;
+  featured_image_url: string | null;
+  featured_image_prompt: string | null;
+  status: BlogPostStatus;
+  source: string;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+  author_id: string | null;
+  author_name: string | null;
+  read_time_minutes: number | null;
+  content_summary: string | null;
+}
+
+/** Image upload response */
+export interface ImageUploadResult {
+  url: string;
+  path: string;
+  fileName: string;
+  size: number;
+  type: string;
+}
+
+/** Create blog post payload */
+export interface CreateBlogPostPayload {
+  title: string;
+  content: string;
+  category?: string;
+  status?: 'draft' | 'published';
+  keywords?: string[];
+  featured_image_url?: string | null;
+  featured_image_prompt?: string | null;
+  publishNow?: boolean;
+}
+
+/** Update blog post payload */
+export interface UpdateBlogPostPayload {
+  id: string;
+  title?: string;
+  content?: string;
+  category?: string;
+  status?: 'draft' | 'published' | 'archived';
+  keywords?: string[];
+  featured_image_url?: string | null;
+  featured_image_prompt?: string | null;
+  publishNow?: boolean;
+}

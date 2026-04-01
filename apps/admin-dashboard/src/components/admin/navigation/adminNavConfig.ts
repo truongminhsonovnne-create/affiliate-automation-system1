@@ -15,6 +15,7 @@ import {
   Activity,
   LucideIcon,
   ActivitySquare,
+  FileText,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -59,6 +60,11 @@ export const adminNavSections: NavSection[] = [
         label: 'Sản phẩm',
         href: '/admin/products',
         icon: Package,
+      },
+      {
+        label: 'Blog',
+        href: '/admin/blog',
+        icon: FileText,
       },
       {
         label: 'Crawl Jobs',

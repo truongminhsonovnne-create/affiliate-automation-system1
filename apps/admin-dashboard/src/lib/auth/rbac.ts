@@ -56,6 +56,11 @@ export const permissions = {
   view_ai_content: ['super_admin', 'admin', 'operator', 'readonly_observer'] as Role[],
   edit_ai_content: ['super_admin', 'admin', 'operator'] as Role[],
   regenerate_ai_content: ['super_admin', 'admin'] as Role[],
+
+  // Blog
+  view_blog_posts: ['super_admin', 'admin', 'operator', 'readonly_observer'] as Role[],
+  edit_blog_posts: ['super_admin', 'admin', 'operator'] as Role[],
+  delete_blog_posts: ['super_admin', 'admin'] as Role[],
   
   // Dead Letters
   view_dead_letters: ['super_admin', 'admin', 'operator'] as Role[],
@@ -95,6 +100,7 @@ export function getAccessibleRoutes(role: string | null): string[] {
   if (hasPermission(role, 'view_crawl_jobs')) routes.push('/admin/jobs/crawl');
   if (hasPermission(role, 'view_publish_jobs')) routes.push('/admin/jobs/publish');
   if (hasPermission(role, 'view_ai_content')) routes.push('/admin/ai-content');
+  if (hasPermission(role, 'view_blog_posts')) routes.push('/admin/blog');
   if (hasPermission(role, 'view_dead_letters')) routes.push('/admin/dead-letters');
   if (hasPermission(role, 'view_workers')) routes.push('/admin/workers');
   if (hasPermission(role, 'view_settings')) routes.push('/admin/settings');
