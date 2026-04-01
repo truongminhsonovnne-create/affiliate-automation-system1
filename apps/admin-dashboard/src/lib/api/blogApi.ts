@@ -131,5 +131,5 @@ export async function uploadBlogImage(
     throw new Error((json.error as string) || `Upload failed: HTTP ${res.status}`);
   }
 
-  return json as ImageUploadResult;
+  return json as unknown as ImageUploadResult;
 }
