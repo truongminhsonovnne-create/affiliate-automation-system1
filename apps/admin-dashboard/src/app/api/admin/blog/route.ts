@@ -254,7 +254,7 @@ export async function POST(request: NextRequest) {
         source: 'manual',
         published_at: publishedAt,
         author_id: session.actorId,
-        author_name: session.displayName || session.actorId,
+        author_name: session.actorId,
         read_time_minutes: readTime,
         content_summary: contentSummary,
       })
