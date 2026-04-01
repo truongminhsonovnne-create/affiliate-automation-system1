@@ -220,7 +220,8 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
     setSubmitting(true);
     setSubmitError(null);
 
-    const effectiveStatus = mode;
+    // Map 'publish' → 'published' for DB compatibility
+    const effectiveStatus = mode === 'publish' ? 'published' : mode;
     const publishNow = mode === 'publish';
 
     try {
