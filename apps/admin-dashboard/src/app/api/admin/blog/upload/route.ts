@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
     const publicUrl = `${url}/storage/v1/object/public/blog-images/${path}`;
 
     return NextResponse.json({
-      uploadUrl: data.url,
+      uploadUrl: data.signedUrl,
       publicUrl,
       path,
       message: 'Upload URL generated — upload file directly to uploadUrl with PUT method',

@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({
-    uploadUrl: data.url,
+    uploadUrl: data.signedUrl,
     publicUrl: `${url}/storage/v1/object/public/blog-images/${path}`,
     path,
   });

@@ -350,6 +350,7 @@ export interface ImageUploadResult {
   fileName: string;
   size: number;
   type: string;
+  message?: string;
 }
 
 /** Create blog post payload */
