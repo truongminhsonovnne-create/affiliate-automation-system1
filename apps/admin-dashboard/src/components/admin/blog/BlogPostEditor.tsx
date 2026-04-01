@@ -17,6 +17,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import Image from 'next/image';
+import imageCompression from 'browser-image-compression';
 import {
   X,
   Upload,
@@ -170,7 +171,19 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
     setUploadingImage(true);
 
     try {
-      const result = await uploadBlogImage(file);
+      // Compress image to ≤ 2MB before upload (Vercel 4.5MB body limit)
+      const compressed = await imageCompression(file, {
+        maxSizeMB: 2,
+        maxWidthOrHeight: 1920,
+        useWebWorker: true,
+      });
+
+      // Use original filename but .webp extension for smaller size
+      const originalName = file.name.replace(/\.[^.]+$/, '');
+      const outputFileName = `${originalName}.webp`;
+      const outputFile = new File([compressed], outputFileName, { type: 'image/webp' });
+
+      const result = await uploadBlogImage(outputFile);
       setForm((f) => ({ ...f, featured_image_url: result.url }));
     } catch (err) {
       setImageUploadError(err instanceof Error ? err.message : 'Upload thất bại');
