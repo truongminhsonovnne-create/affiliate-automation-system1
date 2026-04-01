@@ -565,7 +565,7 @@ Bạn có thể dùng HTML đơn giản:
               icon={form.status === 'published' ? <CheckCircle2 className="h-4 w-4" /> : <Globe className="h-4 w-4" />}
               loading={isSaving && form.status === 'published'}
               disabled={isSaving}
-              onClick={() => handleSubmit('published')}
+              onClick={() => handleSubmit('publish')}
             >
               {form.status === 'published' ? 'Cập nhật' : 'Đăng bài'}
             </Button>
