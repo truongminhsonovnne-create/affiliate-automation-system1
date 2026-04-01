@@ -111,25 +111,47 @@ export async function deleteBlogPost(id: string): Promise<void> {
   });
 }
 
-// ── Upload image ────────────────────────────────────────────────────────────
+// ── Upload image via signed URL (avoids Vercel 4.5MB body limit) ──
 
 export async function uploadBlogImage(
   file: File
 ): Promise<ImageUploadResult> {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const res = await fetch('/api/admin/blog/upload', {
+  // Step 1: Get signed upload URL
+  const urlRes = await fetch('/api/admin/blog/upload-url', {
     method: 'POST',
-    body: formData,
-    // NOTE: Do NOT set Content-Type header — browser auto-sets multipart boundary
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+    }),
   });
 
-  const json = await res.json() as Record<string, unknown>;
+  const urlJson = await urlRes.json() as Record<string, unknown>;
 
-  if (!res.ok) {
-    throw new Error((json.error as string) || `Upload failed: HTTP ${res.status}`);
+  if (!urlRes.ok) {
+    throw new Error((urlJson.error as string) || `Upload failed: HTTP ${urlRes.status}`);
   }
 
-  return json as unknown as ImageUploadResult;
+  const { uploadUrl, publicUrl } = urlJson as { uploadUrl: string; publicUrl: string; path: string };
+
+  // Step 2: Upload file directly to Supabase Storage (no 4.5MB Vercel limit)
+  const uploadRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  });
+
+  if (!uploadRes.ok) {
+    throw new Error(`Upload to storage failed: HTTP ${uploadRes.status}`);
+  }
+
+  return {
+    url: publicUrl,
+    path: (urlJson as any).path ?? '',
+    fileName: file.name,
+    size: file.size,
+    type: file.type,
+    message: 'Upload thành công!',
+  };
 }
