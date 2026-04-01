@@ -32,6 +32,7 @@ import {
   CheckCircle2,
   ExternalLink,
   Trash2,
+  Sparkles,
 } from 'lucide-react';
 import { Modal, ModalFooter } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
@@ -42,6 +43,7 @@ import {
   createBlogPost,
   updateBlogPost,
   uploadBlogImage,
+  formatBlogContent,
 } from '@/lib/api/blogApi';
 import type {
   BlogPostRecord,
@@ -174,6 +176,11 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  // ── AI format state ─────────────────────────────────────────────────────
+  const [formatting, setFormatting] = useState(false);
+  const [formatError, setFormatError] = useState<string | null>(null);
+  const [formatInstruction, setFormatInstruction] = useState('');
+
   // ── Populate form when editing ─────────────────────────────────────────
   useEffect(() => {
     if (open) {
@@ -195,6 +202,8 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
       setSubmitError(null);
       setSuccess(false);
       setImageUploadError(null);
+      setFormatError(null);
+      setFormatInstruction('');
     }
   }, [open, post]);
 
@@ -263,6 +272,29 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
 
   const handleRemoveImage = () => {
     setForm((f) => ({ ...f, featured_image_url: '' }));
+  };
+
+  // ── AI content format ───────────────────────────────────────────────────
+  const handleFormatContent = async () => {
+    if (!formatInstruction.trim()) return;
+
+    setFormatError(null);
+    setFormatting(true);
+
+    try {
+      const result = await formatBlogContent({
+        content: form.content,
+        instruction: formatInstruction.trim(),
+      });
+
+      // Replace content in editor with formatted result
+      setForm((f) => ({ ...f, content: result.formatted }));
+      setFormatInstruction('');
+    } catch (err) {
+      setFormatError(err instanceof Error ? err.message : 'Lỗi khi định dạng nội dung');
+    } finally {
+      setFormatting(false);
+    }
   };
 
   // ── Submit ─────────────────────────────────────────────────────────────
@@ -574,6 +606,42 @@ Bạn có thể dùng HTML đơn giản:
               )}
               <p className="text-xs text-gray-400">
                 Hỗ trợ HTML cơ bản. Giữ nội dung có cấu trúc: tiêu đề, danh sách, đoạn văn.
+              </p>
+            </div>
+
+            {/* ── AI Content Formatting ─────────────────────────────────────── */}
+            <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                <Sparkles className="h-4 w-4 text-brand-500" />
+                Làm đẹp nội dung bằng AI
+              </label>
+
+              <textarea
+                placeholder="VD: chia lại heading, tách đoạn ngắn hơn, đổi sang HTML sạch, thêm danh sách bullet points..."
+                value={formatInstruction}
+                onChange={(e) => setFormatInstruction(e.target.value)}
+                rows={2}
+                disabled={formatting || isSaving}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-white placeholder:text-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 disabled:opacity-50"
+              />
+
+              {formatError && (
+                <p className="text-xs text-red-600">{formatError}</p>
+              )}
+
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Sparkles className="h-3.5 w-3.5" />}
+                loading={formatting}
+                disabled={formatting || isSaving || !formatInstruction.trim() || !form.content.trim()}
+                onClick={handleFormatContent}
+              >
+                Làm đẹp nội dung bằng AI
+              </Button>
+
+              <p className="text-xs text-gray-400">
+                AI định dạng lại nội dung: tách heading hợp lý, chia đoạn ngắn, chuyển sang HTML sạch. Không dùng chung với prompt tạo ảnh cover.
               </p>
             </div>
 

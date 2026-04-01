@@ -116,6 +116,33 @@ export async function deleteBlogPost(id: string): Promise<void> {
   });
 }
 
+// ── AI content formatting ───────────────────────────────────────────────────
+
+export interface FormatContentPayload {
+  content: string;
+  instruction: string;
+}
+
+export interface FormatContentResult {
+  formatted: string;
+  model: string;
+  tokensUsed?: number;
+}
+
+export async function formatBlogContent(
+  payload: FormatContentPayload
+): Promise<FormatContentResult> {
+  const result = await apiFetch<{
+    data: FormatContentResult;
+    message: string;
+  }>('/api/admin/blog/format', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  return result.data;
+}
+
 // ── Upload image (server-side FormData → Supabase SDK) ──
 
 export async function uploadBlogImage(
