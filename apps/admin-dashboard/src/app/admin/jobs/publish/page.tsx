@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Send, RefreshCw, CheckCircle, XCircle, Clock, Loader } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Send, RefreshCw, CheckCircle, XCircle, Clock, Loader, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/admin/layout/PageHeader';
 import { DataTable } from '@/components/admin/display/DataTable';
 import { StatusBadge } from '@/components/admin/display/StatusBadge';
@@ -10,11 +10,14 @@ import { FilterBar } from '@/components/admin/layout/FilterBar';
 import { ErrorState } from '@/components/admin/layout/ErrorState';
 import { MetricCard } from '@/components/admin/layout/MetricCard';
 import { Button } from '@/components/ui';
+import { CreatePublishJobModal } from '@/components/admin/publish/CreatePublishJobModal';
 import { usePublishJobs, useDashboardOverview } from '@/lib/api/dashboardApi';
 import { usePaginationState, useSortState, useFilterState } from '@/lib/hooks/useDashboardState';
 import { formatRelativeTime } from '@/lib/formatters/date';
 import { formatNumber } from '@/lib/formatters/number';
 import { formatPublishJobStatus, formatPlatform } from '@/lib/formatters/status';
+import { useToast } from '@/components/ui/Toast';
+import { useAuth } from '@/lib/auth/useAuth';
 import type { PublishJobRecord } from '@/lib/types/api';
 
 const STATUS_OPTIONS = [
@@ -39,6 +42,25 @@ export default function PublishJobsPage() {
   const sort = useSortState<'created_at' | 'started_at' | 'completed_at'>('created_at', 'desc');
   const filters = useFilterState({ status: '', platform: '', content_type: '', search: '' });
   const [searchInput, setSearchInput] = useState('');
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  const { hasPermission: checkPerm } = useAuth();
+  const canCreate = checkPerm('run_publish_jobs');
+
+  // ── Create job modal ──────────────────────────────────────────────────────
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const queryClient = useQueryClient();
+  const toast = useToast();
+
+  const handleJobCreated = useCallback(
+    (_result: { jobId: string }) => {
+      toast.success('Publish Job đã được tạo thành công!');
+      // Refresh jobs list and overview
+      queryClient.invalidateQueries({ queryKey: ['publish-jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard', 'overview'] });
+    },
+    [queryClient, toast]
+  );
 
   const { fetchPublishJobs, fetchDashboardOverview } = usePublishJobs();
 
@@ -168,14 +190,26 @@ export default function PublishJobsPage() {
         description="Quản lý các job đăng bài lên các nền tảng"
         icon={Send}
         actions={
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<RefreshCw className="h-4 w-4" />}
-            onClick={() => refetch()}
-          >
-            Làm mới
-          </Button>
+          <>
+            {canCreate && (
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus className="h-4 w-4" />}
+                onClick={() => setShowCreateModal(true)}
+              >
+                Tạo Job
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<RefreshCw className="h-4 w-4" />}
+              onClick={() => refetch()}
+            >
+              Làm mới
+            </Button>
+          </>
         }
       />
 
@@ -234,6 +268,13 @@ export default function PublishJobsPage() {
           emptyMessage="Không có job publish nào"
         />
       )}
+
+      {/* Create job modal */}
+      <CreatePublishJobModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreated={handleJobCreated}
+      />
     </div>
   );
 }

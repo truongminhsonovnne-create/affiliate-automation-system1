@@ -235,6 +235,48 @@ export async function fetchPublishJobDetail(
   return proxyFetch<PublishJobRecord>(`/internal/dashboard/publish-jobs/${jobId}`);
 }
 
+/**
+ * Create a new publish job
+ *
+ * NOTE: This does NOT go through the proxy — it calls the publish-jobs
+ * route directly (which has its own auth + RBAC checks).
+ *
+ * @param payload  - job creation fields
+ * @returns         - { id: string } on success
+ */
+export async function createPublishJob(
+  payload: {
+    platform: string;
+    contentType?: string;
+    sourceType?: string;
+    productIds?: string;
+    scheduledAt?: string | null;
+    channel?: string;
+    priority?: number;
+    title?: string;
+    description?: string;
+  }
+): Promise<{ ok: boolean; data?: { id?: string }; error?: string }> {
+  const res = await fetch('/api/admin/publish-jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  const json = await res.json() as { data?: { id?: string; jobId?: string; job_id?: string }; error?: string; message?: string };
+
+  if (!res.ok) {
+    return { ok: false, error: json.error ?? json.message ?? 'Unknown error' };
+  }
+
+  return {
+    ok: true,
+    data: {
+      id: json.data?.id ?? json.data?.jobId ?? json.data?.job_id,
+    },
+  };
+}
+
 // =============================================================================
 // AI Contents
 // =============================================================================

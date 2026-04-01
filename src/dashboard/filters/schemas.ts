@@ -244,6 +244,62 @@ export function validatePublishJobDetailQuery(data: unknown) {
 }
 
 // =============================================================================
+// CREATE PUBLISH JOB SCHEMA
+// =============================================================================
+
+/** Platform enum */
+const platformEnum = z.enum(['shopee', 'lazada', 'tiktok', 'tiki']);
+
+/** Channel enum (expanded from the list filter) */
+const channelEnum = z.enum(['website', 'blog', 'tiktok', 'facebook', 'seo', 'email']);
+
+/** Content type enum */
+const contentTypeEnum = z.enum(['deal', 'voucher', 'product', 'seo_article', 'social']);
+
+/** Source type enum */
+const sourceTypeEnum = z.enum(['masoffer', 'accesstrade', 'crawl', 'manual']);
+
+/** Create publish job request body schema */
+export const createPublishJobBodySchema = z.object({
+  /** Platform — required */
+  platform: platformEnum,
+
+  /** Content type — optional */
+  contentType: contentTypeEnum.optional(),
+
+  /** Source type — optional */
+  sourceType: sourceTypeEnum.optional(),
+
+  /** Comma-separated product IDs, or undefined for all products of the platform */
+  productIds: z.string().optional(),
+
+  /**
+   * Scheduled publish time.
+   * - ISO timestamp string → schedule at that time
+   * - null                   → run immediately
+   * - undefined              → run immediately
+   */
+  scheduledAt: z.string().datetime().nullish(),
+
+  /** Target channel — defaults to 'website' */
+  channel: channelEnum.optional().default('website'),
+
+  /** Priority 0–10 — defaults to 5 */
+  priority: z.number().int().min(0).max(10).optional().default(5),
+
+  /** Optional job title override */
+  title: z.string().max(500).optional(),
+
+  /** Optional job description / notes */
+  description: z.string().max(2000).optional(),
+});
+
+/** Validate create publish job body */
+export function validateCreatePublishJobBody(data: unknown) {
+  return createPublishJobBodySchema.safeParse(data);
+}
+
+// =============================================================================
 // AI CONTENT LIST SCHEMAS
 // =============================================================================
 
