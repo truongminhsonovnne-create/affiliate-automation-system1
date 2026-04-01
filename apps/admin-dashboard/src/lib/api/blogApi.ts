@@ -115,31 +115,25 @@ export async function deleteBlogPost(id: string): Promise<void> {
   });
 }
 
-// ── Upload image via signed URL (avoids Vercel 4.5MB body limit) ──
+// ── Upload image via server proxy (avoids Vercel 4.5MB body limit) ──
 
 export async function uploadBlogImage(
   file: File
 ): Promise<ImageUploadResult> {
-  // Step 1: Get signed upload URL
-  const urlRes = await fetch('/api/admin/blog/upload-url', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      fileName: file.name,
-      fileType: file.type,
-      fileSize: file.size,
-    }),
-  });
+  // Step 1: Get signed upload URL from our server
+  const getRes = await fetch(
+    `/api/admin/blog/upload?path=${encodeURIComponent(`blog/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60)}`)}&fileName=${encodeURIComponent(file.name)}&fileType=${encodeURIComponent(file.type)}&fileSize=${file.size}`
+  );
 
-  const urlJson = await urlRes.json() as Record<string, unknown>;
+  const getJson = await getRes.json() as Record<string, unknown>;
 
-  if (!urlRes.ok) {
-    throw new Error((urlJson.error as string) || `Upload failed: HTTP ${urlRes.status}`);
+  if (!getRes.ok) {
+    throw new Error((getJson.error as string) || `Upload failed: HTTP ${getRes.status}`);
   }
 
-  const { uploadUrl, publicUrl } = urlJson as { uploadUrl: string; publicUrl: string; path: string };
+  const { uploadUrl } = getJson as { uploadUrl: string; path: string };
 
-  // Step 2: Upload file directly to Supabase Storage (no 4.5MB Vercel limit)
+  // Step 2: Upload file to signed URL (Supabase)
   const uploadRes = await fetch(uploadUrl, {
     method: 'PUT',
     headers: { 'Content-Type': file.type },
@@ -150,12 +144,14 @@ export async function uploadBlogImage(
     throw new Error(`Upload to storage failed: HTTP ${uploadRes.status}`);
   }
 
+  // Step 3: Return public URL
+  const publicUrl = (getJson as { publicUrl: string }).publicUrl;
+
   return {
     url: publicUrl,
-    path: (urlJson as any).path ?? '',
+    path: (getJson as { path: string }).path ?? '',
     fileName: file.name,
     size: file.size,
     type: file.type,
-    message: 'Upload thành công!',
   };
 }

@@ -1,11 +1,17 @@
 /**
- * Admin Blog Image Upload — POST /api/admin/blog/upload
+ * Admin Blog Image Upload
  *
- * Uses Supabase Storage signed URL to upload directly from browser → Supabase.
- * This bypasses Vercel's 4.5MB body limit (file never touches Vercel).
+ * Two-step upload flow to bypass Vercel's 4.5MB body limit:
+ *
+ * Step 1 — GET /api/admin/blog/upload?path=...&fileName=...&fileType=...&fileSize=...
+ *   → Auth check, validates metadata, returns signed upload URL from Supabase Storage API
+ *
+ * Step 2 — POST /api/admin/blog/upload  (binary file body)
+ *   → Auth check, reads file from request.arrayBuffer(), uploads to Supabase Storage
+ *   → Returns { url, path } on success
  *
  * Auth: admin session + edit_blog_posts permission
- * Limits: 5MB, JPEG/PNG/WebP/GIF only (validated via metadata before upload)
+ * Limits: 5MB, JPEG/PNG/WebP/GIF only
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -16,13 +22,80 @@ import type { Role } from '@/lib/auth/rbac';
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
-export async function POST(request: NextRequest) {
-  // ── Auth ─────────────────────────────────────────────────────────────────
+// ── GET: Return signed upload URL (no file data in request) ───────────────────
+
+export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  if (!hasPermission(session.role as Role, 'edit_blog_posts')) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
+  const { searchParams } = new URL(request.url);
+  const path = searchParams.get('path');
+  const fileName = searchParams.get('fileName');
+  const fileType = searchParams.get('fileType');
+  const fileSize = parseInt(searchParams.get('fileSize') ?? '0', 10);
+
+  if (!path || !fileName || !fileType) {
+    return NextResponse.json({ error: 'Missing required params: path, fileName, fileType' }, { status: 400 });
+  }
+
+  if (!ALLOWED_TYPES.includes(fileType)) {
+    return NextResponse.json({ error: `Định dạng không hỗ trợ. Chỉ: JPEG, PNG, WebP, GIF.` }, { status: 400 });
+  }
+  if (fileSize > MAX_FILE_SIZE) {
+    return NextResponse.json({ error: `File quá lớn. Tối đa 5MB.` }, { status: 400 });
+  }
+
+  try {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 });
+    }
+
+    // Call Supabase Storage REST API directly for signed upload URL
+    const token = btoa(`${supabaseKey}:`);
+    const signedRes = await fetch(
+      `${supabaseUrl}/storage/v1/object/upload/sign/${path}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!signedRes.ok) {
+      const errText = await signedRes.text();
+      return NextResponse.json(
+        { error: `Supabase signed URL error ${signedRes.status}: ${errText}` },
+        { status: 502 }
+      );
+    }
+
+    const signedData = await signedRes.json() as { url: string };
+    const uploadUrl = `${supabaseUrl}/storage/v1${signedData.url}`;
+    const publicUrl = `${supabaseUrl}/storage/v1/object/public/${path}`;
+
+    return NextResponse.json({ uploadUrl, publicUrl, path });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Upload failed';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+// ── POST: Receive binary file and forward to Supabase Storage ─────────────────
+
+export async function POST(request: NextRequest) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   if (!hasPermission(session.role as Role, 'edit_blog_posts')) {
     return NextResponse.json(
       { error: 'Forbidden — cần quyền operator trở lên để upload ảnh' },
@@ -30,28 +103,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── Parse minimal body (metadata only — no file data here) ───────────────
-  let body: { fileName: string; fileType: string; fileSize: number } | null = null;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+  // Read file metadata from headers (set by client before uploading)
+  const fileName = request.headers.get('x-upload-file-name') ?? 'upload';
+  const fileType = request.headers.get('x-upload-file-type') ?? 'image/jpeg';
+  const fileSize = parseInt(request.headers.get('x-upload-file-size') ?? '0', 10);
+  const uploadPath = request.headers.get('x-upload-path');
+
+  if (!uploadPath) {
+    return NextResponse.json({ error: 'Missing x-upload-path header' }, { status: 400 });
   }
 
-  if (!body?.fileName || !body?.fileType) {
-    return NextResponse.json({ error: 'Missing file metadata (fileName, fileType required)' }, { status: 400 });
-  }
-
-  const { fileName, fileType, fileSize } = body;
-
-  // ── Validate metadata ─────────────────────────────────────────────────────
   if (!ALLOWED_TYPES.includes(fileType)) {
     return NextResponse.json(
-      { error: `Định dạng không hỗ trợ: ${fileType}. Chỉ JPEG, PNG, WebP, GIF.` },
+      { error: `Định dạng không hỗ trợ. Chỉ JPEG, PNG, WebP, GIF.` },
       { status: 400 }
     );
   }
-
   if (fileSize > MAX_FILE_SIZE) {
     return NextResponse.json(
       { error: `File quá lớn (${(fileSize / 1024 / 1024).toFixed(1)}MB). Tối đa 5MB.` },
@@ -59,47 +126,48 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── Generate signed upload URL (file goes browser → Supabase directly) ────
   try {
-    const { createClient } = await import('@supabase/supabase-js');
-    const url = process.env.SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!url || !key) {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 });
     }
 
-    const supabase = createClient(url, key, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
+    // Read file as ArrayBuffer
+    const arrayBuffer = await request.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
 
-    const safeName = fileName
-      .replace(/[^a-zA-Z0-9._-]/g, '_')
-      .replace(/__+/g, '_')
-      .substring(0, 60);
-    const path = `blog/${Date.now()}-${safeName}`;
+    // Upload via Supabase Storage REST API (no SDK needed)
+    const token = btoa(`${supabaseKey}:`);
+    const uploadRes = await fetch(
+      `${supabaseUrl}/storage/v1/object/${uploadPath}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': fileType,
+          'x-upsert': 'true',
+        },
+        body: uint8Array,
+      }
+    );
 
-    // createSignedUploadUrl creates a short-lived PUT URL for direct browser upload
-    const { data, error } = await supabase.storage
-      .from('blog-images')
-      .createSignedUploadUrl(path);
-
-    if (error || !data) {
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
       return NextResponse.json(
-        { error: error?.message || 'Không thể tạo upload URL' },
-        { status: 500 }
+        { error: `Upload failed: HTTP ${uploadRes.status} — ${errText}` },
+        { status: 502 }
       );
     }
 
-    // Return the signed URL — client uploads file directly to Supabase
-    // publicUrl is the permanent public URL after upload completes
-    const publicUrl = `${url}/storage/v1/object/public/blog-images/${path}`;
+    const publicUrl = `${supabaseUrl}/storage/v1/object/public/${uploadPath}`;
 
     return NextResponse.json({
-      uploadUrl: data.signedUrl,
-      publicUrl,
-      path,
-      message: 'Upload URL generated — upload file directly to uploadUrl with PUT method',
+      url: publicUrl,
+      path: uploadPath,
+      fileName,
+      size: fileSize,
+      type: fileType,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Upload failed';
