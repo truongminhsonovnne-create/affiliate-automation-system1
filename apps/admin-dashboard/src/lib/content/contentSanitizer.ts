@@ -154,9 +154,9 @@ export function stripUnsafeTags(html: string): string {
 
 /** Ensure the article ends with <h2>Kết luận</h2> if not already present */
 export function ensureConclusion(html: string): string {
-  // Match any h2/h3 heading containing "Kết luận" (with or without attributes, any variation)
-  const hasConclusion =
-    /<h[23][^>]*>[^<]*ket[^<]*lu[^<]*n[^<]*<\/h[23]>/i.test(html);
+  // Strip HTML tags and check for conclusion text — safe for all languages
+  const textOnly = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const hasConclusion = /\bk[eé]̑t\s+lu[ậấ]̑+n\b/i.test(textOnly);
 
   if (!hasConclusion) {
     // Append a conclusion section
