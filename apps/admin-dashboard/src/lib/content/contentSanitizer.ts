@@ -28,9 +28,6 @@ const SAFE_TAGS = [
   'code', 'pre',
 ];
 
-// Tags that should NOT appear inside <li> — unwrap them
-const INLINE_TAGS_IN_LI = ['p', 'div', 'h2', 'h3', 'h4', 'ul', 'ol'];
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Escape HTML special chars for insertion into regex */
@@ -122,7 +119,7 @@ export function fixAIMistakes(body: string): string {
     .replace(/\*(.*?)\*/g, '$1')
     .replace(/__(.*?)__/g, '$1')
     .replace(/_(.*?)_/g, '$1')
-    // Remove markdown headings left behind — convert to HTML h2 so ensureConclusion can detect them
+    // Remove markdown headings left behind — convert to HTML so ensureConclusion can detect them
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
     .replace(/^# (.+)$/gm, '<h2>$1</h2>')
@@ -154,17 +151,21 @@ export function stripUnsafeTags(html: string): string {
 
 /** Ensure the article ends with <h2>Kết luận</h2> if not already present */
 export function ensureConclusion(html: string): string {
-  // Strip HTML tags and check for conclusion text — safe for all languages
-  const textOnly = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  const hasConclusion = /\bk[eé]̑t\s+lu[ậấ]̑+n\b/i.test(textOnly);
-
-  if (!hasConclusion) {
-    // Append a conclusion section
-    const conclusion = '\n<h2>Kết luận</h2>\n<p>Nội dung trên đã phân tích chi tiết vấn đề. Hy vọng bài viết mang lại thông tin hữu ích cho bạn.</p>';
-    return html.trimEnd() + conclusion;
+  // Iterate through all h2/h3 headings and check if any contains "Kết luận".
+  // This avoids regex pitfalls with accented Vietnamese chars.
+  const headingRegex = /<h([23])([^>]*)>([^<]*)<\/h\1>/gi;
+  let match;
+  while ((match = headingRegex.exec(html)) !== null) {
+    const innerText = match[3].toLowerCase();
+    if (innerText.includes('kết luận') || innerText.includes('ket luan')) {
+      return html; // conclusion already exists — do nothing
+    }
   }
 
-  return html;
+  // No conclusion found — append one
+  const conclusion =
+    '\n<h2>Kết luận</h2>\n<p>Nội dung trên đã phân tích chi tiết vấn đề. Hy vọng bài viết mang lại thông tin hữu ích cho bạn.</p>';
+  return html.trimEnd() + conclusion;
 }
 
 /** Wrap inline tags inside <li> properly */
@@ -177,7 +178,7 @@ export function fixListTags(html: string): string {
  * Full sanitization pipeline
  *
  * @param content - Raw content (from AI or user)
- * @param meta   - Post metadata for duplicate detection
+ * @param options - Post metadata for duplicate detection
  * @returns Clean, safe, well-structured HTML content
  */
 export interface SanitizeOptions {
