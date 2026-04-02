@@ -122,8 +122,10 @@ export function fixAIMistakes(body: string): string {
     .replace(/\*(.*?)\*/g, '$1')
     .replace(/__(.*?)__/g, '$1')
     .replace(/_(.*?)_/g, '$1')
-    // Remove markdown headings left behind
-    .replace(/^#{1,6}\s+([^#\n]+)$/gm, '$1')
+    // Remove markdown headings left behind — convert to HTML h2 so ensureConclusion can detect them
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
     // Remove markdown list markers
     .replace(/^[-*+]\s+/gm, '')
     .replace(/^\d+\.\s+/gm, '')
@@ -152,9 +154,9 @@ export function stripUnsafeTags(html: string): string {
 
 /** Ensure the article ends with <h2>Kết luận</h2> if not already present */
 export function ensureConclusion(html: string): string {
+  // Match any h2/h3 heading containing "Kết luận" (with or without attributes, any variation)
   const hasConclusion =
-    /<h[23][^>]*>.*?ket.*?lu.*?n.*?<\/h[23]>/i.test(html) ||
-    /<h[23][^>]*>.*?ket.*?lu.*?<\/h[23]>/i.test(html);
+    /<h[23][^>]*>[^<]*ket[^<]*lu[^<]*n[^<]*<\/h[23]>/i.test(html);
 
   if (!hasConclusion) {
     // Append a conclusion section
