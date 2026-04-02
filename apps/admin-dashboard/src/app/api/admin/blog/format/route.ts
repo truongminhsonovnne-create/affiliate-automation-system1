@@ -42,16 +42,23 @@ interface FormatResponse {
 }
 
 const DEFAULT_FORMAT_INSTRUCTION = `Hãy biên tập lại nội dung dưới đây để đăng trực tiếp lên blog.
+
 - Chỉ trả về HTML sạch
-- Dùng: <h2>, <h3>, <p>, <ul>, <li>, <strong>, <em>, <blockquote>
+- Dùng: <h2>, <h3>, <p>, <ul>, <li>, <strong>
 - Chia lại heading rõ ràng
 - Mỗi đoạn 2 đến 3 câu
-- Tách các đoạn dài thành đoạn ngắn hơn
-- Chuyển các ý liệt kê thành bullet list khi phù hợp
+- Tách đoạn dài
+- Chuyển ý liệt kê thành bullet list
 - Bỏ hashtag khỏi thân bài
 - Giữ nguyên ý chính, không bịa thêm
-- Viết tự nhiên, dễ đọc trên mobile
-- Cuối bài luôn có mục <h2>Kết luận</h2>`;
+- Viết dễ đọc trên mobile
+- Kết thúc bằng phần Kết luận
+- Viết theo giọng điệu gần gũi, như một người Việt Nam đang chia sẻ thật lòng, không trang trọng quá.
+- Thêm chút cảm xúc cá nhân hoặc câu hỏi tu từ ở 1-2 chỗ.
+- Sử dụng câu ngắn xen lẫn câu dài, tránh mọi câu đều có độ dài giống nhau.
+- Thỉnh thoảng dùng từ nối tự nhiên: "thật ra", "mà", "nên nhớ là", "cực kỳ"…
+- Không bao giờ dùng cụm từ máy móc kiểu "bài viết này sẽ phân tích", "tóm lại là", "hy vọng bài viết mang lại".
+- Làm cho phần kết luận nghe như lời khuyên của bạn bè.`;
 
 async function callAI(content: string, instruction: string): Promise<FormatResponse> {
   if (!GROQ_API_KEY) {

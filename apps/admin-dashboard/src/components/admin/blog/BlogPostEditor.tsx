@@ -86,6 +86,7 @@ const EMPTY_FORM: FormState = {
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const DEFAULT_FORMAT_INSTRUCTION = `Hãy biên tập lại nội dung dưới đây để đăng trực tiếp lên blog.
+
 - Chỉ trả về HTML sạch
 - Dùng: <h2>, <h3>, <p>, <ul>, <li>, <strong>
 - Chia lại heading rõ ràng
@@ -95,7 +96,13 @@ const DEFAULT_FORMAT_INSTRUCTION = `Hãy biên tập lại nội dung dưới đ
 - Bỏ hashtag khỏi thân bài
 - Giữ nguyên ý chính, không bịa thêm
 - Viết dễ đọc trên mobile
-- Kết thúc bằng phần Kết luận`;
+- Kết thúc bằng phần Kết luận
+- Viết theo giọng điệu gần gũi, như một người Việt Nam đang chia sẻ thật lòng, không trang trọng quá.
+- Thêm chút cảm xúc cá nhân hoặc câu hỏi tu từ ở 1-2 chỗ.
+- Sử dụng câu ngắn xen lẫn câu dài, tránh mọi câu đều có độ dài giống nhau.
+- Thỉnh thoảng dùng từ nối tự nhiên: "thật ra", "mà", "nên nhớ là", "cực kỳ"…
+- Không bao giờ dùng cụm từ máy móc kiểu "bài viết này sẽ phân tích", "tóm lại là", "hy vọng bài viết mang lại".
+- Làm cho phần kết luận nghe như lời khuyên của bạn bè.`;
 
 // ── Options ─────────────────────────────────────────────────────────────────
 
