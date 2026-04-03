@@ -416,7 +416,7 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
           .split(',')
           .map((k) => k.trim())
           .filter(Boolean),
-        featured_image_url: form.images.find((i) => i.isCover)?.url ?? form.featured_image_url || null,
+        featured_image_url: (form.images.find((i) => i.isCover)?.url ?? form.featured_image_url) || null,
         featured_image_prompt: form.featured_image_prompt || null,
         post_images: form.images.map((img, idx) => ({
           url: img.url,
