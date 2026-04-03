@@ -530,8 +530,8 @@ export async function DELETE(request: NextRequest) {
     // Delete post_images from storage
     if (postImages && postImages.length > 0) {
       const storagePaths = postImages
-        .map((img) => {
-          const match = (img.url as string).match(/\/blog-images\/(.+)$/);
+        .map((img: { url: string }) => {
+          const match = img.url.match(/\/blog-images\/(.+)$/);
           return match ? match[1] : null;
         })
         .filter(Boolean) as string[];
