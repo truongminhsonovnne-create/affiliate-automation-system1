@@ -104,7 +104,7 @@ const EMPTY_FORM: FormState = {
 const DEFAULT_FORMAT_INSTRUCTION = `Hãy biên tập lại nội dung dưới đây để đăng trực tiếp lên blog.
 
 - Chỉ trả về HTML sạch
-- Dùng: <h2>, <h3>, <p>, <ul>, <li>, <strong>
+- Dùng: <h2>, <h3>, <p>, <ul>, <li>, <strong>, <img>
 - Chia lại heading rõ ràng
 - Mỗi đoạn 2 đến 3 câu
 - Tách đoạn dài
@@ -118,7 +118,14 @@ const DEFAULT_FORMAT_INSTRUCTION = `Hãy biên tập lại nội dung dưới đ
 - Sử dụng câu ngắn xen lẫn câu dài, tránh mọi câu đều có độ dài giống nhau.
 - Thỉnh thoảng dùng từ nối tự nhiên: "thật ra", "mà", "nên nhớ là", "cực kỳ"…
 - Không bao giờ dùng cụm từ máy móc kiểu "bài viết này sẽ phân tích", "tóm lại là", "hy vọng bài viết mang lại".
-- Làm cho phần kết luận nghe như lời khuyên của bạn bè.`;
+- Làm cho phần kết luận nghe như lời khuyên của bạn bè.
+- NẾU CÓ ẢNH: chèn ảnh vào đúng vị trí PHÙ HỢP nhất trong bài viết:
+  * Ảnh minh họa cho mục nào → chèn ngay sau heading của mục đó
+  * Ảnh kết quả / so sánh → chèn vào đoạn kết luận hoặc trước phần Kết luận
+  * Ảnh hướng dẫn / bước thao tác → chèn xen kẽ giữa các bước
+  * Mỗi ảnh chỉ chèn 1 lần duy nhất
+  * Dùng HTML: <img src="URL" alt="mô tả ngắn" style="width:100%;max-width:700px;border-radius:8px;margin:16px 0;">
+  * KHÔNG chèn ảnh cover (ảnh 1) vào thân bài — ảnh cover đã hiển thị riêng ở đầu bài`;
 
 // ── Options ─────────────────────────────────────────────────────────────────
 
@@ -362,9 +369,28 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
     setFormatting(true);
 
     try {
+      // Build instruction: base prompt + image URLs (img 2 and 3 only)
+      const baseInstruction = formatInstruction.trim() || DEFAULT_FORMAT_INSTRUCTION;
+      const image2 = form.images[1];
+      const image3 = form.images[2];
+
+      let finalInstruction = baseInstruction;
+      if (image2 || image3) {
+        const imageSection = `\n\n--- ẢNH BỔ SUNG CHO BÀI VIẾT ---\n${
+  image2
+    ? `ẢNH 2: ${image2.url}\n   Prompt: ${image2.prompt || 'Chèn ảnh này vào vị trí phù hợp nhất với nội dung bài viết.'}`
+    : ''
+}${
+  image3
+    ? `\nẢNH 3: ${image3.url}\n   Prompt: ${image3.prompt || 'Chèn ảnh này vào vị trí phù hợp nhất với nội dung bài viết.'}`
+    : ''
+}\n--- HẾT ẢNH BỔ SUNG ---\n`;
+        finalInstruction = baseInstruction + imageSection;
+      }
+
       const result = await formatBlogContent({
         content: form.content,
-        instruction: formatInstruction.trim() || DEFAULT_FORMAT_INSTRUCTION,
+        instruction: finalInstruction,
         title: form.title,
         excerpt: form.content.replace(/<[^>]*>/g, '').substring(0, 120),
       });
@@ -815,8 +841,20 @@ Bạn có thể dùng HTML đơn giản:
               </div>
 
               <p className="text-xs text-gray-400">
-                AI định dạng lại nội dung: tách heading hợp lý, chia đoạn ngắn, chuyển sang HTML sạch. Không dùng chung với prompt tạo ảnh cover.
+                AI định dạng lại nội dung: tách heading hợp lý, chia đoạn ngắn, chuyển sang HTML sạch. Nếu có ảnh 2 và 3 — AI sẽ chèn chúng vào vị trí phù hợp trong bài viết.
               </p>
+
+              {/* Image insertion indicator */}
+              {form.images.length >= 2 && (
+                <div className="flex items-center gap-2 text-xs text-blue-600 bg-blue-50 border border-blue-100 rounded-md px-3 py-2">
+                  <Images className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>
+                    {form.images.length === 3
+                      ? `Ảnh 2 & 3 sẽ được chèn vào nội dung bài viết khi nhấn "Làm đẹp"`
+                      : `Ảnh 2 sẽ được chèn vào nội dung bài viết khi nhấn "Làm đẹp"`}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* ── Image Prompt (optional) ─────────────────────────────────── */}
