@@ -161,12 +161,16 @@ export default function BlogManagementPage() {
       key: 'title',
       header: 'Bài viết',
       sortable: true,
-      render: (item: BlogPostRecord) => (
+      render: (item: BlogPostRecord) => {
+        // Prefer post_images cover, fallback to featured_image_url
+        const coverImage =
+          item.post_images?.find((i) => i.is_cover)?.url ?? item.featured_image_url;
+        return (
         <div className="flex items-start gap-3 min-w-0">
-          {item.featured_image_url ? (
+          {coverImage ? (
             <div className="relative flex-shrink-0 w-12 h-12 rounded-md overflow-hidden bg-gray-100">
               <Image
-                src={item.featured_image_url}
+                src={coverImage}
                 alt={item.title}
                 fill
                 className="object-cover"
@@ -189,7 +193,8 @@ export default function BlogManagementPage() {
             )}
           </div>
         </div>
-      ),
+        );
+      },
     },
     {
       key: 'status',

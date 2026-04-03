@@ -34,6 +34,9 @@ import {
   Trash2,
   Sparkles,
   RotateCcw,
+  Star,
+  Plus,
+  Images,
 } from 'lucide-react';
 import { Modal, ModalFooter } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
@@ -61,16 +64,28 @@ interface BlogPostEditorProps {
   onSaved: () => void;
 }
 
+/** Single image in the editor form */
+interface FormImage {
+  url: string;
+  prompt: string;
+  isCover: boolean;
+}
+
 interface FormState {
   title: string;
   content: string;
   category: string;
   keywords: string;
+  /** @deprecated Use images[] instead — kept for backward compat when editing old posts */
   featured_image_url: string;
   featured_image_prompt: string;
   status: string;
   publishNow: boolean;
+  /** Gallery images — max 3 */
+  images: FormImage[];
 }
+
+const MAX_IMAGES = 3;
 
 const EMPTY_FORM: FormState = {
   title: '',
@@ -81,6 +96,7 @@ const EMPTY_FORM: FormState = {
   featured_image_prompt: '',
   status: 'draft',
   publishNow: false,
+  images: [],
 };
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -208,6 +224,18 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
   useEffect(() => {
     if (open) {
       if (post) {
+        // Load post_images if available (from API), otherwise fall back to featured_image_url
+        const loadedImages: FormImage[] =
+          post.post_images && post.post_images.length > 0
+            ? post.post_images.map((img) => ({
+                url: img.url,
+                prompt: img.prompt ?? '',
+                isCover: img.is_cover,
+              }))
+            : post.featured_image_url
+            ? [{ url: post.featured_image_url, prompt: post.featured_image_prompt ?? '', isCover: true }]
+            : [];
+
         setForm({
           title: post.title,
           content: post.content,
@@ -217,6 +245,7 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
           featured_image_prompt: post.featured_image_prompt ?? '',
           status: post.status,
           publishNow: post.status === 'published',
+          images: loadedImages,
         });
       } else {
         setForm(EMPTY_FORM);
@@ -256,6 +285,7 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
 
   // ── Image upload handlers ───────────────────────────────────────────────
   const handleUploadImage = useCallback(async (file: File) => {
+    if (form.images.length >= MAX_IMAGES) return;
     setImageUploadError(null);
     setUploadingImage(true);
 
@@ -269,13 +299,24 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
       const outputFile = new File([compressed], outputFileName, { type: 'image/webp' });
 
       const result = await uploadBlogImage(outputFile);
-      setForm((f) => ({ ...f, featured_image_url: result.url }));
+
+      // Add to images array — first image is cover by default
+      setForm((f) => {
+        const isFirst = f.images.length === 0;
+        return {
+          ...f,
+          images: [
+            ...f.images,
+            { url: result.url, prompt: '', isCover: isFirst },
+          ],
+        };
+      });
     } catch (err) {
       setImageUploadError(err instanceof Error ? err.message : 'Upload thất bại');
     } finally {
       setUploadingImage(false);
     }
-  }, []);
+  }, [form.images.length]);
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -294,9 +335,26 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
     }
   };
 
-  const handleRemoveImage = () => {
-    setForm((f) => ({ ...f, featured_image_url: '' }));
+  const handleRemoveImage = (index: number) => {
+    setForm((f) => {
+      const newImages = f.images.filter((_, i) => i !== index);
+      // If we removed the cover image, make the first remaining image the cover
+      if (!newImages.some((img) => img.isCover) && newImages.length > 0) {
+        newImages[0] = { ...newImages[0], isCover: true };
+      }
+      return { ...f, images: newImages };
+    });
   };
+
+  const handleSetCover = (index: number) => {
+    setForm((f) => ({
+      ...f,
+      images: f.images.map((img, i) => ({ ...img, isCover: i === index })),
+    }));
+  };
+
+  const isGalleryFull = form.images.length >= MAX_IMAGES;
+  const activeUploadIndex = -1; // placeholder for future per-slot upload
 
   // ── AI content format ───────────────────────────────────────────────────
   const handleFormatContent = async () => {
@@ -358,8 +416,15 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
           .split(',')
           .map((k) => k.trim())
           .filter(Boolean),
-        featured_image_url: form.featured_image_url || null,
+        featured_image_url: form.images.find((i) => i.isCover)?.url ?? form.featured_image_url || null,
         featured_image_prompt: form.featured_image_prompt || null,
+        post_images: form.images.map((img, idx) => ({
+          url: img.url,
+          prompt: img.prompt || undefined,
+          position: idx,
+          is_cover: img.isCover,
+          alt_text: undefined,
+        })),
         status: effectiveStatus as any,
         publishNow,
       };
@@ -426,114 +491,174 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
         <>
           <div className="space-y-5 max-h-[70vh] overflow-y-auto pr-2">
 
-            {/* ── Featured Image ──────────────────────────────────────────── */}
+            {/* ── Image Gallery (max 3) ─────────────────────────────────── */}
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-                <ImageIcon className="h-4 w-4 text-gray-400" />
-                Ảnh cover bài viết
+                <Images className="h-4 w-4 text-gray-400" />
+                Hình ảnh bài viết
+                <span className="text-xs text-gray-400 font-normal">
+                  ({form.images.length}/{MAX_IMAGES})
+                </span>
               </label>
 
-              {form.featured_image_url ? (
-                /* Image preview */
-                <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
-                  <NextImage
-                    src={form.featured_image_url}
-                    alt="Cover"
-                    width={800}
-                    height={300}
-                    className="w-full object-cover"
-                    style={{ height: 200 }}
-                    unoptimized
-                  />
-                  <div className="absolute top-2 right-2 flex gap-1.5">
-                    {form.featured_image_url && (
-                      <a
-                        href={form.featured_image_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-1.5 bg-white/90 rounded-md hover:bg-white text-gray-600 transition-colors"
-                        title="Xem ảnh gốc"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </a>
-                    )}
-                    <button
-                      onClick={handleRemoveImage}
-                      className="p-1.5 bg-white/90 rounded-md hover:bg-white text-red-500 transition-colors"
-                      title="Xóa ảnh"
-                      disabled={isSaving}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                /* Drop zone */
-                <div
-                  ref={dropZoneRef}
-                  onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-brand-400', 'bg-brand-50'); }}
-                  onDragLeave={(e) => { e.currentTarget.classList.remove('border-brand-400', 'bg-brand-50'); }}
-                  onDrop={handleDrop}
-                  onClick={() => !isSaving && fileInputRef.current?.click()}
-                  className={`
-                    relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed cursor-pointer
-                    transition-all duration-150 min-h-[140px]
-                    ${imageUploadError
-                      ? 'border-red-300 bg-red-50'
-                      : 'border-gray-200 bg-gray-50 hover:border-brand-300 hover:bg-brand-50'}
-                  `}
-                >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    className="hidden"
-                    onChange={handleFileInputChange}
-                    disabled={isSaving}
-                  />
+              {/* Hidden file input (triggered by any empty slot) */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={handleFileInputChange}
+                disabled={isSaving || isGalleryFull}
+              />
 
-                  {uploadingImage ? (
-                    <>
-                      <Loader className="h-8 w-8 text-brand-500 animate-spin" />
-                      <p className="text-sm text-gray-500">Đang upload ảnh...</p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white border border-gray-200 shadow-sm">
-                        <Upload className="h-5 w-5 text-gray-400" />
-                      </div>
-                      <div className="text-center">
-                        <p className="text-sm font-medium text-gray-700">
-                          Kéo thả ảnh hoặc <span className="text-brand-600 underline">chọn file</span>
-                        </p>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          JPEG, PNG, WebP, GIF · Tối đa 10MB · Khuyến nghị 800×400px
-                        </p>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
+              {/* Upload error */}
               {imageUploadError && (
-                <div className="flex items-center gap-2 text-xs text-red-600">
+                <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
                   <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
                   {imageUploadError}
                 </div>
               )}
 
-              {/* Image URL override */}
-              <input
-                type="url"
-                placeholder="Hoặc dán URL ảnh từ bên ngoài..."
-                value={form.featured_image_url}
-                onChange={(e) => {
-                  setForm((f) => ({ ...f, featured_image_url: e.target.value }));
-                  setImageUploadError(null);
-                }}
-                disabled={isSaving}
-                className="w-full h-9 px-3 text-sm border border-gray-200 rounded-md bg-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 disabled:opacity-50"
-              />
+              {/* Gallery Grid */}
+              <div className="grid grid-cols-3 gap-3">
+                {/* Render existing images */}
+                {form.images.map((img, idx) => (
+                  <div
+                    key={img.url}
+                    className={`
+                      relative rounded-xl overflow-hidden border-2 bg-gray-50 group
+                      ${img.isCover ? 'border-brand-400 ring-2 ring-brand-100' : 'border-gray-200'}
+                    `}
+                    style={{ aspectRatio: '4/3' }}
+                  >
+                    <NextImage
+                      src={img.url}
+                      alt={img.isCover ? 'Ảnh bìa' : `Ảnh ${idx + 1}`}
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+
+                    {/* Cover badge */}
+                    {img.isCover && (
+                      <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-brand-500 text-white text-xs font-medium px-1.5 py-0.5 rounded-md shadow-sm">
+                        <Star className="h-3 w-3 fill-current" />
+                        Bìa
+                      </div>
+                    )}
+
+                    {/* Overlay actions */}
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-150 flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100">
+                      {/* View original */}
+                      <a
+                        href={img.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 bg-white/90 rounded-md hover:bg-white text-gray-700 transition-colors"
+                        title="Xem ảnh gốc"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                      {/* Set as cover */}
+                      {!img.isCover && (
+                        <button
+                          onClick={() => handleSetCover(idx)}
+                          className="p-1.5 bg-white/90 rounded-md hover:bg-white text-gray-700 transition-colors"
+                          title="Đặt làm ảnh bìa"
+                        >
+                          <Star className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {/* Remove */}
+                      <button
+                        onClick={() => handleRemoveImage(idx)}
+                        className="p-1.5 bg-white/90 rounded-md hover:bg-white text-red-500 transition-colors"
+                        title="Xóa ảnh"
+                        disabled={isSaving}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Empty slot — drop zone (only show if < 3 images) */}
+                {!isGalleryFull && (
+                  <div
+                    ref={form.images.length === 0 ? dropZoneRef : undefined}
+                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-brand-400', 'bg-brand-50'); }}
+                    onDragLeave={(e) => { e.currentTarget.classList.remove('border-brand-400', 'bg-brand-50'); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove('border-brand-400', 'bg-brand-50');
+                      const file = e.dataTransfer.files?.[0];
+                      if (file && file.type.startsWith('image/')) {
+                        handleUploadImage(file);
+                      } else {
+                        setImageUploadError('Vui lòng kéo thả file ảnh (JPEG, PNG, WebP, GIF)');
+                      }
+                    }}
+                    onClick={() => !isSaving && !isGalleryFull && fileInputRef.current?.click()}
+                    className={`
+                      relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed
+                      transition-all duration-150 cursor-pointer
+                      ${imageUploadError
+                        ? 'border-red-300 bg-red-50'
+                        : 'border-gray-200 bg-gray-50 hover:border-brand-300 hover:bg-brand-50'}
+                    `}
+                    style={{ aspectRatio: '4/3' }}
+                  >
+                    {uploadingImage ? (
+                      <>
+                        <Loader className="h-7 w-7 text-brand-500 animate-spin" />
+                        <p className="text-xs text-gray-500">Đang upload...</p>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white border border-gray-200 shadow-sm">
+                          <Plus className="h-4 w-4 text-gray-400" />
+                        </div>
+                        <div className="text-center px-1">
+                          <p className="text-xs font-medium text-gray-600">
+                            Thêm ảnh
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {MAX_IMAGES - form.images.length} chỗ trống
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Helper text */}
+              <p className="text-xs text-gray-400">
+                Tối đa {MAX_IMAGES} ảnh. Ảnh đầu tiên mặc định là ảnh bìa. Click icon ★ để đổi ảnh bìa.
+              </p>
+
+              {/* URL override — applies to a new pasted image */}
+              {!isGalleryFull && (
+                <input
+                  type="url"
+                  placeholder="Hoặc dán URL ảnh để thêm (Enter để thêm)..."
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const url = (e.target as HTMLInputElement).value.trim();
+                      if (url) {
+                        const isFirst = form.images.length === 0;
+                        setForm((f) => ({
+                          ...f,
+                          images: [...f.images, { url, prompt: '', isCover: isFirst }],
+                        }));
+                        (e.target as HTMLInputElement).value = '';
+                      }
+                    }
+                  }}
+                  disabled={isSaving || isGalleryFull}
+                  className="w-full h-9 px-3 text-sm border border-gray-200 rounded-md bg-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400 disabled:opacity-50"
+                />
+              )}
             </div>
 
             {/* ── Title ──────────────────────────────────────────────────── */}

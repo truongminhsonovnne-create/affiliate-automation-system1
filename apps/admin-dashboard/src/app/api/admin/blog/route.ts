@@ -60,6 +60,17 @@ interface PostRow {
   content_summary: string | null;
 }
 
+interface PostImageRow {
+  id: string;
+  post_id: string;
+  url: string;
+  prompt: string | null;
+  position: number;
+  is_cover: boolean;
+  alt_text: string | null;
+  created_at: string;
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -138,9 +149,35 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // ── Join post_images for all returned posts ──────────────────────────
+    let postsWithImages: (PostRow & { post_images?: PostImageRow[] | null })[] = data ?? [];
+
+    if (postsWithImages.length > 0) {
+      const postIds = postsWithImages.map((p) => p.id);
+      const { data: allImages } = await supabase
+        .from('post_images')
+        .select('*')
+        .in('post_id', postIds)
+        .order('position');
+
+      if (allImages && allImages.length > 0) {
+        const imagesByPostId = new Map<string, PostImageRow[]>();
+        for (const img of allImages) {
+          if (!imagesByPostId.has(img.post_id)) {
+            imagesByPostId.set(img.post_id, []);
+          }
+          imagesByPostId.get(img.post_id)!.push(img);
+        }
+        postsWithImages = postsWithImages.map((p) => ({
+          ...p,
+          post_images: imagesByPostId.get(p.id) ?? null,
+        }));
+      }
+    }
+
     return NextResponse.json({
       data: {
-        items: data as PostRow[],
+        items: postsWithImages,
         pagination: {
           page,
           pageSize,
@@ -190,6 +227,7 @@ export async function POST(request: NextRequest) {
     keywords = [],
     featured_image_url = null,
     featured_image_prompt = null,
+    post_images = null,
     publishNow = false,
   } = body as Record<string, unknown>;
 
@@ -265,8 +303,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // ── Insert post_images if provided ───────────────────────────────────
+    if (post_images && Array.isArray(post_images) && post_images.length > 0) {
+      const imageRows = post_images.map((img: unknown) => {
+        const p = img as Record<string, unknown>;
+        return {
+          post_id: data.id,
+          url: p.url as string,
+          prompt: (p.prompt as string) || null,
+          position: (p.position as number) || 0,
+          is_cover: Boolean(p.is_cover),
+          alt_text: (p.alt_text as string) || null,
+        };
+      });
+
+      const { error: imgError } = await supabase
+        .from('post_images')
+        .insert(imageRows);
+
+      if (imgError) {
+        // Log but don't fail — post was already created
+        console.error('Failed to insert post_images:', imgError.message);
+      }
+    }
+
+    // ── Refetch post with post_images attached ───────────────────────────
+    const { data: refreshed } = await supabase
+      .from('posts')
+      .select('*, post_images(*)')
+      .eq('id', data.id)
+      .single();
+
     return NextResponse.json(
-      { data: data as PostRow, message: 'Bài viết đã được tạo!' },
+      { data: refreshed ?? data, message: 'Bài viết đã được tạo!' },
       { status: 201 }
     );
   } catch (err) {
@@ -299,7 +368,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { id, title, content, category, status, keywords, featured_image_url, featured_image_prompt, publishNow } = body;
+  const { id, title, content, category, status, keywords, featured_image_url, featured_image_prompt, post_images, publishNow } = body;
 
   if (!id || typeof id !== 'string') {
     return NextResponse.json({ error: 'Missing post id' }, { status: 400 });
@@ -336,6 +405,32 @@ export async function PUT(request: NextRequest) {
     if (featured_image_url !== undefined) updates.featured_image_url = featured_image_url;
     if (featured_image_prompt !== undefined) updates.featured_image_prompt = featured_image_prompt;
 
+    // ── Sync post_images (replace all) ───────────────────────────────────
+    if (post_images !== undefined) {
+      // Delete existing images
+      await supabase.from('post_images').delete().eq('post_id', id);
+
+      // Insert new images if provided
+      if (Array.isArray(post_images) && post_images.length > 0) {
+        const imageRows = (post_images as Record<string, unknown>[]).map((img) => ({
+          post_id: id,
+          url: img.url as string,
+          prompt: (img.prompt as string) || null,
+          position: (img.position as number) || 0,
+          is_cover: Boolean(img.is_cover),
+          alt_text: (img.alt_text as string) || null,
+        }));
+
+        const { error: imgError } = await supabase
+          .from('post_images')
+          .insert(imageRows);
+
+        if (imgError) {
+          console.error('Failed to sync post_images:', imgError.message);
+        }
+      }
+    }
+
     const effectiveStatus =
       publishNow === true
         ? 'published'
@@ -364,7 +459,14 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Không tìm thấy bài viết' }, { status: 404 });
     }
 
-    return NextResponse.json({ data: data as PostRow, message: 'Bài viết đã được cập nhật!' });
+    // ── Refetch post with post_images attached ───────────────────────────
+    const { data: refreshed } = await supabase
+      .from('posts')
+      .select('*, post_images(*)')
+      .eq('id', id)
+      .single();
+
+    return NextResponse.json({ data: refreshed ?? data, message: 'Bài viết đã được cập nhật!' });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -398,25 +500,44 @@ export async function DELETE(request: NextRequest) {
   try {
     const supabase = getSupabase();
 
-    // Get post first (to delete associated image)
+    // Get post + post_images before deleting (to clean up storage)
     const { data: post } = await supabase
       .from('posts')
       .select('featured_image_url')
       .eq('id', id)
       .maybeSingle();
 
-    // Delete post
+    const { data: postImages } = await supabase
+      .from('post_images')
+      .select('url')
+      .eq('post_id', id);
+
+    // Delete post (post_images cascade-deleted by FK)
     const { error } = await supabase.from('posts').delete().eq('id', id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Optionally delete image from storage
+    // Delete featured_image from storage
     if (post?.featured_image_url) {
       const pathMatch = (post.featured_image_url as string).match(/\/blog-images\/(.+)$/);
       if (pathMatch) {
         await supabase.storage.from('blog-images').remove([pathMatch[1]]);
+      }
+    }
+
+    // Delete post_images from storage
+    if (postImages && postImages.length > 0) {
+      const storagePaths = postImages
+        .map((img) => {
+          const match = (img.url as string).match(/\/blog-images\/(.+)$/);
+          return match ? match[1] : null;
+        })
+        .filter(Boolean) as string[];
+
+      if (storagePaths.length > 0) {
+        await supabase.storage.from('blog-images').remove(storagePaths);
       }
     }
 

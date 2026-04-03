@@ -321,6 +321,27 @@ export interface ListQueryFilters {
 /** Blog post status */
 export type BlogPostStatus = 'draft' | 'published' | 'archived';
 
+/** Image record for blog posts (post_images table) */
+export interface PostImage {
+  id: string;
+  post_id: string;
+  url: string;
+  prompt: string | null;
+  position: number; // 0, 1, 2 (max 3 images per post)
+  is_cover: boolean;
+  alt_text: string | null;
+  created_at: string;
+}
+
+/** Image to be sent in create/update payload */
+export interface PostImagePayload {
+  url: string;
+  prompt?: string;
+  position: number;
+  is_cover: boolean;
+  alt_text?: string;
+}
+
 /** Blog post record */
 export interface BlogPostRecord {
   id: string;
@@ -341,6 +362,8 @@ export interface BlogPostRecord {
   author_name: string | null;
   read_time_minutes: number | null;
   content_summary: string | null;
+  /** Images for this post (from post_images table) — populated by API on GET */
+  post_images?: PostImage[] | null;
 }
 
 /** Image upload response */
@@ -362,6 +385,8 @@ export interface CreateBlogPostPayload {
   keywords?: string[];
   featured_image_url?: string | null;
   featured_image_prompt?: string | null;
+  /** Array of up to 3 images for this post */
+  post_images?: PostImagePayload[];
   publishNow?: boolean;
 }
 
@@ -375,5 +400,7 @@ export interface UpdateBlogPostPayload {
   keywords?: string[];
   featured_image_url?: string | null;
   featured_image_prompt?: string | null;
+  /** Array of up to 3 images — replaces all existing images on update */
+  post_images?: PostImagePayload[];
   publishNow?: boolean;
 }

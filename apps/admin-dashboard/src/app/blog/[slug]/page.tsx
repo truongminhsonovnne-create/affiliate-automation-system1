@@ -9,6 +9,17 @@ import { SafeHtmlContent } from '@/components/public/SafeHtmlContent';
 // ============================================================
 // TYPES
 // ============================================================
+interface PostImage {
+  id: string;
+  post_id: string;
+  url: string;
+  prompt: string | null;
+  position: number;
+  is_cover: boolean;
+  alt_text: string | null;
+  created_at: string;
+}
+
 interface BlogPost {
   id: string;
   title: string;
@@ -23,6 +34,7 @@ interface BlogPost {
   source: string;
   published_at: string;
   created_at: string;
+  post_images?: PostImage[] | null;
 }
 
 // ============================================================
@@ -53,8 +65,28 @@ async function getPost(slug: string): Promise<BlogPost | null> {
 
     if (!response.ok) return null;
 
-    const data = await response.json();
-    return data[0] || null;
+    const data: BlogPost[] = await response.json();
+    const post = data[0] || null;
+    if (!post) return null;
+
+    // Fetch post_images
+    const imagesRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/post_images?post_id=eq.${post.id}&order=position`,
+      {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        cache: 'no-store',
+      }
+    );
+
+    if (imagesRes.ok) {
+      const images: PostImage[] = await imagesRes.json();
+      return { ...post, post_images: images.length > 0 ? images : null };
+    }
+
+    return post;
   } catch {
     return null;
   }
@@ -67,7 +99,7 @@ async function getRecentPosts(limit = 5): Promise<BlogPost[]> {
 
   try {
     const response = await fetch(
-      `${SUPABASE_URL}/rest/v1/posts?status=eq.published&order=published_at.desc&limit=${limit}&select=id,title,slug,meta_description,featured_image_url,category,published_at`,
+      `${SUPABASE_URL}/rest/v1/posts?status=eq.published&order=published_at.desc&limit=${limit}&select=id,title,slug,meta_description,featured_image_url,category,published_at,post_images(*)`,
       {
         headers: {
           apikey: SUPABASE_ANON_KEY,
@@ -105,8 +137,8 @@ export async function generateMetadata({ params }: { params: { slug: string } })
       description: post.meta_description,
       type: 'article',
       publishedTime: post.published_at,
-      images: post.featured_image_url
-        ? [{ url: post.featured_image_url, alt: post.title }]
+      images: (post.post_images?.find((i) => i.is_cover)?.url ?? post.featured_image_url)
+        ? [{ url: post.post_images?.find((i) => i.is_cover)?.url ?? post.featured_image_url!, alt: post.title }]
         : [],
     },
     alternates: {
@@ -141,12 +173,17 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
 
       {/* Article */}
       <article className="max-w-3xl mx-auto px-4 py-8">
-        {/* Cover Image */}
-        {post.featured_image_url ? (
+        {/* Cover Image — prefer post_images cover, fallback featured_image_url */}
+        {(() => {
+          const coverImage = post.post_images?.find((i) => i.is_cover)?.url ?? post.featured_image_url;
+          const galleryImages = post.post_images?.filter((i) => !i.is_cover) ?? [];
+          return (
+          <>
+          {coverImage ? (
           <div className="relative w-full h-64 md:h-96 rounded-lg overflow-hidden mb-8">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={post.featured_image_url}
+              src={coverImage}
               alt={post.title}
               className="w-full h-full object-cover"
             />
@@ -169,6 +206,9 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
             <span className="relative z-10 text-sm font-medium opacity-80">AI-generated cover</span>
           </div>
         )}
+        </>
+          );
+        })()}
 
         {/* Header */}
         <header className="mb-8">
@@ -302,6 +342,31 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
           </div>
         </footer>
 
+        {/* Image Gallery (additional images beyond cover) */}
+        {galleryImages.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-lg font-bold text-gray-900 mb-4">📸 Hình ảnh</h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {galleryImages.map((img) => (
+                <a
+                  key={img.id}
+                  href={img.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block rounded-lg overflow-hidden hover:opacity-90 transition-opacity"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={img.url}
+                    alt={img.alt_text ?? post.title}
+                    className="w-full h-40 object-cover rounded-lg"
+                  />
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* CTA */}
         <div className="mt-8 p-6 bg-blue-50 rounded-lg text-center">
           <h3 className="text-lg font-bold text-gray-900 mb-2">
@@ -333,22 +398,28 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
                   href={`/blog/${p.slug}`}
                   className="border rounded-lg p-4 hover:shadow-md transition-all hover:border-blue-300"
                 >
-                  {p.featured_image_url ? (
-                    <img
-                      src={p.featured_image_url}
-                      alt={p.title}
-                      className="w-full h-32 object-cover rounded mb-3"
-                    />
-                  ) : (
-                    <div
-                      className="w-full h-32 rounded mb-3 flex items-center justify-center text-white text-3xl relative overflow-hidden"
-                      style={{
-                        background: `linear-gradient(135deg, hsl(${(p.title?.charCodeAt(0) ?? 0) * 7 % 360}, 70%, 45%), hsl(${(p.title?.charCodeAt(0) ?? 0) * 13 % 360}, 80%, 55%))`
-                      }}
-                    >
-                      🎉
-                    </div>
-                  )}
+                  {(() => {
+                    const coverUrl = p.post_images?.find((i: PostImage) => i.is_cover)?.url ?? p.featured_image_url;
+                    if (coverUrl) {
+                      return (
+                        <img
+                          src={coverUrl}
+                          alt={p.title}
+                          className="w-full h-32 object-cover rounded mb-3"
+                        />
+                      );
+                    }
+                    return (
+                      <div
+                        className="w-full h-32 rounded mb-3 flex items-center justify-center text-white text-3xl relative overflow-hidden"
+                        style={{
+                          background: `linear-gradient(135deg, hsl(${(p.title?.charCodeAt(0) ?? 0) * 7 % 360}, 70%, 45%), hsl(${(p.title?.charCodeAt(0) ?? 0) * 13 % 360}, 80%, 55%))`
+                        }}
+                      >
+                        🎉
+                      </div>
+                    );
+                  })()}
                   <h3 className="font-semibold text-gray-900 text-sm line-clamp-2">{p.title}</h3>
                   <p className="text-gray-500 text-xs mt-1 line-clamp-2">{p.meta_description}</p>
                 </a>

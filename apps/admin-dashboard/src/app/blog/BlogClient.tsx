@@ -12,6 +12,17 @@ import Image from 'next/image';
 // ============================================================
 // TYPES
 // ============================================================
+interface PostImage {
+  id: string;
+  post_id: string;
+  url: string;
+  prompt: string | null;
+  position: number;
+  is_cover: boolean;
+  alt_text: string | null;
+  created_at: string;
+}
+
 interface BlogPost {
   id: string;
   title: string;
@@ -26,6 +37,7 @@ interface BlogPost {
   source: string;
   published_at: string;
   created_at: string;
+  post_images?: PostImage[] | null;
 }
 
 // ============================================================
@@ -42,7 +54,7 @@ async function getPosts(): Promise<BlogPost[]> {
 
   try {
     const response = await fetch(
-      `${SUPABASE_URL}/rest/v1/posts?status=eq.published&order=published_at.desc&limit=20`,
+      `${SUPABASE_URL}/rest/v1/posts?status=eq.published&order=published_at.desc&limit=20&select=*`,
       {
         headers: {
           apikey: SUPABASE_ANON_KEY,
@@ -57,7 +69,34 @@ async function getPosts(): Promise<BlogPost[]> {
       return [];
     }
 
-    return await response.json();
+    const posts: BlogPost[] = await response.json();
+
+    // Fetch post_images for all posts in parallel
+    if (posts.length === 0) return posts;
+
+    const postIds = posts.map((p) => p.id);
+    const imagesRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/post_images?post_id=in.(${postIds.join(',')})&order=position`,
+      {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        next: { revalidate: 3600 },
+      }
+    );
+
+    if (imagesRes.ok) {
+      const allImages: PostImage[] = await imagesRes.json();
+      const imagesByPostId = new Map<string, PostImage[]>();
+      for (const img of allImages) {
+        if (!imagesByPostId.has(img.post_id)) imagesByPostId.set(img.post_id, []);
+        imagesByPostId.get(img.post_id)!.push(img);
+      }
+      return posts.map((p) => ({ ...p, post_images: imagesByPostId.get(p.id) ?? null }));
+    }
+
+    return posts;
   } catch (error) {
     console.error('Error fetching posts:', error);
     return [];
@@ -141,17 +180,19 @@ export function BlogPageContent() {
 
       {/* Posts Grid */}
       <div className="grid gap-6">
-        {posts.map((post) => (
+        {posts.map((post) => {
+          const coverImage = post.post_images?.find((i) => i.is_cover)?.url ?? post.featured_image_url;
+          return (
           <article
             key={post.id}
             className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition-all duration-200 hover:border-blue-300"
           >
             {/* Cover Image */}
-            {post.featured_image_url ? (
+            {coverImage ? (
               <Link href={`/blog/${post.slug}`}>
                 <div className="relative w-full h-48 overflow-hidden">
                   <Image
-                    src={post.featured_image_url}
+                    src={coverImage}
                     alt={post.title}
                     fill
                     className="object-cover hover:scale-105 transition-transform duration-300"
@@ -235,7 +276,8 @@ export function BlogPageContent() {
               </div>
             </div>
           </article>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
