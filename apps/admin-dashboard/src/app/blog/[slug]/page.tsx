@@ -160,6 +160,10 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
     return <NotFound />;
   }
 
+  // Extract cover and gallery images from post
+  const coverImage = post.post_images?.find((i) => i.is_cover)?.url ?? post.featured_image_url;
+  const galleryImages = post.post_images?.filter((i) => !i.is_cover) ?? [];
+
   return (
     <div className="min-h-screen bg-white">
       {/* Navigation */}
@@ -174,12 +178,7 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
       {/* Article */}
       <article className="max-w-3xl mx-auto px-4 py-8">
         {/* Cover Image — prefer post_images cover, fallback featured_image_url */}
-        {(() => {
-          const coverImage = post.post_images?.find((i) => i.is_cover)?.url ?? post.featured_image_url;
-          const galleryImages = post.post_images?.filter((i) => !i.is_cover) ?? [];
-          return (
-          <>
-          {coverImage ? (
+        {coverImage ? (
           <div className="relative w-full h-64 md:h-96 rounded-lg overflow-hidden mb-8">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -206,9 +205,6 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
             <span className="relative z-10 text-sm font-medium opacity-80">AI-generated cover</span>
           </div>
         )}
-        </>
-          );
-        })()}
 
         {/* Header */}
         <header className="mb-8">
