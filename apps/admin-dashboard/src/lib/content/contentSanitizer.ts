@@ -132,8 +132,22 @@ export function fixAIMistakes(body: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    // Fix double spaces inside tags
-    .replace(/>\s{2,}</g, '> <')
+    .trim();
+}
+
+/**
+ * Collapse excess whitespace between block-level HTML tags.
+ * Runs AFTER stripUnsafeTags so it only processes known-safe tags.
+ * Skips <pre> and <code> blocks where whitespace matters.
+ */
+function collapseTagWhitespace(html: string): string {
+  // Collapse 3+ newlines/spaces between block elements down to 2 (standard paragraph break)
+  return html
+    .replace(/(<\/(?:p|h[1-6]|li|blockquote|figure|figcaption|pre|hr)>)\s{2,}(?=<)/gi, '$1\n\n')
+    // Collapse multiple spaces between closing and opening block tags (not inside attributes)
+    // Pattern: closing tag > whitespace+ < opening tag (safe block pairs only)
+    .replace(/(<\/(?:p|h[1-6]|ul|ol|blockquote|figure|div)>)\s+(?=<)/gi, '$1 ')
+    // Final trim
     .trim();
 }
 
@@ -217,10 +231,13 @@ export function sanitizeContent(
   // 6. Remove junk/empty lines
   result = removeJunkLines(result);
 
-  // 7. Normalize whitespace
+  // 7. Collapse whitespace between block-level HTML tags (img src, style attrs preserved)
+  result = collapseTagWhitespace(result);
+
+  // 8. Normalize whitespace
   result = normalizeWhitespace(result);
 
-  // 8. Ensure Kết luận
+  // 9. Ensure Kết luận
   if (options.ensureConclusion !== false) {
     result = ensureConclusion(result);
   }
