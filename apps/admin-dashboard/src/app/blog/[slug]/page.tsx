@@ -162,12 +162,15 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
 
   // Extract cover and gallery images from post
   const coverImage = post.post_images?.find((i) => i.is_cover)?.url ?? post.featured_image_url;
-  // Gallery: all non-cover images.
-  // We used to filter by embeddedUrls, but that caused images to disappear when AI
-  // didn't insert them into HTML. Now we always show all gallery images so nothing
-  // is silently dropped regardless of whether AI embedded them in the content.
+  // Gallery: exclude non-cover images that are already embedded in the content HTML.
+  // Images are auto-inserted by code (not AI) after formatting, so they reliably
+  // appear in the content — gallery only shows leftover images not inserted.
+  const embeddedUrls = new Set<string>();
+  for (const match of post.content.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
+    embeddedUrls.add(match[1]);
+  }
   const galleryImages =
-    post.post_images?.filter((i) => !i.is_cover) ?? [];
+    post.post_images?.filter((i) => !i.is_cover && !embeddedUrls.has(i.url)) ?? [];
 
   return (
     <div className="min-h-screen bg-white">

@@ -85,6 +85,79 @@ interface FormState {
   images: FormImage[];
 }
 
+// ── Image insertion helper ────────────────────────────────────────────────────
+
+/**
+ * Build an <figure> HTML tag for a blog image.
+ */
+function buildImageHtml(url: string, alt: string): string {
+  const escapedUrl = url.replace(/"/g, '&quot;');
+  const escapedAlt = alt.replace(/"/g, '&quot;');
+  return `<figure style="margin:16px 0;text-align:center;">
+  <img src="${escapedUrl}" alt="${escapedAlt}" style="width:100%;max-width:700px;border-radius:8px;display:block;margin:0 auto;" loading="lazy">
+</figure>`;
+}
+
+/**
+ * Automatically insert non-cover images into the HTML content at logical positions:
+ * - Image 2 → after the 1st <h2>/<h3> heading
+ * - Image 3 → after the 2nd heading (or before <h2>Kết luận</h2>)
+ * Falls back gracefully if no suitable insertion point is found.
+ */
+function autoInsertImages(html: string, images: FormImage[]): string {
+  const nonCoverImages = images.filter((img) => !img.isCover);
+  if (nonCoverImages.length === 0) return html;
+
+  // Find all heading positions (h2 or h3)
+  const headingPattern = /<(h[23])([^>]*)>([^<]*)<\/h[23]>/gi;
+  const headingMatches: { index: number; tag: string; innerText: string }[] = [];
+  let match;
+  while ((match = headingPattern.exec(html)) !== null) {
+    headingMatches.push({
+      index: match.index,
+      tag: match[1],
+      innerText: match[3].toLowerCase(),
+    });
+  }
+
+  // Don't insert before or inside Kết luận
+  const conclusionIdx = headingMatches.findIndex((h) =>
+    h.innerText.includes('kết luận')
+  );
+
+  let result = html;
+  nonCoverImages.forEach((img, i) => {
+    // Determine insertion index:
+    // Image 2 (i=0) → after heading 1
+    // Image 3 (i=1) → after heading 2, or just before Kết luận if no heading 2
+    const targetHeadingIdx =
+      i === 0
+        ? 0 // first non-cover image → after heading 1
+        : headingMatches.length > 1
+        ? 1 // second non-cover image → after heading 2
+        : conclusionIdx >= 0
+        ? conclusionIdx - 1 // before Kết luận
+        : headingMatches.length - 1; // after last heading
+
+    if (targetHeadingIdx < 0 || targetHeadingIdx >= headingMatches.length) return;
+
+    // Find the end position of the target heading (after </hN>)
+    const targetHeading = headingMatches[targetHeadingIdx];
+    const afterHeadingPattern = new RegExp(
+      `<${targetHeading.tag}[^>]*>${targetHeading.innerText.replace(/[.*+?^${ '{}' }()|[\]\\]/g, '\\$&')}<\/${targetHeading.tag}>`,
+      'i'
+    );
+    const headingEnd = afterHeadingPattern.exec(result);
+    if (!headingEnd) return;
+
+    const insertPos = headingEnd.index + headingEnd[0].length;
+    const imageHtml = buildImageHtml(img.url, `Hình ảnh minh họa ${i + 2}`);
+    result = result.slice(0, insertPos) + '\n' + imageHtml + result.slice(insertPos);
+  });
+
+  return result;
+}
+
 const MAX_IMAGES = 3;
 
 const EMPTY_FORM: FormState = {
@@ -395,8 +468,9 @@ export function BlogPostEditor({ open, post, onClose, onSaved }: BlogPostEditorP
         excerpt: form.content.replace(/<[^>]*>/g, '').substring(0, 120),
       });
 
-      // Replace content in editor with formatted result
-      setForm((f) => ({ ...f, content: result.formatted }));
+      // Replace content in editor with formatted result + auto-insert images
+      const formattedWithImages = autoInsertImages(result.formatted, form.images);
+      setForm((f) => ({ ...f, content: formattedWithImages }));
       setFormatInstruction(DEFAULT_FORMAT_INSTRUCTION);
       setFormatSuccess(true);
       setTimeout(() => setFormatSuccess(false), 3000);
