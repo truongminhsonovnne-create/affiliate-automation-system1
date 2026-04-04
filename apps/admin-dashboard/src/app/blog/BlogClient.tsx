@@ -160,8 +160,7 @@ export function BlogPageContent() {
           📝 Blog Tin Tức & Hướng Dẫn
         </h1>
         <p className="text-gray-600">
-          Bài viết cập nhật tự động mỗi ngày bởi AI •{' '}
-          <span className="text-green-600 font-medium">💰 100% Miễn phí</span>
+          Tin tức, hướng dẫn và khuyến mãi Shopee hữu ích mỗi ngày.
         </p>
       </div>
 
@@ -169,12 +168,6 @@ export function BlogPageContent() {
       <div className="flex gap-4 mb-6 text-sm">
         <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full">
           📚 {posts.length} bài viết
-        </span>
-        <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full">
-          🤖 Tự động cập nhật
-        </span>
-        <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full">
-          🔄 Mỗi ngày 2 bài mới
         </span>
       </div>
 
