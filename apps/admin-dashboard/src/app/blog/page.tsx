@@ -6,7 +6,6 @@
  */
 
 import { Suspense } from 'react';
-import { PublicLayout } from '@/components/public/PublicLayoutNew';
 import { BlogPageContent } from './BlogClient';
 
 export const metadata = {
@@ -40,11 +39,9 @@ export const metadata = {
 
 export default function BlogPage() {
   return (
-    <PublicLayout>
-      <Suspense fallback={<BlogLoadingSkeleton />}>
-        <BlogPageContent />
-      </Suspense>
-    </PublicLayout>
+    <Suspense fallback={<BlogLoadingSkeleton />}>
+      <BlogPageContent />
+    </Suspense>
   );
 }
 
